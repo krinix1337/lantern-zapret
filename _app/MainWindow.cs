@@ -317,7 +317,7 @@ namespace ZapretStudio
             ghsp.Children.Add(new TextBlock { Text = "GitHub", Foreground = Theme.BrMuted, FontSize = Theme.FsSmall,
                 FontFamily = Theme.UiFont, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
             gh.Content = ghsp;
-            gh.Click += (s, e) => Core.OpenUrl(Core.RepoUrl);
+            gh.Click += (s, e) => Core.OpenUrl(Core.AppRepo);
             Ctl.AutomationSetName(gh, Loc.T("mw.openGithub"));
             _bottomBox.Children.Add(gh);
             var appv = new TextBlock { Text = string.Format(Loc.T("mw.appShell"), Core.AppVersion), Foreground = Theme.BrFaint,
@@ -391,7 +391,7 @@ namespace ZapretStudio
         {
             if (!Core.TgProxyInstalled()) return Loc.T("mw.tgVer.none");
             string v = Core.TgProxyLocalVersion();
-            return string.Format(Loc.T("mw.tgVer"), string.IsNullOrEmpty(v) ? "?" : SettingsPage.NormVer(v));
+            return string.Format(Loc.T("mw.tgVer"), string.IsNullOrEmpty(v) ? "?" : v.TrimStart('v', 'V'));
         }
 
         Button NavItem(string key, string icon, string label)
@@ -628,24 +628,54 @@ namespace ZapretStudio
             {
                 try
                 {
+                    // zapret
                     string latest = Core.CheckLatestVersion();
                     string local = Core.ZapretVersion();
+                    // TG proxy
+                    string tgLatest = Core.TgProxyLatestVersion();
+                    string tgLocal = Core.TgProxyInstalled() ? Core.TgProxyLocalVersion() : null;
+                    // app
+                    string appLatest = Core.AppLatestVersion();
+
                     Dispatcher.Invoke((Action)delegate
                     {
-                        if (latest == null) { Core.Warn(Loc.T("mw.verFail")); return; }
-                        if (SettingsPage.NormVer(latest) == SettingsPage.NormVer(local))
+                        // --- zapret ---
+                        if (latest == null) { Core.Warn(Loc.T("mw.verFail")); }
+                        else if (SettingsPage.NormVer(latest) == SettingsPage.NormVer(local))
                         {
-                            Core.Good(string.Format(Loc.T("mw.verOk"), SettingsPage.NormVer(latest)));
-                            _updateLine.Text = string.Format(Loc.T("mw.verCurrent"), SettingsPage.NormVer(local));
+                            Core.Good(string.Format(Loc.T("mw.verOk"), latest));
+                            _updateLine.Text = string.Format(Loc.T("mw.verCurrent"), local);
                         }
                         else
                         {
-                            Core.Warn(string.Format(Loc.T("mw.verNew"), SettingsPage.NormVer(latest), SettingsPage.NormVer(local)));
-                            _updateLine.Text = string.Format(Loc.T("mw.verUpdate"), SettingsPage.NormVer(latest));
+                            Core.Warn(string.Format(Loc.T("mw.verNew"), latest, local));
+                            _updateLine.Text = string.Format(Loc.T("mw.verUpdate"), local);
                             var r = MessageBox.Show(string.Format(Loc.T("mw.verDlg"), latest, local),
                                 Loc.T("mw.verDlgTitle"), MessageBoxButton.YesNo, MessageBoxImage.Information);
                             if (r == MessageBoxResult.Yes) DoUpdate(latest);
                         }
+
+                        // --- TG proxy ---
+                        if (Core.TgProxyInstalled() && !string.IsNullOrEmpty(tgLocal))
+                        {
+                            string tgLv = tgLocal.TrimStart('v', 'V');
+                            if (tgLatest != null && SettingsPage.NormVer(tgLatest) != SettingsPage.NormVer(tgLocal))
+                            {
+                                _tgVerSidebar.Text = string.Format(Loc.T("mw.tgVer.update"), tgLv);
+                                Core.Warn(string.Format(Loc.T("mw.verNew"), tgLatest, tgLv));
+                            }
+                            else
+                            {
+                                _tgVerSidebar.Text = string.Format(Loc.T("mw.tgVer"), tgLv);
+                                Core.Good(string.Format(Loc.T("mw.verOk"), tgLv));
+                            }
+                        }
+
+                        // --- app ---
+                        if (appLatest != null && SettingsPage.NormVer(appLatest) != SettingsPage.NormVer(Core.AppVersion))
+                            Core.Warn(string.Format(Loc.T("mw.verNew"), appLatest, Core.AppVersion));
+                        else if (appLatest != null)
+                            Core.Good(string.Format(Loc.T("mw.verOk"), Core.AppVersion));
                     });
                 }
                 catch { }

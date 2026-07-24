@@ -324,6 +324,25 @@ namespace ZapretStudio
                         {
                             _tgStatusLine.Text = string.Format(Loc.T("mw.verOk"), latest);
                             _tgStatusLine.Foreground = Theme.BrOk;
+                            var greenBtn = Ctl.Button(Loc.T("settings.latestVer"), Icons.Check, 0);
+                            greenBtn.Click += (s2, e2) => { };
+                            var parent = _tgCheckBtn.Parent as StackPanel;
+                            if (parent != null)
+                            {
+                                int idx = parent.Children.IndexOf(_tgCheckBtn);
+                                if (idx >= 0) { parent.Children.RemoveAt(idx); parent.Children.Insert(idx, greenBtn); }
+                            }
+                            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+                            timer.Tick += (s2, e2) =>
+                            {
+                                timer.Stop();
+                                if (parent != null)
+                                {
+                                    int idx2 = parent.Children.IndexOf(greenBtn);
+                                    if (idx2 >= 0) { parent.Children.RemoveAt(idx2); parent.Children.Insert(idx2, _tgCheckBtn); }
+                                }
+                            };
+                            timer.Start();
                         }
                         else
                         {
@@ -393,6 +412,25 @@ namespace ZapretStudio
                         {
                             _appStatusLine.Text = string.Format(Loc.T("mw.verOk"), NormVer(latest));
                             _appStatusLine.Foreground = Theme.BrOk;
+                            var greenBtn = Ctl.Button(Loc.T("settings.latestVer"), Icons.Check, 0);
+                            greenBtn.Click += (s2, e2) => { };
+                            var parent = _appCheckBtn.Parent as StackPanel;
+                            if (parent != null)
+                            {
+                                int idx = parent.Children.IndexOf(_appCheckBtn);
+                                if (idx >= 0) { parent.Children.RemoveAt(idx); parent.Children.Insert(idx, greenBtn); }
+                            }
+                            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+                            timer.Tick += (s2, e2) =>
+                            {
+                                timer.Stop();
+                                if (parent != null)
+                                {
+                                    int idx2 = parent.Children.IndexOf(greenBtn);
+                                    if (idx2 >= 0) { parent.Children.RemoveAt(idx2); parent.Children.Insert(idx2, _appCheckBtn); }
+                                }
+                            };
+                            timer.Start();
                         }
                         else
                         {

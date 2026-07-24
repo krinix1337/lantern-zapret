@@ -39,13 +39,14 @@ namespace ZapretStudio
             A("common.settings",  "Настройки",    "Settings");
             A("common.checkUpdates","Проверить обновления","Check for updates");
             A("common.button",    "кнопка",       "button");
-            A("mw.verLine",     "Версия zapret {0}",  "zapret version {0}");
-            A("mw.verCurrent",  "Версия zapret {0} · актуально", "zapret version {0} · up to date");
-            A("mw.verUpdate",   "Доступно обновление: {0}", "Update available: {0}");
+            A("mw.verLine",     "Версия zapret: {0}",  "zapret version: {0}");
+            A("mw.verCurrent",  "Версия zapret: {0} — актуально", "zapret version: {0} — up to date");
+            A("mw.verUpdate",   "Версия zapret: {0} — есть обновление", "zapret version: {0} — update available");
             A("mw.openGithub",  "Открыть GitHub",     "Open GitHub");
             A("mw.collapse",    "Свернуть меню",      "Collapse menu");
             A("mw.appShell",    "Оболочка v{0}",      "Shell v{0}");
-            A("mw.tgVer",       "Версия TG-Proxy {0} · актуально", "TG-Proxy version {0} · up to date");
+            A("mw.tgVer",       "Версия TG-Proxy: {0} — актуально", "TG-Proxy version: {0} — up to date");
+            A("mw.tgVer.update","Версия TG-Proxy: {0} — есть обновление", "TG-Proxy version: {0} — update available");
             A("mw.tgVer.none",  "TG-Proxy: не установлен", "TG-Proxy: not installed");
             A("mw.noStrats",    "Стратегии не найдены", "No strategies found");
             A("mw.startTask",   "Запуск обхода",      "Starting bypass");
