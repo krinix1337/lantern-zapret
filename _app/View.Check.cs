@@ -283,9 +283,13 @@ namespace ZapretStudio
                     if (_stop) { Done(row, null); return; }
                     Dispatcher.Invoke((Action)delegate { SetRow(row, "checking", "...", "", ""); });
                     CheckResult res = Core.TestTarget(row.T, timeout);
+                    long pingMs = Core.PingHost(row.T.Host, 3000);
                     Dispatcher.Invoke((Action)delegate
                     {
-                        string lat = res.Ms >= 0 ? res.Ms + Loc.T("net.ms") : "-";
+                        string lat = "";
+                        if (pingMs >= 0) lat += "ping " + pingMs + Loc.T("net.ms");
+                        if (res.Ms >= 0) lat += (lat.Length > 0 ? " · " : "") + "http " + res.Ms + Loc.T("net.ms");
+                        if (lat.Length == 0) lat = "-";
                         SetRow(row, res.State, lat, res.Detail, res.When.HasValue ? res.When.Value.ToString("HH:mm:ss") : "");
                     });
                     Done(row, res);

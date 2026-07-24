@@ -13,7 +13,7 @@ namespace ZapretStudio
     static partial class Core
     {
         public static string Root;
-        public const string AppVersion = "2.0";
+        public const string AppVersion = "2.1";
         public const string AppName = "Lantern";   // отображаемое имя приложения
         public const string AppRepo = "https://github.com/krinix1337/lantern-zapret";
         public const string AppReleaseApi = "https://api.github.com/repos/krinix1337/lantern-zapret/releases/latest";

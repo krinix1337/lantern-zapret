@@ -257,6 +257,60 @@ namespace ZapretStudio
             catch (Exception ex) { output = ex.Message; return -1; }
         }
 
+        // ---- ICMP Ping (для отображения задержки на странице проверки) ----
+        public static long PingHost(string host, int timeoutMs)
+        {
+            try
+            {
+                using (var ping = new Ping())
+                {
+                    var reply = ping.Send(host, timeoutMs);
+                    if (reply.Status == IPStatus.Success) return reply.RoundtripTime;
+                }
+            }
+            catch { }
+            return -1;
+        }
+
+        // ---- Определение провайдера (ISP) для рекомендации стратегии ----
+        public static string DetectIsp()
+        {
+            try
+            {
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                using (var wc = new WebClient())
+                {
+                    wc.Headers.Add("User-Agent", "Lantern");
+                    string json = wc.DownloadString("http://ip-api.com/json/?fields=isp,org,as");
+                    var m = Regex.Match(json, "\"isp\"\\s*:\\s*\"([^\"]+)\"");
+                    if (m.Success) return m.Groups[1].Value;
+                    m = Regex.Match(json, "\"org\"\\s*:\\s*\"([^\"]+)\"");
+                    if (m.Success) return m.Groups[1].Value;
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        // Рекомендация стратегии по провайдеру (эвристика).
+        public static string RecommendStrategy(string isp)
+        {
+            if (string.IsNullOrEmpty(isp)) return null;
+            string low = isp.ToLowerInvariant();
+            var files = GetStrategyFiles();
+            if (files.Count == 0) return null;
+            // Ростелеком/МТС/Билайн — часто нужен FAKE TLS
+            if (low.Contains("rostelecom") || low.Contains("mts") || low.Contains("beeline") || low.Contains("megafon"))
+            {
+                foreach (var f in files)
+                    if (f.IndexOf("FAKE TLS AUTO", StringComparison.OrdinalIgnoreCase) >= 0) return f;
+            }
+            // По умолчанию — ALT стратегии
+            foreach (var f in files)
+                if (f.IndexOf("ALT", StringComparison.OrdinalIgnoreCase) >= 0) return f;
+            return files[0];
+        }
+
         static string Short(string s)
         {
             if (string.IsNullOrEmpty(s)) return "";

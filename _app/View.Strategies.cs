@@ -47,6 +47,34 @@ namespace ZapretStudio
             Core.SaveConfig();
         }
 
+        void DoRecommend()
+        {
+            _win.ShowToast(Loc.T("strat.recommend.busy"), Sev.Info);
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                try
+                {
+                    string isp = Core.DetectIsp();
+                    string rec = Core.RecommendStrategy(isp);
+                    Dispatcher.Invoke((Action)delegate
+                    {
+                        if (rec == null)
+                        {
+                            _win.ShowToast(Loc.T("strat.recommend.fail"), Sev.Warn);
+                            return;
+                        }
+                        string name = Core.PrettyName(rec);
+                        string msg = string.IsNullOrEmpty(isp)
+                            ? string.Format(Loc.T("strat.recommend.result"), name)
+                            : string.Format(Loc.T("strat.recommend.isp"), isp, name);
+                        _win.ShowToast(msg, Sev.Ok);
+                        Core.Info(msg);
+                    });
+                }
+                catch { }
+            });
+        }
+
         void BuildToolbar()
         {
             var g = new Grid { Margin = new Thickness(0, 0, 0, 8) };
@@ -79,6 +107,12 @@ namespace ZapretStudio
             Grid.SetColumn(cats, 1);
             g.Children.Add(cats);
             Body.Children.Add(g);
+
+            // Рекомендация по провайдеру
+            var recBtn = Ctl.Button(Loc.T("strat.recommend"), Icons.Bolt, 1);
+            recBtn.Margin = new Thickness(0, 0, 0, 10);
+            recBtn.Click += (s, e) => DoRecommend();
+            Body.Children.Add(recBtn);
         }
 
         Button CatChip(string cat, string label)

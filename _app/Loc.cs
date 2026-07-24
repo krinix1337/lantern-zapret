@@ -80,6 +80,14 @@ namespace ZapretStudio
             A("mw.tray.exit",   "Выход",              "Exit");
             A("mw.tray.minTitle","{0} свёрнут",    "{0} minimized");
             A("mw.tray.minBody","Приложение работает в области уведомлений", "The app is running in the notification area");
+            A("mw.bypassDown.title","Обход остановлен", "Bypass stopped");
+            A("mw.bypassDown.body","Winws перестал работать. Проверьте стратегию.", "Winws has stopped. Check your strategy.");
+            A("strat.recommend", "Подобрать стратегию по провайдеру", "Recommend strategy by ISP");
+            A("strat.recommend.busy", "Определяю провайдера...", "Detecting ISP...");
+            A("strat.recommend.fail", "Не удалось определить провайдера", "Could not detect ISP");
+            A("strat.recommend.isp", "Провайдер: {0}. Рекомендуется: {1}", "ISP: {0}. Recommended: {1}");
+            A("strat.recommend.result", "Рекомендуется: {0}", "Recommended: {0}");
+            A("settings.app.changelog", "Что нового", "What's new");
             A("overview.title",    "Главное меню",               "Main menu");
             A("overview.sub",      "Состояние обхода и быстрые действия.", "Bypass status and quick actions.");
             A("strategies.title",  "Стратегии",           "Strategies");

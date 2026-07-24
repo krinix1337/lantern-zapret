@@ -210,6 +210,25 @@ namespace ZapretStudio
             catch (Exception ex) { error = ex.Message; return false; }
         }
 
+        // Текст changelog из последнего релиза (body). Для показа после обновления.
+        public static string AppReleaseNotes()
+        {
+            try
+            {
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                using (var wc = new WebClient())
+                {
+                    wc.Headers.Add("User-Agent", "Lantern");
+                    string json = wc.DownloadString(AppReleaseApi);
+                    var m = System.Text.RegularExpressions.Regex.Match(json, "\"body\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
+                    if (m.Success)
+                        return m.Groups[1].Value.Replace("\\n", "\n").Replace("\\r", "").Replace("\\\"", "\"");
+                }
+            }
+            catch { }
+            return null;
+        }
+
         // ---- Маскирование для диагностики (имя пользователя, пути, локальные IP) ----
         public static string Mask(string text)
         {

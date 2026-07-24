@@ -420,6 +420,7 @@ namespace ZapretStudio
                 {
                     string err;
                     bool ok = Core.SelfUpdate(url, out err);
+                    string notes = ok ? Core.AppReleaseNotes() : null;
                     Dispatcher.Invoke((Action)delegate
                     {
                         if (ok)
@@ -427,6 +428,8 @@ namespace ZapretStudio
                             _appStatusLine.Text = Loc.T("settings.app.installerStarted");
                             _appStatusLine.Foreground = Theme.BrOk;
                             _win.ShowToast(Loc.T("settings.app.installerStarted"), Sev.Ok);
+                            if (!string.IsNullOrEmpty(notes))
+                                MessageBox.Show(notes, Loc.T("settings.app.changelog"), MessageBoxButton.OK, MessageBoxImage.Information);
                         }
                         else
                         {

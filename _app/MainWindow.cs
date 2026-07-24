@@ -731,6 +731,7 @@ namespace ZapretStudio
             if (!Core.IsAdmin())
                 Core.Warn(Loc.T("mw.noAdminWarn"));
             StartWatchdog();
+            StartBypassMonitor();
         }
 
         // ---------- Автопереключение (watchdog) ----------
@@ -750,6 +751,25 @@ namespace ZapretStudio
         }
 
         public void RestartWatchdog() { StartWatchdog(); }
+
+        // ---------- Монитор падения обхода (лёгкий, без переключения) ----------
+        DispatcherTimer _bypassMonitor;
+        bool _wasRunning;
+
+        void StartBypassMonitor()
+        {
+            if (_bypassMonitor != null) { _bypassMonitor.Stop(); _bypassMonitor = null; }
+            _wasRunning = Core.IsWinwsRunning();
+            _bypassMonitor = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
+            _bypassMonitor.Tick += (s, e) =>
+            {
+                bool now = Core.IsWinwsRunning();
+                if (_wasRunning && !now)
+                    Notify(Loc.T("mw.bypassDown.title"), Loc.T("mw.bypassDown.body"));
+                _wasRunning = now;
+            };
+            _bypassMonitor.Start();
+        }
 
         void WatchdogTick()
         {
@@ -849,6 +869,7 @@ namespace ZapretStudio
                 return;
             }
             try { if (_watchdogTimer != null) _watchdogTimer.Stop(); } catch { }
+            try { if (_bypassMonitor != null) _bypassMonitor.Stop(); } catch { }
             foreach (var p in _pages.Values) { try { p.OnHide(); } catch { } }
             Loc.LanguageChanged -= OnUiChanged;
             Theme.ThemeChanged -= OnUiChanged;
