@@ -20,6 +20,7 @@ namespace ZapretStudio
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
                 using (var wc = new WebClient())
                 {
+                    wc.Encoding = System.Text.Encoding.UTF8;
                     wc.Headers.Add("User-Agent", "ZapretStudio");
                     string content = wc.DownloadString(IpsetServiceUrl);
                     string dest = Path.Combine(Lists, "ipset-all.txt");
@@ -39,6 +40,7 @@ namespace ZapretStudio
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
                 using (var wc = new WebClient())
                 {
+                    wc.Encoding = System.Text.Encoding.UTF8;
                     wc.Headers.Add("User-Agent", "ZapretStudio");
                     content = wc.DownloadString(HostsServiceUrl);
                 }

@@ -158,6 +158,7 @@ namespace ZapretStudio
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
                 using (var wc = new WebClient())
                 {
+                    wc.Encoding = System.Text.Encoding.UTF8;
                     wc.Headers.Add("User-Agent", "Lantern");
                     string json = wc.DownloadString(AppReleaseApi);
                     var m = System.Text.RegularExpressions.Regex.Match(json, "\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
@@ -175,6 +176,7 @@ namespace ZapretStudio
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
                 using (var wc = new WebClient())
                 {
+                    wc.Encoding = System.Text.Encoding.UTF8;
                     wc.Headers.Add("User-Agent", "Lantern");
                     string json = wc.DownloadString(AppReleaseApi);
                     var m = System.Text.RegularExpressions.Regex.Match(json, "\"browser_download_url\"\\s*:\\s*\"([^\"]+\\.exe)\"");
@@ -218,6 +220,7 @@ namespace ZapretStudio
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
                 using (var wc = new WebClient())
                 {
+                    wc.Encoding = System.Text.Encoding.UTF8;
                     wc.Headers.Add("User-Agent", "Lantern");
                     string json = wc.DownloadString(AppReleaseApi);
                     var m = System.Text.RegularExpressions.Regex.Match(json, "\"body\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");

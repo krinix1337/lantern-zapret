@@ -280,6 +280,7 @@ namespace ZapretStudio
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
                 using (var wc = new WebClient())
                 {
+                    wc.Encoding = System.Text.Encoding.UTF8;
                     wc.Headers.Add("User-Agent", "Lantern");
                     string json = wc.DownloadString("http://ip-api.com/json/?fields=isp,org,as");
                     var m = Regex.Match(json, "\"isp\"\\s*:\\s*\"([^\"]+)\"");
