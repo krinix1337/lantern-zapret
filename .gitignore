@@ -1,0 +1,34 @@
+# Binaries
+*.exe
+*.dll
+*.zip
+
+# Zapret runtime (downloaded in-app)
+bin/
+lists/
+utils/
+general*.bat
+service.bat
+SHA256SUMS.txt
+
+# Old GUI
+_gui/
+
+# Build artifacts & temp
+_selftest.*
+*_unz_tmp/
+gui-config.ini
+
+# Source backups & helper scripts
+_app/*.bak
+_app/*.ps1
+_app/*.png
+_app/*.txt
+_app/_*.manifest
+
+# Installer output
+_installer/*.exe
+
+# OS
+Thumbs.db
+Desktop.ini
