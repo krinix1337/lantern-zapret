@@ -134,6 +134,34 @@ namespace ZapretStudio
                 || o.IndexOf("STOP_PENDING", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        // ---- TG-Proxy автозагрузка (реестр HKCU\...\Run) ----
+        const string TgRunKey = "TgWsProxy";
+        public static bool TgAutostartEnabled()
+        {
+            try
+            {
+                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run"))
+                    return key != null && key.GetValue(TgRunKey) != null;
+            }
+            catch { return false; }
+        }
+
+        public static void SetTgAutostart(bool enable)
+        {
+            try
+            {
+                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true))
+                {
+                    if (key == null) return;
+                    if (enable)
+                        key.SetValue(TgRunKey, "\"" + TgProxyExe + "\"");
+                    else
+                        key.DeleteValue(TgRunKey, false);
+                }
+            }
+            catch { }
+        }
+
         // ---- Открыть папку в проводнике ----
         public static void OpenFolder(string path)
         {

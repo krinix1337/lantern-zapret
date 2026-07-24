@@ -53,6 +53,12 @@ namespace ZapretStudio
             Body.Children.Add(space());
             Body.Children.Add(Row(Loc.T("settings.autostart"), Loc.T("settings.autostart.desc"),
                 Tog("autostart_app", false, Loc.T("settings.autostart"), null)));
+            Body.Children.Add(space());
+            var tgAuto = new Toggle(Loc.T("settings.tgAutostart"));
+            tgAuto.IsChecked = Core.TgAutostartEnabled();
+            tgAuto.Checked += (s, e) => Core.SetTgAutostart(true);
+            tgAuto.Unchecked += (s, e) => Core.SetTgAutostart(false);
+            Body.Children.Add(Row(Loc.T("settings.tgAutostart"), Loc.T("settings.tgAutostart.desc"), tgAuto));
         }
 
         void BuildCheck()
@@ -186,12 +192,45 @@ namespace ZapretStudio
                 Margin = new Thickness(16, 0, 0, 0) };
             Grid.SetColumn(tgBtnWrap, 1); tgGrid.Children.Add(tgBtnWrap);
             Body.Children.Add(UI.Card(tgGrid, new Thickness(16, 14, 16, 14)));
+            Body.Children.Add(space());
+
+            // Версия самого приложения (Lantern)
+            var appLeft = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            appLeft.Children.Add(UI.T(Loc.T("settings.appVer"), Theme.FsBody, Theme.BrText, FontWeights.SemiBold));
+            appLeft.Children.Add(new TextBlock { Text = Loc.T("settings.localVersion") + Core.AppVersion,
+                Foreground = Theme.BrMuted, FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont,
+                Margin = new Thickness(0, 3, 0, 0) });
+            _appStatusLine = new TextBlock { Text = "", Foreground = Theme.BrMuted, FontSize = Theme.FsSmall,
+                FontFamily = Theme.UiFont, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap };
+            appLeft.Children.Add(_appStatusLine);
+
+            _appCheckBtn = Ctl.Button(Loc.T("settings.checkNow"), Icons.Refresh, 1);
+            _appCheckBtn.Click += (s, e) => CheckAppVersion();
+            _appUpdateBtn = Ctl.Button(Loc.T("settings.updateNow"), Icons.Download, 0);
+            _appUpdateBtn.Margin = new Thickness(10, 0, 0, 0);
+            _appUpdateBtn.Visibility = Visibility.Collapsed;
+            _appUpdateBtn.Click += (s, e) => DoAppUpdate();
+            var appBtnRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            appBtnRow.Children.Add(_appCheckBtn);
+            appBtnRow.Children.Add(_appUpdateBtn);
+
+            var appGrid = new Grid();
+            appGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            appGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(appLeft, 0); appGrid.Children.Add(appLeft);
+            var appBtnWrap = new ContentControl { Content = appBtnRow, VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(16, 0, 0, 0) };
+            Grid.SetColumn(appBtnWrap, 1); appGrid.Children.Add(appBtnWrap);
+            Body.Children.Add(UI.Card(appGrid, new Thickness(16, 14, 16, 14)));
         }
 
         TextBlock _tgStatusLine;
         TextBlock _zapStatusLine;
+        TextBlock _appStatusLine;
         Button _zapCheckBtn, _zapUpdateBtn;
         Button _tgCheckBtn, _tgUpdateBtn;
+        Button _appCheckBtn, _appUpdateBtn;
+        string _appUpdateUrl;
 
         void CheckZapretVersion()
         {
@@ -325,6 +364,74 @@ namespace ZapretStudio
                             _tgStatusLine.Text = Loc.T("tg.dlFail");
                             _tgStatusLine.Foreground = Theme.BrWarn;
                             _win.ShowToast(Loc.T("tg.dlFail"), Sev.Warn);
+                        }
+                    });
+                }
+                catch { }
+            });
+        }
+
+        void CheckAppVersion()
+        {
+            _appStatusLine.Text = Loc.T("mw.checkVer");
+            _appStatusLine.Foreground = Theme.BrMuted;
+            _appUpdateBtn.Visibility = Visibility.Collapsed;
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                try
+                {
+                    string latest = Core.AppLatestVersion();
+                    Dispatcher.Invoke((Action)delegate
+                    {
+                        if (latest == null)
+                        {
+                            _appStatusLine.Text = Loc.T("mw.verFail");
+                            _appStatusLine.Foreground = Theme.BrWarn;
+                            return;
+                        }
+                        if (NormVer(latest) == NormVer(Core.AppVersion))
+                        {
+                            _appStatusLine.Text = string.Format(Loc.T("mw.verOk"), NormVer(latest));
+                            _appStatusLine.Foreground = Theme.BrOk;
+                        }
+                        else
+                        {
+                            _appStatusLine.Text = string.Format(Loc.T("mw.verNew"), NormVer(latest), Core.AppVersion);
+                            _appStatusLine.Foreground = Theme.BrWarn;
+                            _appUpdateUrl = Core.AppInstallerUrl();
+                            _appUpdateBtn.Visibility = Visibility.Visible;
+                        }
+                    });
+                }
+                catch { }
+            });
+        }
+
+        void DoAppUpdate()
+        {
+            if (string.IsNullOrEmpty(_appUpdateUrl)) return;
+            _appUpdateBtn.Visibility = Visibility.Collapsed;
+            _appStatusLine.Text = Loc.T("settings.app.downloading");
+            _appStatusLine.Foreground = Theme.BrMuted;
+            string url = _appUpdateUrl;
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                try
+                {
+                    string err;
+                    bool ok = Core.SelfUpdate(url, out err);
+                    Dispatcher.Invoke((Action)delegate
+                    {
+                        if (ok)
+                        {
+                            _appStatusLine.Text = Loc.T("settings.app.installerStarted");
+                            _appStatusLine.Foreground = Theme.BrOk;
+                            _win.ShowToast(Loc.T("settings.app.installerStarted"), Sev.Ok);
+                        }
+                        else
+                        {
+                            _appStatusLine.Text = Loc.T("tg.dlFail") + (err != null ? ": " + err : "");
+                            _appStatusLine.Foreground = Theme.BrWarn;
                         }
                     });
                 }

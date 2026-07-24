@@ -150,6 +150,66 @@ namespace ZapretStudio
             catch { return null; }
         }
 
+        // ---- Самообновление приложения (Lantern) ----
+        public static string AppLatestVersion()
+        {
+            try
+            {
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                using (var wc = new WebClient())
+                {
+                    wc.Headers.Add("User-Agent", "Lantern");
+                    string json = wc.DownloadString(AppReleaseApi);
+                    var m = System.Text.RegularExpressions.Regex.Match(json, "\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
+                    if (m.Success) return m.Groups[1].Value.Trim();
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        public static string AppInstallerUrl()
+        {
+            try
+            {
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                using (var wc = new WebClient())
+                {
+                    wc.Headers.Add("User-Agent", "Lantern");
+                    string json = wc.DownloadString(AppReleaseApi);
+                    var m = System.Text.RegularExpressions.Regex.Match(json, "\"browser_download_url\"\\s*:\\s*\"([^\"]+\\.exe)\"");
+                    if (m.Success) return m.Groups[1].Value;
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        // Скачать установщик и запустить. Вызывать из фонового потока.
+        public static bool SelfUpdate(string url, out string error)
+        {
+            error = null;
+            try
+            {
+                string tmp = Path.Combine(Path.GetTempPath(), "Lantern-Setup.exe");
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                using (var wc = new WebClient())
+                {
+                    wc.Headers.Add("User-Agent", "Lantern");
+                    wc.DownloadFile(url, tmp);
+                }
+                if (!File.Exists(tmp)) { error = "File not saved"; return false; }
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = tmp,
+                    UseShellExecute = true
+                };
+                System.Diagnostics.Process.Start(psi);
+                return true;
+            }
+            catch (Exception ex) { error = ex.Message; return false; }
+        }
+
         // ---- Маскирование для диагностики (имя пользователя, пути, локальные IP) ----
         public static string Mask(string text)
         {

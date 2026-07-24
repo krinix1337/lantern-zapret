@@ -129,6 +129,11 @@ namespace ZapretStudio
             A("settings.autorun.desc","Автоматически применять последнюю стратегию при открытии приложения.", "Automatically apply the last strategy when the app opens.");
             A("settings.autostart",     "Автозапуск приложения с Windows", "Launch app with Windows");
             A("settings.autostart.desc","Ярлык в автозагрузке. Настраивается вручную в системе — здесь только флаг предпочтения.", "Startup shortcut. Configured manually in the system; this is only a preference flag.");
+            A("settings.tgAutostart",   "Автозапуск TG-Proxy", "Auto-start TG Proxy");
+            A("settings.tgAutostart.desc","Запускать Telegram-прокси автоматически при входе в Windows.", "Start Telegram proxy automatically when Windows starts.");
+            A("settings.appVer",        "Версия Lantern", "Lantern version");
+            A("settings.app.downloading","Скачивание установщика...", "Downloading installer...");
+            A("settings.app.installerStarted","Установщик запущен. Следуйте инструкциям.", "Installer started. Follow the instructions.");
             A("settings.timeout",     "Тайм-аут проверки соединения", "Connection check timeout");
             A("settings.timeout.desc","Максимальное ожидание ответа при проверке доступности адреса.", "Maximum wait for a response when checking a host.");
             A("settings.dns.note", "Приложение не меняет системный DNS. При проблемах с доступом рекомендуется вручную включить DNS-over-HTTPS (например, 1.1.1.1 или 8.8.8.8) в настройках сети Windows. Любое изменение DNS выполняется вами и с явным подтверждением.", "The app does not change the system DNS. If you have access issues, enable DNS-over-HTTPS manually (e.g. 1.1.1.1 or 8.8.8.8) in Windows network settings. Any DNS change is made by you, with explicit confirmation.");
