@@ -24,6 +24,16 @@
 
 Lantern — лёгкий GUI-менеджер для [zapret](https://github.com/bol-van/zapret) (winws). Запускает обход DPI-блокировок в один клик, проверяет стратегии, обновляет компоненты автоматически. Весь интерфейс написан кодом на C# — без XAML.
 
+<br/>
+
+<div align="center">
+
+<img src="docs/screenshot.png" width="720" alt="Lantern — главный экран"/>
+
+</div>
+
+<br/>
+
 ---
 
 ## Возможности
