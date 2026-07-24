@@ -1,8 +1,8 @@
 ; Lantern Installer — Inno Setup 6
 #define AppName "Lantern"
-#define AppVersion "1.9.9"
-#define AppPublisher "zapret-discord-youtube"
-#define AppURL "https://github.com/Flowseal/zapret-discord-youtube"
+#define AppVersion "1.0"
+#define AppPublisher "krinix1337"
+#define AppURL "https://github.com/krinix1337/lantern-zapret"
 #define AppExeName "Lantern.exe"
 #define SrcDir "C:\project\zapret\zapret-discord-youtube-1.9.9d"
 
