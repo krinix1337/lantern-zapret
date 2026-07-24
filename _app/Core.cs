@@ -13,7 +13,26 @@ namespace ZapretStudio
     static partial class Core
     {
         public static string Root;
-        public const string AppVersion = "2.1";
+        // Версия читается из метаданных сборки (AssemblyInfo.cs) — не хардкодится.
+        static string _appVer;
+        public static string AppVersion
+        {
+            get
+            {
+                if (_appVer == null)
+                {
+                    try
+                    {
+                        var asm = System.Reflection.Assembly.GetEntryAssembly();
+                        var attr = (System.Reflection.AssemblyInformationalVersionAttribute)
+                            Attribute.GetCustomAttribute(asm, typeof(System.Reflection.AssemblyInformationalVersionAttribute));
+                        _appVer = attr != null ? attr.InformationalVersion : "0.0";
+                    }
+                    catch { _appVer = "0.0"; }
+                }
+                return _appVer;
+            }
+        }
         public const string AppName = "Lantern";   // отображаемое имя приложения
         public const string AppRepo = "https://github.com/krinix1337/lantern-zapret";
         public const string AppReleaseApi = "https://api.github.com/repos/krinix1337/lantern-zapret/releases/latest";
