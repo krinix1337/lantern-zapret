@@ -202,11 +202,57 @@ namespace ZapretStudio
                     string json = wc.DownloadString(AppReleaseApi);
                     var m = System.Text.RegularExpressions.Regex.Match(json, "\"body\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
                     if (m.Success)
-                        return m.Groups[1].Value.Replace("\\n", "\n").Replace("\\r", "").Replace("\\\"", "\"");
+                        return FormatReleaseNotes(JsonUnescape(m.Groups[1].Value));
                 }
             }
             catch { }
             return null;
+        }
+
+        // GitHub API возвращает тело Release как JSON-строку. MessageBox не умеет
+        // Markdown, поэтому превращаем текст в обычный читаемый список. Заодно
+        // восстанавливаем старые заметки, где UTF-8 уже был ошибочно сохранён как
+        // Windows-1252 (типичные символы "Ð" и "Ñ" на экране).
+        static string JsonUnescape(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+            try { text = System.Text.RegularExpressions.Regex.Unescape(text); }
+            catch { text = text.Replace("\\n", "\n").Replace("\\r", "").Replace("\\\"", "\""); }
+            return RepairUtf8Mojibake(text);
+        }
+
+        static string RepairUtf8Mojibake(string text)
+        {
+            if (string.IsNullOrEmpty(text) || (text.IndexOf('Ð') < 0 && text.IndexOf('Ñ') < 0 && text.IndexOf('ð') < 0))
+                return text;
+            try
+            {
+                string fixedText = System.Text.Encoding.UTF8.GetString(System.Text.Encoding.GetEncoding(1252).GetBytes(text));
+                // Применяем замену только когда результат действительно похож на русский
+                // текст или содержит emoji. Так не портятся обычные западноевропейские буквы.
+                foreach (char c in fixedText)
+                    if ((c >= 'А' && c <= 'я') || char.IsSurrogate(c)) return fixedText;
+            }
+            catch { }
+            return text;
+        }
+
+        static string FormatReleaseNotes(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+            var lines = text.Replace("\r\n", "\n").Split('\n');
+            var result = new System.Text.StringBuilder();
+            foreach (string raw in lines)
+            {
+                string line = raw.TrimEnd();
+                int hashes = 0;
+                while (hashes < line.Length && line[hashes] == '#') hashes++;
+                if (hashes > 0 && hashes < line.Length && line[hashes] == ' ')
+                    line = line.Substring(hashes + 1).TrimStart();
+                if (line.StartsWith("- ")) line = "• " + line.Substring(2);
+                result.AppendLine(line);
+            }
+            return result.ToString().Trim();
         }
 
         // ---- Маскирование для диагностики (имя пользователя, пути, локальные IP) ----
