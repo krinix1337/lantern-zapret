@@ -72,6 +72,9 @@ namespace ZapretStudio
             Body.Children.Add(LinkRow("zapret-discord-youtube (Flowseal)", Loc.T("about.link.flowseal"),
                 "https://github.com/Flowseal/zapret-discord-youtube"));
             Body.Children.Add(space());
+            Body.Children.Add(LinkRow("tg-ws-proxy (Flowseal)", Loc.T("about.link.tgproxy"),
+                Core.TgProxyRepo));
+            Body.Children.Add(space());
             Body.Children.Add(LinkRow("zapret (bol-van)", Loc.T("about.link.engine"),
                 "https://github.com/bol-van/zapret"));
             Body.Children.Add(space());

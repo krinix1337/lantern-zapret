@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -9,35 +10,74 @@ namespace ZapretStudio
     static partial class Core
     {
         public static DateTime? StartedAt; // время запуска (для uptime), пока процессом управляет приложение
+        static int _winwsOperation;
+
+        // Один экземпляр winws нельзя безопасно одновременно перезапускать,
+        // тестировать и переключать watchdog-ом.
+        public static bool TryBeginWinwsOperation()
+        {
+            return System.Threading.Interlocked.CompareExchange(ref _winwsOperation, 1, 0) == 0;
+        }
+        public static void EndWinwsOperation()
+        {
+            System.Threading.Interlocked.Exchange(ref _winwsOperation, 0);
+        }
 
         static readonly char BS = (char)92; // обратный слэш без литерала в исходнике
         static string RegKey { get { return "HKLM" + BS + "System" + BS + "CurrentControlSet" + BS + "Services" + BS + "zapret"; } }
         static string Q(string s) { return "\"" + s + "\""; }
 
         // ---- winws процесс ----
-        public static bool IsWinwsRunning()
+        // Проверяем только экземпляры winws из выбранной папки zapret. Нельзя
+        // управлять одноимённым процессом, который запустила другая программа.
+        static bool IsRootWinws(Process p)
         {
             try
             {
-                var procs = Process.GetProcessesByName("winws");
-                try { return procs.Length > 0; }
-                finally { foreach (var p in procs) p.Dispose(); }
+                string file = p.MainModule.FileName;
+                return string.Equals(Path.GetFullPath(file), Path.GetFullPath(WinwsExe), StringComparison.OrdinalIgnoreCase);
             }
             catch { return false; }
         }
 
-        public static void EnableTcpTimestamps()
+        static List<Process> RootWinwsProcesses()
         {
-            try { Run("netsh", "interface tcp set global timestamps=enabled", 15000); } catch { }
+            var result = new List<Process>();
+            try
+            {
+                foreach (var p in Process.GetProcessesByName("winws"))
+                {
+                    if (IsRootWinws(p)) result.Add(p);
+                    else p.Dispose();
+                }
+            }
+            catch { }
+            return result;
         }
 
-        public static void StartWinws(string batFileName)
+        public static bool IsWinwsRunning()
+        {
+            var procs = RootWinwsProcesses();
+            try
+            {
+                return procs.Count > 0;
+            }
+            finally { foreach (var p in procs) p.Dispose(); }
+        }
+
+        // Системные TCP timestamps не нужны для работы winws. Не меняем глобальные
+        // параметры Windows без отдельного действия пользователя.
+        public static void EnableTcpTimestamps()
+        {
+            // Оставлено как совместимая точка вызова для старых сценариев.
+        }
+
+        public static bool StartWinws(string batFileName)
         {
             EnsureUserLists();
-            EnableTcpTimestamps();
             string args;
             try { args = BuildArgs(batFileName); }
-            catch (Exception ex) { Say(Sev.Err, "StartWinws: " + ex.Message); return; }
+            catch (Exception ex) { Say(Sev.Err, "StartWinws: " + ex.Message); return false; }
             var psi = new ProcessStartInfo
             {
                 FileName = WinwsExe, Arguments = args,
@@ -45,14 +85,41 @@ namespace ZapretStudio
                 UseShellExecute = false, CreateNoWindow = true,
                 WindowStyle = ProcessWindowStyle.Hidden
             };
-            try { Process.Start(psi); StartedAt = DateTime.Now; }
-            catch (Exception ex) { Say(Sev.Err, "StartWinws: " + ex.Message); }
+            try
+            {
+                using (var p = Process.Start(psi))
+                {
+                    if (p == null) { Say(Sev.Err, "StartWinws: process was not created"); return false; }
+                    // Process.Start успешен даже если winws немедленно завершился
+                    // из-за неверных аргументов или отсутствующего драйвера.
+                    System.Threading.Thread.Sleep(150);
+                    if (p.HasExited)
+                    {
+                        Say(Sev.Err, "StartWinws: winws exited with code " + p.ExitCode);
+                        return false;
+                    }
+                    StartedAt = DateTime.Now;
+                    return true;
+                }
+            }
+            catch (Exception ex) { Say(Sev.Err, "StartWinws: " + ex.Message); return false; }
         }
 
-        public static void KillWinws()
+        public static bool KillWinws()
         {
-            try { Run("taskkill", "/IM winws.exe /F", 15000); } catch { }
+            bool ok = true;
+            var procs = RootWinwsProcesses();
+            try
+            {
+                foreach (var p in procs)
+                {
+                    try { p.Kill(); if (!p.WaitForExit(5000)) ok = false; }
+                    catch { ok = false; }
+                }
+            }
+            finally { foreach (var p in procs) p.Dispose(); }
             StartedAt = null;
+            return ok;
         }
 
         // ---- WinDivert ----
@@ -90,40 +157,38 @@ namespace ZapretStudio
             return null;
         }
 
-        public static void InstallService(string batFileName)
+        public static bool InstallService(string batFileName)
         {
             EnsureUserLists();
-            EnableTcpTimestamps();
             RemoveService();
             KillWinws();
 
             string args;
             try { args = BuildArgs(batFileName); }
-            catch (Exception ex) { Say(Sev.Err, "InstallService: " + ex.Message); return; }
+            catch (Exception ex) { Say(Sev.Err, "InstallService: " + ex.Message); return false; }
             string q = "\\\"";
             string binPath = q + WinwsExe + q + " " + args.Replace("\"", "\\\"");
-            Run("sc", "create " + ServiceName + " binPath= \"" + binPath + "\" DisplayName= \"zapret\" start= auto", 20000);
-            Run("sc", "description " + ServiceName + " \"Zapret DPI bypass software\"", 15000);
-            Run("sc", "start " + ServiceName, 20000);
+            if (!Run("sc", "create " + ServiceName + " binPath= \"" + binPath + "\" DisplayName= \"zapret\" start= auto", 20000)) return false;
+            if (!Run("sc", "description " + ServiceName + " \"Zapret DPI bypass software\"", 15000)) return false;
+            if (!Run("sc", "start " + ServiceName, 20000)) return false;
             // отметим стратегию в реестре (как в service.bat)
             string name = PrettyName(batFileName);
-            Run("reg", "add " + Q(RegKey) + " /v zapret-discord-youtube /t REG_SZ /d " + Q(name) + " /f", 15000);
+            if (!Run("reg", "add " + Q(RegKey) + " /v zapret-discord-youtube /t REG_SZ /d " + Q(name) + " /f", 15000)) return false;
             StartedAt = DateTime.Now;
+            return true;
         }
 
-        public static void StartService() { Run("sc", "start " + ServiceName, 20000); StartedAt = DateTime.Now; }
-        public static void StopService()  { Run("sc", "stop " + ServiceName, 20000); StartedAt = null; }
+        public static bool StartService() { bool ok = Run("sc", "start " + ServiceName, 20000); if (ok) StartedAt = DateTime.Now; return ok; }
+        public static bool StopService()  { bool ok = Run("sc", "stop " + ServiceName, 20000); if (ok) StartedAt = null; return ok; }
 
-        public static void RemoveService()
+        public static bool RemoveService()
         {
             Run("net", "stop " + ServiceName, 20000);
-            Run("sc", "delete " + ServiceName, 15000);
+            bool existed = ServiceExists();
+            bool ok = !existed || Run("sc", "delete " + ServiceName, 15000);
             KillWinws();
-            Run("net", "stop WinDivert", 15000);
-            Run("sc", "delete WinDivert", 15000);
-            Run("net", "stop WinDivert14", 15000);
-            Run("sc", "delete WinDivert14", 15000);
             StartedAt = null;
+            return ok;
         }
 
         // ---- Проверка: работает ли WinDivert-сервис (значит драйвер загружен) ----
@@ -136,11 +201,42 @@ namespace ZapretStudio
 
         // ---- TG-Proxy автозагрузка (реестр HKCU\...\Run) ----
         const string TgRunKey = "TgWsProxy";
+        const string AppRunKey = "Lantern";
+        const string RunRegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+
+        public static bool AppAutostartEnabled()
+        {
+            try
+            {
+                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunRegistryPath))
+                    return key != null && key.GetValue(AppRunKey) != null;
+            }
+            catch { return false; }
+        }
+
+        public static void SetAppAutostart(bool enable)
+        {
+            try
+            {
+                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunRegistryPath, true))
+                {
+                    if (key == null) return;
+                    if (enable)
+                    {
+                        string exe = System.Reflection.Assembly.GetEntryAssembly().Location;
+                        key.SetValue(AppRunKey, "\"" + exe + "\"");
+                    }
+                    else key.DeleteValue(AppRunKey, false);
+                }
+            }
+            catch { }
+        }
+
         public static bool TgAutostartEnabled()
         {
             try
             {
-                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run"))
+                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunRegistryPath))
                     return key != null && key.GetValue(TgRunKey) != null;
             }
             catch { return false; }
@@ -150,7 +246,7 @@ namespace ZapretStudio
         {
             try
             {
-                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true))
+                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunRegistryPath, true))
                 {
                     if (key == null) return;
                     if (enable)
@@ -177,7 +273,7 @@ namespace ZapretStudio
         }
 
         // ---- helpers: скрытый запуск (async read + timeout + kill) ----
-        static void Run(string file, string args, int timeoutMs)
+        static bool Run(string file, string args, int timeoutMs)
         {
             try
             {
@@ -190,10 +286,12 @@ namespace ZapretStudio
                 {
                     p.BeginOutputReadLine();
                     p.BeginErrorReadLine();
-                    if (!p.WaitForExit(timeoutMs)) { try { p.Kill(); } catch { } }
+                    if (!p.WaitForExit(timeoutMs)) { try { p.Kill(); } catch { } return false; }
+                    p.WaitForExit();
+                    return p.ExitCode == 0;
                 }
             }
-            catch { }
+            catch { return false; }
         }
         static string Capture(string file, string args, int timeoutMs)
         {

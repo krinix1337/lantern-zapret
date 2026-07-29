@@ -28,8 +28,8 @@ namespace ZapretStudio
                 if (parts.Length < 5) continue;
                 list.Add(new Profile
                 {
-                    Name = parts[0],
-                    Strategy = parts[1],
+                    Name = Uri.UnescapeDataString(parts[0]),
+                    Strategy = Uri.UnescapeDataString(parts[1]),
                     GameMode = parts[2],
                     Ipset = parts[3] == "1",
                     Doh = 0
@@ -59,7 +59,7 @@ namespace ZapretStudio
         static void WriteProfiles(List<Profile> profiles)
         {
             var parts = profiles.Select(p =>
-                p.Name + ";" + (p.Strategy ?? "") + ";" + (p.GameMode ?? "off") + ";" + (p.Ipset ? "1" : "0") + ";" + p.Doh);
+                Uri.EscapeDataString(p.Name ?? "") + ";" + Uri.EscapeDataString(p.Strategy ?? "") + ";" + (p.GameMode ?? "off") + ";" + (p.Ipset ? "1" : "0") + ";" + p.Doh);
             Set("profiles", string.Join("|", parts.ToArray()));
             SaveConfig();
         }

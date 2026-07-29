@@ -17,6 +17,7 @@ namespace ZapretStudio
         bool _paused, _autoscroll = true;
         Sev? _levelFilter;
         StackPanel _filterBar;
+        TextBlock _count;
 
         public LogPage(MainWindow win)
         {
@@ -89,6 +90,11 @@ namespace ZapretStudio
             clear.Click += (s, e) => { lock (Core.Log) Core.Log.Clear(); RebuildAll(); };
             wrap.Children.Add(clear);
 
+            _count = UI.Mono("0 events", Theme.FsTiny, Theme.BrFaint);
+            _count.VerticalAlignment = VerticalAlignment.Center;
+            _count.Margin = new Thickness(2, 0, 0, 10);
+            wrap.Children.Add(_count);
+
             Body.Children.Add(wrap);
         }
 
@@ -144,6 +150,7 @@ namespace ZapretStudio
                 {
                     if (!Match(e)) return;
                     _lines.Children.Add(LineFor(e));
+                    UpdateCount();
                     if (_autoscroll) _sv.ScrollToEnd();
                 });
             }
@@ -160,20 +167,39 @@ namespace ZapretStudio
 
         UIElement LineFor(LogEvent e)
         {
-            var g = new Grid { Margin = new Thickness(0, 1, 0, 1) };
+            var g = new Grid();
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            var time = new TextBlock { Text = e.Time.ToString("HH:mm:ss"), Foreground = Theme.BrFaint,
-                FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont, Width = 72, VerticalAlignment = VerticalAlignment.Top };
+            var time = new TextBlock { Text = e.Time.ToString("HH:mm:ss.fff"), Foreground = Theme.BrFaint,
+                FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont, Width = 94, VerticalAlignment = VerticalAlignment.Top };
             Grid.SetColumn(time, 0); g.Children.Add(time);
-            var dot = new System.Windows.Shapes.Ellipse { Width = 8, Height = 8, Fill = UI2.SevBrush(e.Level),
-                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
-            Grid.SetColumn(dot, 1); g.Children.Add(dot);
+            var level = new TextBlock { Text = LevelName(e.Level), Foreground = UI2.SevBrush(e.Level),
+                FontSize = Theme.FsTiny, FontFamily = Theme.MonoFont, FontWeight = FontWeights.Bold, Width = 48,
+                VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 1, 10, 0) };
+            Grid.SetColumn(level, 1); g.Children.Add(level);
             var msg = new TextBlock { Text = e.Text, Foreground = Theme.BrText, FontSize = Theme.FsSmall,
                 FontFamily = Theme.MonoFont, TextWrapping = TextWrapping.Wrap };
             Grid.SetColumn(msg, 2); g.Children.Add(msg);
-            return g;
+            var accent = UI2.SevColor(e.Level);
+            return new Border { Child = g, Margin = new Thickness(0, 0, 0, 3), Padding = new Thickness(9, 7, 9, 7),
+                Background = Theme.Alpha(accent, 10), BorderBrush = Theme.Alpha(accent, 54),
+                BorderThickness = new Thickness(2, 0, 0, 0), CornerRadius = Theme.R6 };
+        }
+
+        static string LevelName(Sev level)
+        {
+            if (level == Sev.Ok) return "OK";
+            if (level == Sev.Warn) return "WARN";
+            if (level == Sev.Err) return "ERROR";
+            if (level == Sev.Progress) return "WORK";
+            return "INFO";
+        }
+
+        void UpdateCount()
+        {
+            if (_count == null) return;
+            _count.Text = _lines.Children.Count + " events" + (_paused ? " - paused" : " - live");
         }
 
         void RebuildAll()
@@ -182,6 +208,7 @@ namespace ZapretStudio
             lock (Core.Log)
                 foreach (var e in Core.Log)
                     if (Match(e)) _lines.Children.Add(LineFor(e));
+            UpdateCount();
             if (_autoscroll) _sv.ScrollToEnd();
         }
 

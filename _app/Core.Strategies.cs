@@ -109,6 +109,7 @@ namespace ZapretStudio
         {
             try
             {
+                if (!IpsetEnabled) return "none";
                 if (!File.Exists(IpsetFile)) return "any";
                 var lines = File.ReadAllLines(IpsetFile).Where(l => l.Trim().Length > 0).ToList();
                 if (lines.Count == 0) return "any";
@@ -116,6 +117,14 @@ namespace ZapretStudio
                 return "loaded";
             }
             catch { return "any"; }
+        }
+
+        // IPSet — отдельная пользовательская настройка. Наличие файла не означает,
+        // что пользователь хочет добавлять его к аргументам winws.
+        public static bool IpsetEnabled
+        {
+            get { return GetBool("ipset_enabled", true); }
+            set { SetBool("ipset_enabled", value); SaveConfig(); }
         }
 
         public static int IpsetCount()
@@ -187,6 +196,17 @@ namespace ZapretStudio
                      .Replace("%GameFilterUDP%", udp);
 
             cmd = UnescapeCaret(cmd);
+            if (!IpsetEnabled)
+            {
+                // В bat-файлах каждая группа правил разделена --new. Убираем только
+                // группы с --ipset= целиком: простое удаление одного аргумента сделало
+                // бы их фильтры применимыми ко всему трафику.
+                var parts = Regex.Split(cmd, @"\s+--new\s+");
+                var kept = new List<string>();
+                foreach (var part in parts)
+                    if (part.IndexOf("--ipset=", StringComparison.OrdinalIgnoreCase) < 0) kept.Add(part);
+                cmd = string.Join(" --new ", kept.ToArray());
+            }
             return cmd.Trim();
         }
 

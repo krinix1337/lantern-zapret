@@ -197,19 +197,27 @@ namespace ZapretStudio
 
             var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
             var star = new Button { Cursor = System.Windows.Input.Cursors.Hand, VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 8, 0) };
+                Width = 32, Height = 32, Margin = new Thickness(-4, -4, 8, -4) };
             Ctl.StripChrome(star);
             bool fav = _fav.Contains(file);
-            star.Content = UI.Icon(Icons.Star, 18, fav ? Theme.BrWarn : Theme.BrFaint, 1.6);
+            var starBg = new Border { Width = 32, Height = 32, CornerRadius = Theme.R8,
+                Background = fav ? Theme.Alpha(Theme.Warn, 34) : Brushes.Transparent };
+            starBg.Child = UI.Icon(fav ? Icons.StarFilled : Icons.Star, 18, fav ? Theme.BrWarn : Theme.BrFaint, 1.6);
+            star.Content = starBg;
             Ctl.AutomationSetName(star, (fav ? Loc.T("strat.favRemove") : Loc.T("strat.favAdd")) + name);
+            star.ToolTip = fav ? Loc.T("strat.favRemove") + name : Loc.T("strat.favAdd") + name;
+            star.MouseEnter += (s, e) => { if (!_fav.Contains(file)) starBg.Background = Theme.BrSurfaceHi; };
+            star.MouseLeave += (s, e) => { if (!_fav.Contains(file)) starBg.Background = Brushes.Transparent; };
             star.Click += (s, e) =>
             {
                 bool adding = !_fav.Contains(file);
                 if (adding) _fav.Add(file); else _fav.Remove(file);
                 SaveFav();
-                // Обновить цвет звезды сразу
-                var newIcon = UI.Icon(Icons.Star, 18, adding ? Theme.BrWarn : Theme.BrFaint, 1.6);
-                star.Content = newIcon;
+                // Ясный переключатель: залитая звезда и тёплая подложка означают избранное.
+                starBg.Background = adding ? Theme.Alpha(Theme.Warn, 34) : Brushes.Transparent;
+                var newIcon = UI.Icon(adding ? Icons.StarFilled : Icons.Star, 18, adding ? Theme.BrWarn : Theme.BrFaint, 1.6);
+                starBg.Child = newIcon;
+                star.ToolTip = (adding ? Loc.T("strat.favRemove") : Loc.T("strat.favAdd")) + name;
                 // Анимация пульса
                 var st = new ScaleTransform(1, 1);
                 newIcon.RenderTransform = st;

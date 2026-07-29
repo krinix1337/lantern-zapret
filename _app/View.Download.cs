@@ -157,7 +157,8 @@ namespace ZapretStudio
 
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
-                bool ok = Core.DownloadFile(Core.ZapretZipUrl, zip, delegate (DlProgress p)
+                string url = Core.ZapretDownloadUrl();
+                bool ok = Core.DownloadFile(url, zip, delegate (DlProgress p)
                 {
                     Dispatcher.Invoke((Action)delegate { Render(p); });
                 }, null);

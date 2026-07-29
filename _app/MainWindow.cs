@@ -20,7 +20,6 @@ namespace ZapretStudio
 
         // Состояние запуска
         string _currentStrategyFile;   // выбранная/запущенная стратегия
-        bool _serviceMode;             // запущено как служба
         System.Windows.Forms.NotifyIcon _tray;
 
         public MainWindow()
@@ -132,36 +131,56 @@ namespace ZapretStudio
             Grid.SetRow(hostBorder, 1); Grid.SetColumn(hostBorder, 1);
             root.Children.Add(hostBorder);
 
+            _toastHost = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 20, 20),
+                MaxWidth = 380, IsHitTestVisible = false };
+            Grid.SetRow(_toastHost, 1); Grid.SetColumn(_toastHost, 1);
+            Panel.SetZIndex(_toastHost, 100);
+            root.Children.Add(_toastHost);
+
             _rootGrid = root;
             Content = root;
         }
 
         Grid _rootGrid;
+        StackPanel _toastHost;
 
-        // In-app toast уведомление (всплывает внизу справа, исчезает через 3 сек).
+        // Toast-стек: быстрые уведомления отображаются одно над другим, без наложения.
         public void ShowToast(string text, Sev sev)
         {
             if (!Core.GetBool("notifications", true)) return;
-            if (_rootGrid == null) return;
+            if (_rootGrid == null || _toastHost == null) return;
             Color c = sev == Sev.Ok ? Theme.Ok : sev == Sev.Warn ? Theme.Warn : sev == Sev.Err ? Theme.Err : Theme.AccentMain;
             var sp = new StackPanel { Orientation = Orientation.Horizontal };
-            sp.Children.Add(UI.Icon(sev == Sev.Ok ? Icons.Check : sev == Sev.Err ? Icons.Cross : Icons.Info, 16, Theme.Frozen(c), 1.8));
+            var iconWrap = new Border { Width = 28, Height = 28, CornerRadius = Theme.R8,
+                Background = Theme.Alpha(c, 30), VerticalAlignment = VerticalAlignment.Top };
+            iconWrap.Child = UI.Icon(sev == Sev.Ok ? Icons.Check : sev == Sev.Err ? Icons.Cross : Icons.Info, 16, Theme.Frozen(c), 1.8);
+            sp.Children.Add(iconWrap);
             var tb = new TextBlock { Text = text, Foreground = Theme.BrText, FontSize = Theme.FsSmall,
-                FontFamily = Theme.UiFont, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
-                MaxWidth = 320, TextWrapping = TextWrapping.Wrap };
+                FontFamily = Theme.UiFont, Margin = new Thickness(10, 2, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+                MaxWidth = 300, TextWrapping = TextWrapping.Wrap };
             sp.Children.Add(tb);
             var bd = new Border { Background = Theme.BrSurface, BorderBrush = Theme.Alpha(c, 100),
-                BorderThickness = new Thickness(1), CornerRadius = Theme.R10, Padding = new Thickness(16, 12, 16, 12),
-                HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(0, 0, 20, 20) };
+                BorderThickness = new Thickness(1), CornerRadius = Theme.R12, Padding = new Thickness(12, 10, 14, 10),
+                HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 0, 8) };
             bd.Child = sp;
-            Grid.SetRow(bd, 1); Grid.SetColumn(bd, 1);
-            _rootGrid.Children.Add(bd);
+            _toastHost.Children.Add(bd);
 
-            var fade = new System.Windows.Media.Animation.DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(400))
-            { BeginTime = TimeSpan.FromSeconds(3) };
-            fade.Completed += (s, e) => { try { _rootGrid.Children.Remove(bd); } catch { } };
-            bd.BeginAnimation(OpacityProperty, fade);
+            var move = new TranslateTransform(0, 12);
+            bd.RenderTransform = move;
+            bd.Opacity = 0;
+            bd.BeginAnimation(OpacityProperty, new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150)));
+            move.BeginAnimation(TranslateTransform.YProperty, new System.Windows.Media.Animation.DoubleAnimation(12, 0, TimeSpan.FromMilliseconds(180))
+            { EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut } });
+            var life = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            life.Tick += (s, e) =>
+            {
+                life.Stop();
+                var fade = new System.Windows.Media.Animation.DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(220));
+                fade.Completed += (s2, e2) => { try { _toastHost.Children.Remove(bd); } catch { } };
+                bd.BeginAnimation(OpacityProperty, fade);
+            };
+            life.Start();
         }
 
         Border BuildTopbar()
@@ -348,10 +367,29 @@ namespace ZapretStudio
         void ApplyCollapsedState(bool animate)
         {
             double target = _collapsed ? SideNarrow : SideWide;
-            if (_collapseLabel != null) _collapseLabel.Text = _collapsed ? "" : Loc.T("mw.collapse");
-            // Скрываем текстовые подписи в свёрнутом виде; иконки остаются.
             foreach (var lbl in _navLabels)
-                lbl.Visibility = _collapsed ? Visibility.Collapsed : Visibility.Visible;
+            {
+                if (_collapsed)
+                {
+                    if (animate && Theme.AnimationsEnabled)
+                    {
+                        var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(lbl.Opacity, 0, TimeSpan.FromMilliseconds(90));
+                        fadeOut.Completed += (s, e) => lbl.Visibility = Visibility.Collapsed;
+                        lbl.BeginAnimation(OpacityProperty, fadeOut);
+                    }
+                    else lbl.Visibility = Visibility.Collapsed;
+                }
+                else
+                {
+                    lbl.Visibility = Visibility.Visible;
+                    lbl.Opacity = animate && Theme.AnimationsEnabled ? 0 : 1;
+                    if (animate && Theme.AnimationsEnabled)
+                        lbl.BeginAnimation(OpacityProperty, new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160))
+                        { BeginTime = TimeSpan.FromMilliseconds(80) });
+                }
+            }
+            if (_collapseLabel != null) _collapseLabel.Text = _collapsed ? "" : Loc.T("mw.collapse");
+            if (_collapseIcon != null) _collapseIcon.Data = Geometry.Parse(_collapsed ? Icons.MenuOpen : Icons.Menu);
             // В свёрнутом виде центрируем иконки и убираем горизонтальные отступы,
             // иначе иконка (18px) + отступы (24px) + поля (24px) не влезают в 64px и обрезаются.
             foreach (var kv in _navButtons)
@@ -360,6 +398,10 @@ namespace ZapretStudio
                 var bd = (Border)arr[0]; var sp = (StackPanel)arr[3];
                 bd.Padding = _collapsed ? new Thickness(0, 10, 0, 10) : new Thickness(12, 10, 12, 10);
                 sp.HorizontalAlignment = _collapsed ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+                kv.Value.Width = _collapsed ? 44 : double.NaN;
+                kv.Value.Height = _collapsed ? 44 : double.NaN;
+                kv.Value.HorizontalAlignment = _collapsed ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
+                kv.Value.Margin = _collapsed ? new Thickness(0, 0, 0, 6) : new Thickness(0, 0, 0, 4);
             }
             // Уменьшаем горизонтальные поля навигационной панели в свёрнутом виде,
             // чтобы иконки (18px) гарантированно помещались в 64px без обрезки.
@@ -373,7 +415,10 @@ namespace ZapretStudio
             if (_sidebar == null) return;
             if (animate && Theme.AnimationsEnabled)
             {
-                var a = new System.Windows.Media.Animation.DoubleAnimation(_sidebar.ActualWidth, target, TimeSpan.FromMilliseconds(220))
+                double from = _sidebar.ActualWidth;
+                _sidebar.BeginAnimation(FrameworkElement.WidthProperty, null);
+                _sidebar.Width = target;
+                var a = new System.Windows.Media.Animation.DoubleAnimation(from, target, TimeSpan.FromMilliseconds(260))
                 { EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut } };
                 _sidebar.BeginAnimation(FrameworkElement.WidthProperty, a);
             }
@@ -434,7 +479,7 @@ namespace ZapretStudio
                 var tb = (TextBlock)arr[2];
                 bool on = kv.Key == _current;
                 bd.Background = on ? Theme.BrAccent : Brushes.Transparent;
-                ic.Stroke = on ? Theme.BrOnAccent : Theme.BrMuted;
+                ic.Fill = on ? Theme.BrOnAccent : Theme.BrMuted;
                 tb.Foreground = on ? Theme.BrOnAccent : Theme.BrMuted;
                 bd.InvalidateVisual();
             }
@@ -497,12 +542,12 @@ namespace ZapretStudio
         }
 
         // ---------- Публичный API для страниц ----------
-        public bool IsActive2() { return _serviceMode ? Core.ServiceState() == "running" : Core.IsWinwsRunning(); }
-        public string CurrentMode() { return _serviceMode ? Loc.T("mode.service") : (Core.IsWinwsRunning() ? Loc.T("mode.manual") : "—"); }
+        public bool IsActive2() { return Core.ServiceState() == "running" || Core.IsWinwsRunning(); }
+        public string CurrentMode() { return Core.ServiceState() == "running" ? Loc.T("mode.service") : (Core.IsWinwsRunning() ? Loc.T("mode.manual") : "—"); }
         public string CurrentStrategyFile() { return _currentStrategyFile; }
         public string CurrentStrategyName()
         {
-            if (_serviceMode) { string s = Core.ServiceStrategy(); if (!string.IsNullOrEmpty(s)) return s; }
+            if (Core.ServiceState() == "running") { string s = Core.ServiceStrategy(); if (!string.IsNullOrEmpty(s)) return s; }
             return string.IsNullOrEmpty(_currentStrategyFile) ? null : Core.PrettyName(_currentStrategyFile);
         }
         public string UptimeText()
@@ -534,7 +579,7 @@ namespace ZapretStudio
         {
             _currentStrategyFile = file;
             Core.Set("last_strategy", file); Core.SaveConfig();
-            if (IsActive2() && !_serviceMode) RunStrategy(file);
+            if (Core.IsWinwsRunning()) RunStrategy(file);
             else Core.Info(string.Format(Loc.T("mw.stratSelected"), Core.PrettyName(file)));
             RefreshTop();
         }
@@ -542,11 +587,25 @@ namespace ZapretStudio
         public void RunStrategy(string file)
         {
             if (!Core.IsAdmin()) { NeedAdmin(Loc.T("mw.startBypassAct")); return; }
+            if (_overview != null) _overview.SetZapretTransition(true);
+            Dispatcher.BeginInvoke((Action)delegate { RunStrategyNow(file); }, DispatcherPriority.Background);
+        }
+
+        void RunStrategyNow(string file)
+        {
+            if (!Core.TryBeginWinwsOperation())
+            {
+                Warn(Loc.T("mw.busy"));
+                if (_overview != null) _overview.SetZapretTransition(false);
+                return;
+            }
             try
             {
+                Core.Info(string.Format(Loc.T("mw.startingLog"), Core.PrettyName(file)));
+                if (Core.ServiceState() == "running" && !Core.StopService())
+                    throw new Exception("Could not stop Windows service");
                 Core.KillWinws();
-                _serviceMode = false;
-                Core.StartWinws(file);
+                if (!Core.StartWinws(file)) throw new Exception("winws.exe was not started");
                 _currentStrategyFile = file;
                 Core.Set("last_strategy", file); Core.SaveConfig();
                 Core.Good(string.Format(Loc.T("mw.startedToast"), Core.PrettyName(file)));
@@ -554,21 +613,28 @@ namespace ZapretStudio
                 ShowToast(string.Format(Loc.T("mw.startedToast"), Core.PrettyName(file)), Sev.Ok);
             }
             catch (Exception ex) { Core.Fail(string.Format(Loc.T("mw.startErr"), ex.Message)); }
+            finally
+            {
+                Core.EndWinwsOperation();
+                if (_overview != null) _overview.SetZapretTransition(false);
+            }
             RefreshTop();
         }
 
         public void StopAll()
         {
+            if (!Core.TryBeginWinwsOperation()) { Warn(Loc.T("mw.busy")); return; }
             try
             {
-                if (_serviceMode && Core.ServiceState() == "running") Core.StopService();
-                Core.KillWinws();
-                _serviceMode = false;
+                if (Core.ServiceState() == "running" && !Core.StopService())
+                    throw new Exception("Could not stop Windows service");
+                if (!Core.KillWinws()) throw new Exception("Could not stop winws.exe");
                 Core.Info(Loc.T("mw.stopped"));
                 Notify(Loc.T("mw.stoppedTitle"), Loc.T("mw.stoppedBody"));
                 ShowToast(Loc.T("mw.stopped"), Sev.Warn);
             }
             catch (Exception ex) { Core.Fail(string.Format(Loc.T("mw.stopErr"), ex.Message)); }
+            finally { Core.EndWinwsOperation(); }
             RefreshTop();
         }
 
@@ -650,9 +716,9 @@ namespace ZapretStudio
                         {
                             Core.Warn(string.Format(Loc.T("mw.verNew"), latest, local));
                             _updateLine.Text = string.Format(Loc.T("mw.verUpdate"), local);
-                            var r = MessageBox.Show(string.Format(Loc.T("mw.verDlg"), latest, local),
+                            var r = MessageBox.Show(string.Format(Loc.T("mw.verNew"), latest, local) + "\n\n" + Loc.T("update.unverified"),
                                 Loc.T("mw.verDlgTitle"), MessageBoxButton.YesNo, MessageBoxImage.Information);
-                            if (r == MessageBoxResult.Yes) DoUpdate(latest);
+                            if (r == MessageBoxResult.Yes) Core.OpenUrl(Core.ReleaseUrl);
                         }
 
                         // --- TG proxy ---
@@ -686,6 +752,10 @@ namespace ZapretStudio
         {
             if (_updating) return;
             _updating = true;
+            bool restartService = Core.ServiceState() == "running";
+            bool restartManual = !restartService && Core.IsWinwsRunning();
+            string restartStrategy = _currentStrategyFile;
+            if (restartService || restartManual) StopAll();
             string zip = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "zapret_update.zip");
             string root = Core.Root;
             Core.Info(string.Format(Loc.T("mw.updStart"), ver));
@@ -695,7 +765,8 @@ namespace ZapretStudio
             {
                 try
                 {
-                    bool ok = Core.DownloadFile(Core.ZapretZipUrl, zip, delegate (DlProgress p)
+                    string url = Core.ZapretDownloadUrl();
+                    bool ok = Core.DownloadFile(url, zip, delegate (DlProgress p)
                     {
                         try
                         {
@@ -739,6 +810,8 @@ namespace ZapretStudio
                             if (!string.IsNullOrEmpty(changelog))
                                 msg += "\n\n" + Loc.T("mw.changelog") + ":\n" + changelog;
                             MessageBox.Show(msg, Loc.T("mw.verDlgTitle"), MessageBoxButton.OK, MessageBoxImage.Information);
+                            if (restartService && Core.ServiceExists()) Core.StartService();
+                            else if (restartManual && !string.IsNullOrEmpty(restartStrategy)) RunStrategy(restartStrategy);
                         }
                         else
                         {

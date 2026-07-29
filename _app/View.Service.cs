@@ -86,10 +86,10 @@ namespace ZapretStudio
             install.Click += (s, e) => DoInstall();
             var start = Ctl.Button(Loc.T("service.start"), Icons.Play, 1);
             start.Margin = new Thickness(0, 0, 10, 10);
-            start.Click += (s, e) => Guarded(Loc.T("service.task.start"), delegate { Core.StartService(); Core.Good(Loc.T("service.started")); });
+            start.Click += (s, e) => Guarded(Loc.T("service.task.start"), delegate { if (!Core.StartService()) throw new Exception("sc start failed"); Core.Good(Loc.T("service.started")); });
             var stop = Ctl.Button(Loc.T("service.stop"), Icons.Stop, 1);
             stop.Margin = new Thickness(0, 0, 10, 10);
-            stop.Click += (s, e) => Guarded(Loc.T("service.task.stop"), delegate { Core.StopService(); Core.Info(Loc.T("service.svcStopped")); });
+            stop.Click += (s, e) => Guarded(Loc.T("service.task.stop"), delegate { if (!Core.StopService()) throw new Exception("sc stop failed"); Core.Info(Loc.T("service.svcStopped")); });
             var remove = Ctl.Button(Loc.T("service.remove"), Icons.Cross, 2);
             remove.Margin = new Thickness(0, 0, 10, 10);
             remove.Click += (s, e) => DoRemove();
@@ -113,7 +113,7 @@ namespace ZapretStudio
             if (r != MessageBoxResult.OK) return;
             Guarded(Loc.T("service.task.install"), delegate
             {
-                Core.InstallService(file);
+                if (!Core.InstallService(file)) throw new Exception("service installation failed");
                 Core.Good(string.Format(Loc.T("service.installed"), name));
             });
         }
@@ -126,7 +126,7 @@ namespace ZapretStudio
             if (r != MessageBoxResult.OK) return;
             Guarded(Loc.T("service.task.remove"), delegate
             {
-                Core.RemoveService();
+                if (!Core.RemoveService()) throw new Exception("service removal failed");
                 Core.Info(Loc.T("service.removed"));
             });
         }

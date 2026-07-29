@@ -116,18 +116,26 @@ namespace ZapretStudio
         public static CheckResult TestHttp(string url, int timeoutMs)
         {
             var r = new CheckResult { When = DateTime.Now };
-            string host; int port = 443; bool tls = true;
+            string host; int port = 443; bool tls = true; string path = "/";
             try
             {
                 var uri = new Uri(url);
                 host = uri.Host; port = uri.Port;
+                path = string.IsNullOrEmpty(uri.PathAndQuery) ? "/" : uri.PathAndQuery;
                 tls = uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase);
             }
             catch { r.State = "err"; r.Detail = Loc.T("net.d.badUrl"); return r; }
 
             // DNS
             IPAddress[] addrs;
-            try { addrs = Dns.GetHostAddresses(host); if (addrs.Length == 0) throw new Exception("empty"); }
+            try
+            {
+                var dns = Dns.BeginGetHostAddresses(host, null, null);
+                if (!dns.AsyncWaitHandle.WaitOne(timeoutMs))
+                { r.State = "timeout"; r.Detail = "DNS timeout"; return r; }
+                addrs = Dns.EndGetHostAddresses(dns);
+                if (addrs.Length == 0) throw new Exception("empty");
+            }
             catch (Exception ex) { r.State = "errDns"; r.Detail = Short(ex.Message); return r; }
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -135,7 +143,7 @@ namespace ZapretStudio
             System.Net.Security.SslStream ssl = null;
             try
             {
-                var ar = sock.BeginConnect(host, port, null, null);
+                var ar = sock.BeginConnect(addrs[0], port, null, null);
                 if (!ar.AsyncWaitHandle.WaitOne(timeoutMs))
                 {
                     r.State = "timeout"; r.Detail = Loc.T("net.d.tcpNone");
@@ -149,15 +157,15 @@ namespace ZapretStudio
                 Stream stream = sock.GetStream();
                 if (tls)
                 {
-                    ssl = new System.Net.Security.SslStream(stream, false,
-                        (s, cert, chain, err) => true); // проверяем доступность рукопожатия, не валидность цепочки
+                    // Не объявляем HTTPS рабочим при недействительном сертификате.
+                    ssl = new System.Net.Security.SslStream(stream, false);
                     try { ssl.AuthenticateAsClient(host); }
                     catch (Exception ex) { r.State = "errTls"; r.Detail = Short(ex.Message); return r; }
                     stream = ssl;
                 }
 
                 // Минимальный HTTP HEAD
-                string req = "HEAD / HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\nUser-Agent: ZapretStudio\r\n\r\n";
+                string req = "HEAD " + path + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\nUser-Agent: ZapretStudio\r\n\r\n";
                 byte[] rb = Encoding.ASCII.GetBytes(req);
                 stream.Write(rb, 0, rb.Length); stream.Flush();
                 var buf = new byte[256];
@@ -282,7 +290,9 @@ namespace ZapretStudio
                 {
                     wc.Encoding = System.Text.Encoding.UTF8;
                     wc.Headers.Add("User-Agent", "Lantern");
-                    string json = wc.DownloadString("http://ip-api.com/json/?fields=isp,org,as");
+                    // Передаём внешний IP стороннему сервису только по HTTPS.
+                    // ipwho.is возвращает connection.isp / connection.org без API-ключа.
+                    string json = wc.DownloadString("https://ipwho.is/");
                     var m = Regex.Match(json, "\"isp\"\\s*:\\s*\"([^\"]+)\"");
                     if (m.Success) return m.Groups[1].Value;
                     m = Regex.Match(json, "\"org\"\\s*:\\s*\"([^\"]+)\"");

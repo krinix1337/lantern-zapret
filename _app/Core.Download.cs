@@ -19,8 +19,35 @@ namespace ZapretStudio
 
     static partial class Core
     {
-        // Ссылки на релизы zapret (архив исходного проекта).
+        // Резервная ссылка на архив ветки. Обычно используется архив последнего
+        // релиза: он содержит готовые Windows-компоненты и не зависит от имени версии.
         public const string ZapretZipUrl = "https://github.com/Flowseal/zapret-discord-youtube/archive/refs/heads/main.zip";
+        public const string ZapretReleaseApi = "https://api.github.com/repos/Flowseal/zapret-discord-youtube/releases/latest";
+
+        // Адрес ZIP-ассета последнего релиза. GitHub меняет имя архива вместе с
+        // версией, поэтому берём точную ссылку из API. Если API временно недоступен,
+        // остаётся рабочий резервный вариант с main.zip.
+        public static string ZapretDownloadUrl()
+        {
+            try
+            {
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                using (var wc = new WebClient())
+                {
+                    wc.Headers.Add("User-Agent", "Lantern");
+                    string json = wc.DownloadString(ZapretReleaseApi);
+                    var matches = System.Text.RegularExpressions.Regex.Matches(
+                        json, "\\\"browser_download_url\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+                    foreach (System.Text.RegularExpressions.Match m in matches)
+                    {
+                        string url = m.Groups[1].Value;
+                        if (url.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) return url;
+                    }
+                }
+            }
+            catch { }
+            return ZapretZipUrl;
+        }
 
         // Человекочитаемый размер.
         public static string HumanSize(long bytes)
@@ -43,8 +70,12 @@ namespace ZapretStudio
         {
             var pr = new DlProgress { Total = -1, Phase = "download" };
             var sw = System.Diagnostics.Stopwatch.StartNew();
+            string tempPath = destPath + ".part";
             try
             {
+                string dir = Path.GetDirectoryName(destPath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                if (File.Exists(tempPath)) File.Delete(tempPath);
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
                 var req = (HttpWebRequest)WebRequest.Create(url);
                 req.UserAgent = "ZapretStudio";
@@ -55,7 +86,7 @@ namespace ZapretStudio
                 {
                     pr.Total = resp.ContentLength;
                     using (var rs = resp.GetResponseStream())
-                    using (var fs = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                    using (var fs = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                     {
                         byte[] buf = new byte[81920];
                         long total = 0;
@@ -65,7 +96,7 @@ namespace ZapretStudio
                         {
                             if (isCancelled != null && isCancelled())
                             {
-                                try { fs.Close(); File.Delete(destPath); } catch { }
+                                try { fs.Close(); File.Delete(tempPath); } catch { }
                                 return false;
                             }
                             fs.Write(buf, 0, read);
@@ -83,12 +114,28 @@ namespace ZapretStudio
                         pr.BytesRead = total;
                     }
                 }
+                // Не портим рабочий файл при обрыве сети: новый файл попадает на
+                // место назначения только после полной успешной загрузки.
+                string backup = destPath + ".bak";
+                if (File.Exists(backup)) File.Delete(backup);
+                if (File.Exists(destPath)) File.Move(destPath, backup);
+                try
+                {
+                    File.Move(tempPath, destPath);
+                    if (File.Exists(backup)) File.Delete(backup);
+                }
+                catch
+                {
+                    if (!File.Exists(destPath) && File.Exists(backup)) File.Move(backup, destPath);
+                    throw;
+                }
                 pr.Elapsed = sw.Elapsed;
                 if (onProgress != null) onProgress(pr);
                 return true;
             }
             catch (Exception ex)
             {
+                try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
                 pr.Failed = true; pr.Error = Short(ex.Message);
                 if (onProgress != null) onProgress(pr);
                 return false;

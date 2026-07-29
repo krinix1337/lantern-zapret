@@ -21,6 +21,8 @@ namespace ZapretStudio
             A("nav.settings",   "Настройки",             "Settings");
             A("nav.log",        "Журнал",                "Log");
             A("nav.about",      "О проекте",             "About");
+            A("tools.title",    "Инструменты",           "Tools");
+            A("tools.sub",      "Дополнительные сетевые инструменты.", "Additional network tools.");
             A("common.running",   "Запущено",     "Running");
             A("common.stopped",   "Остановлено",  "Stopped");
             A("common.start",     "Запустить",    "Start");
@@ -51,6 +53,7 @@ namespace ZapretStudio
             A("mw.noStrats",    "Стратегии не найдены", "No strategies found");
             A("mw.startTask",   "Запуск обхода",      "Starting bypass");
             A("mw.startedToast","Обход запущен: {0}", "Bypass started: {0}");
+            A("mw.startingLog", "Запуск обхода со стратегией: {0}", "Starting bypass with strategy: {0}");
             A("mw.stratSelected","Стратегия выбрана: {0}. Запустите обход в главном меню.", "Strategy selected: {0}. Start the bypass from the main menu.");
             A("mw.startedTitle","zapret запущен",     "zapret started");
             A("mw.startErr",    "Запуск: {0}",        "Start: {0}");
@@ -60,6 +63,7 @@ namespace ZapretStudio
             A("mw.stopErr",     "Остановка: {0}",     "Stop: {0}");
             A("mw.noStratSel",  "Стратегия не выбрана", "No strategy selected");
             A("mw.restarting",  "Перезапуск обхода…", "Restarting bypass…");
+            A("mw.busy",        "Другая операция с обходом уже выполняется.", "Another bypass operation is already running.");
             A("mw.needAdminMsg","Для действия «{0}» нужны права администратора.\nЗапустите приложение от имени администратора.", "The \"{0}\" action requires administrator rights.\nRestart the app as administrator.");
             A("mw.needAdminLog","{0}: нет прав администратора", "{0}: no administrator rights");
             A("mw.startBypassAct","Запуск обхода",    "Starting bypass");
@@ -73,6 +77,8 @@ namespace ZapretStudio
             A("mw.updProgress", "Загрузка…",          "Downloading…");
             A("mw.updFail",     "Не удалось загрузить обновление", "Failed to download the update");
             A("mw.updDone",     "Обновление установлено: версия {0}", "Update installed: version {0}");
+            A("update.unverifiedTitle", "Автообновление отключено", "Automatic update disabled");
+            A("update.unverified", "Релиз не содержит проверяемой цифровой подписи или подписанного манифеста. Lantern не будет автоматически скачивать или запускать этот файл. Откроется страница релиза для ручной проверки.", "This release has no verifiable code signature or signed manifest. Lantern will not download or run it automatically. The release page will open for manual verification.");
             A("mw.noAdminWarn", "Приложение запущено без прав администратора — управление обходом и службой недоступно", "The app is running without administrator rights — bypass and service control is unavailable");
             A("mw.tray.toggle", "Запустить / остановить", "Start / stop");
             A("mw.tray.restart","Перезапустить",      "Restart");
@@ -143,6 +149,7 @@ namespace ZapretStudio
             A("settings.appVer",        "Версия Lantern", "Lantern version");
             A("settings.app.downloading","Скачивание установщика...", "Downloading installer...");
             A("settings.app.installerStarted","Установщик запущен. Следуйте инструкциям.", "Installer started. Follow the instructions.");
+            A("settings.app.manualOnly", "Доступна новая версия, но автоустановка отключена: релиз не имеет проверяемой подписи.", "A new version is available, but automatic installation is disabled because the release has no verifiable signature.");
             A("settings.timeout",     "Тайм-аут проверки соединения", "Connection check timeout");
             A("settings.timeout.desc","Максимальное ожидание ответа при проверке доступности адреса.", "Maximum wait for a response when checking a host.");
             A("settings.dns.note", "Приложение не меняет системный DNS. При проблемах с доступом рекомендуется вручную включить DNS-over-HTTPS (например, 1.1.1.1 или 8.8.8.8) в настройках сети Windows. Любое изменение DNS выполняется вами и с явным подтверждением.", "The app does not change the system DNS. If you have access issues, enable DNS-over-HTTPS manually (e.g. 1.1.1.1 or 8.8.8.8) in Windows network settings. Any DNS change is made by you, with explicit confirmation.");
@@ -217,6 +224,8 @@ namespace ZapretStudio
             A("time.s",   " с",   "s");
             A("ov.running",       "Запущено",   "Running");
             A("ov.stopped",       "Остановлено","Stopped");
+            A("ov.launching",     "Запуск...",  "Starting...");
+            A("ov.tgLaunching",   "Запуск прокси...", "Starting proxy...");
             A("ov.sub.service",   "Служба запущена. Стратегия активна.", "Service running. Strategy active.");
             A("ov.sub.manual",    "Стратегия активна.", "Strategy active.");
             A("ov.sub.off",       "Обход не активен. Нажмите «Запустить», чтобы применить стратегию.", "Bypass is off. Press Start to apply a strategy.");
@@ -475,6 +484,7 @@ namespace ZapretStudio
             A("about.ver.tg.desc","Локальный tg-ws-proxy", "Local tg-ws-proxy");
             A("about.ver.repo",   "Репозиторий приложения", "App repository");
             A("about.sec.links", "Ссылки", "Links");            A("about.link.flowseal","Сборка и стратегии обхода", "Build and bypass strategies");
+            A("about.link.tgproxy", "Локальный прокси для Telegram", "Local proxy for Telegram");
             A("about.link.engine", "Оригинальный движок DPI-обхода", "Original DPI bypass engine");
             A("about.link.windivert","Сетевой драйвер перехвата пакетов", "Packet capture network driver");
             A("about.sec.licenses","Лицензии", "Licenses");

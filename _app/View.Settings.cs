@@ -51,8 +51,11 @@ namespace ZapretStudio
             Body.Children.Add(Row(Loc.T("settings.autorun"), Loc.T("settings.autorun.desc"),
                 Tog("autostart_run", false, Loc.T("settings.autorun"), null)));
             Body.Children.Add(space());
-            Body.Children.Add(Row(Loc.T("settings.autostart"), Loc.T("settings.autostart.desc"),
-                Tog("autostart_app", false, Loc.T("settings.autostart"), null)));
+            var appAuto = new Toggle(Loc.T("settings.autostart"));
+            appAuto.IsChecked = Core.AppAutostartEnabled();
+            appAuto.Checked += (s, e) => Core.SetAppAutostart(true);
+            appAuto.Unchecked += (s, e) => Core.SetAppAutostart(false);
+            Body.Children.Add(Row(Loc.T("settings.autostart"), Loc.T("settings.autostart.desc"), appAuto));
             Body.Children.Add(space());
             var tgAuto = new Toggle(Loc.T("settings.tgAutostart"));
             tgAuto.IsChecked = Core.TgAutostartEnabled();
@@ -144,10 +147,10 @@ namespace ZapretStudio
 
             _zapCheckBtn = Ctl.Button(Loc.T("settings.checkNow"), Icons.Refresh, 1);
             _zapCheckBtn.Click += (s, e) => CheckZapretVersion();
-            _zapUpdateBtn = Ctl.Button(Loc.T("settings.updateNow"), Icons.Download, 0);
+            _zapUpdateBtn = Ctl.Button(Loc.T("dl.openPage"), Icons.External, 1);
             _zapUpdateBtn.Margin = new Thickness(10, 0, 0, 0);
             _zapUpdateBtn.Visibility = Visibility.Collapsed;
-            _zapUpdateBtn.Click += (s, e) => _win.CheckUpdates();
+            _zapUpdateBtn.Click += (s, e) => Core.OpenUrl(Core.ReleaseUrl);
             var zapBtnRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             zapBtnRow.Children.Add(_zapCheckBtn);
             zapBtnRow.Children.Add(_zapUpdateBtn);
@@ -176,10 +179,10 @@ namespace ZapretStudio
 
             _tgCheckBtn = Ctl.Button(Loc.T("settings.checkNow"), Icons.Refresh, 1);
             _tgCheckBtn.Click += (s, e) => CheckTgVersion();
-            _tgUpdateBtn = Ctl.Button(Loc.T("settings.updateNow"), Icons.Download, 0);
+            _tgUpdateBtn = Ctl.Button(Loc.T("dl.openPage"), Icons.External, 1);
             _tgUpdateBtn.Margin = new Thickness(10, 0, 0, 0);
             _tgUpdateBtn.Visibility = Visibility.Collapsed;
-            _tgUpdateBtn.Click += (s, e) => UpdateTgProxy();
+            _tgUpdateBtn.Click += (s, e) => Core.OpenUrl(Core.TgProxyReleasePage);
             var tgBtnRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             tgBtnRow.Children.Add(_tgCheckBtn);
             tgBtnRow.Children.Add(_tgUpdateBtn);
@@ -206,10 +209,10 @@ namespace ZapretStudio
 
             _appCheckBtn = Ctl.Button(Loc.T("settings.checkNow"), Icons.Refresh, 1);
             _appCheckBtn.Click += (s, e) => CheckAppVersion();
-            _appUpdateBtn = Ctl.Button(Loc.T("settings.updateNow"), Icons.Download, 0);
+            _appUpdateBtn = Ctl.Button(Loc.T("dl.openPage"), Icons.External, 1);
             _appUpdateBtn.Margin = new Thickness(10, 0, 0, 0);
             _appUpdateBtn.Visibility = Visibility.Collapsed;
-            _appUpdateBtn.Click += (s, e) => DoAppUpdate();
+            _appUpdateBtn.Click += (s, e) => Core.OpenUrl(Core.AppReleaseUrl);
             var appBtnRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             appBtnRow.Children.Add(_appCheckBtn);
             appBtnRow.Children.Add(_appUpdateBtn);
@@ -361,14 +364,13 @@ namespace ZapretStudio
             _tgUpdateBtn.Visibility = Visibility.Collapsed;
             _tgStatusLine.Text = Loc.T("tg.dlProgress");
             _tgStatusLine.Foreground = Theme.BrMuted;
-            string url = Core.TgProxyDownloadUrl();
-            string dest = Core.TgProxyExe;
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
                 try
                 {
+                    Core.TgProxyStop();
                     try { System.IO.Directory.CreateDirectory(Core.TgToolsDir); } catch { }
-                    bool ok = Core.DownloadFile(url, dest, null, null);
+                    bool ok = Core.DownloadFile(Core.TgProxyDownloadUrl(), Core.TgProxyExe, null, null);
                     Dispatcher.Invoke((Action)delegate
                     {
                         if (ok)
@@ -447,6 +449,19 @@ namespace ZapretStudio
 
         void DoAppUpdate()
         {
+            if (!Core.VerifiedUpdateManifestAvailable)
+            {
+                // Lantern installer is currently unsigned. Do not invoke it through the
+                // app until a publisher-controlled signed manifest is available.
+                _appUpdateBtn.Visibility = Visibility.Collapsed;
+                _appStatusLine.Text = Loc.T("settings.app.manualOnly");
+                _appStatusLine.Foreground = Theme.BrWarn;
+                MessageBox.Show(Loc.T("update.unverified"), Loc.T("update.unverifiedTitle"),
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                Core.OpenUrl(Core.AppReleaseUrl);
+                return;
+            }
+
             if (string.IsNullOrEmpty(_appUpdateUrl)) return;
             _appUpdateBtn.Visibility = Visibility.Collapsed;
             _appStatusLine.Text = Loc.T("settings.app.downloading");
@@ -559,7 +574,7 @@ namespace ZapretStudio
             if (string.IsNullOrEmpty(input.Trim())) return;
             input = input.Trim();
             Core.SaveProfile(input, _win.CurrentStrategyFile() ?? "", Core.GameMode,
-                System.IO.File.Exists(Core.IpsetFile), Core.DohMode);
+                Core.IpsetEnabled, Core.DohMode);
             RefreshProfileList();
             Core.Good(string.Format(Loc.T("settings.profile.saved"), input));
         }
@@ -573,9 +588,12 @@ namespace ZapretStudio
             Core.Profile p = null;
             foreach (var pr in profiles) if (pr.Name == name) { p = pr; break; }
             if (p == null) return;
-            if (!string.IsNullOrEmpty(p.Strategy)) _win.SelectStrategy(p.Strategy);
             Core.GameMode = p.GameMode;
+            Core.IpsetEnabled = p.Ipset;
             Core.DohMode = p.Doh;
+            // Если обход уже запущен, SelectStrategy перезапустит его с уже
+            // применёнными параметрами профиля.
+            if (!string.IsNullOrEmpty(p.Strategy)) _win.SelectStrategy(p.Strategy);
             Core.SaveConfig();
             Core.Good(string.Format(Loc.T("settings.profile.loaded"), name));
         }

@@ -17,6 +17,7 @@ namespace ZapretStudio
         Button _mainBtn, _restartBtn, _tgBtn, _tgFolderBtn;
         Border _cDiscord, _cYouTube, _cDivert, _cService;
         bool? _lastRunning;
+        bool _zapBusy, _tgBusy;
         DispatcherTimer _timer;
         TextBlock _trafficDown, _trafficUp, _trafficTotalDown, _trafficTotalUp;
 
@@ -35,6 +36,61 @@ namespace ZapretStudio
 
         public override void OnShow() { Refresh(); _timer.Start(); }
         public override void OnHide() { _timer.Stop(); }
+
+        // Короткая живая индикация запуска. После операции Refresh читает реальное
+        // состояние процесса и заменяет этот промежуточный статус.
+        public void SetZapretTransition(bool busy)
+        {
+            _zapBusy = busy;
+            if (busy)
+            {
+                _statusTitle.Text = Loc.T("ov.launching");
+                _statusTitle.Foreground = Theme.BrAccent;
+                _statusSub.Text = Loc.T("mw.startTask");
+                _mainBtn.IsEnabled = false;
+                _restartBtn.IsEnabled = false;
+                PulseCard(_statusCard, true);
+            }
+            else { PulseCard(_statusCard, false); Refresh(); }
+        }
+
+        public void SetTgTransition(bool busy)
+        {
+            _tgBusy = busy;
+            if (busy)
+            {
+                _tgStatusTitle.Text = Loc.T("ov.tgLaunching");
+                _tgStatusTitle.Foreground = Theme.BrAccent;
+                _tgStatusSub.Text = Loc.T("tg.dlProgress");
+                _tgBtn.IsEnabled = false;
+                PulseCard(_tgCard, true);
+            }
+            else { PulseCard(_tgCard, false); RefreshTg(); }
+        }
+
+        static void PulseCard(Border card, bool active)
+        {
+            if (card == null) return;
+            var scale = card.RenderTransform as ScaleTransform;
+            if (scale == null)
+            {
+                scale = new ScaleTransform(1, 1);
+                card.RenderTransform = scale;
+                card.RenderTransformOrigin = new Point(0.5, 0.5);
+            }
+            if (!active)
+            {
+                scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                scale.ScaleX = scale.ScaleY = 1;
+                return;
+            }
+            var pulse = new System.Windows.Media.Animation.DoubleAnimation(1, 1.018, TimeSpan.FromMilliseconds(520))
+            { AutoReverse = true, RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever,
+              EasingFunction = new System.Windows.Media.Animation.SineEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut } };
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, pulse);
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, pulse);
+        }
 
         // Два главных блока-действия рядом: слева обход (zapret), справа Telegram-прокси.
         void BuildHero()
@@ -221,10 +277,17 @@ namespace ZapretStudio
                 RefreshTg();
                 return;
             }
-            string err;
-            if (Core.TgProxyStart(out err)) { Core.Good(Loc.T("tg.startedOk")); _win.ShowToast(Loc.T("tg.startedOk"), Sev.Ok); }
-            else Core.Fail(string.Format(Loc.T("tg.startErr"), err));
-            RefreshTg();
+            SetTgTransition(true);
+            Dispatcher.BeginInvoke((Action)delegate
+            {
+                try
+                {
+                    string err;
+                    if (Core.TgProxyStart(out err)) { Core.Good(Loc.T("tg.startedOk")); _win.ShowToast(Loc.T("tg.startedOk"), Sev.Ok); }
+                    else Core.Fail(string.Format(Loc.T("tg.startErr"), err));
+                }
+                finally { SetTgTransition(false); }
+            }, DispatcherPriority.Background);
         }
 
         void TgStop()
@@ -261,6 +324,7 @@ namespace ZapretStudio
         void RefreshTg()
         {
             if (_tgBtn == null) return;
+            if (_tgBusy) return;
             bool installed = Core.TgProxyInstalled();
             bool running = Core.TgProxyRunning();
 
@@ -360,6 +424,7 @@ namespace ZapretStudio
 
         public void Refresh()
         {
+            if (_zapBusy) { RefreshTg(); return; }
             // zapret не установлен — показываем состояние загрузки
             if (!System.IO.File.Exists(Core.WinwsExe))
             {

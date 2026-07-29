@@ -40,6 +40,9 @@ namespace ZapretStudio
             // После загрузки конфига из папки zapret — повторно применяем сохранённые язык и тему.
             Loc.Load();
             ApplySavedTheme();
+            // Первый запуск скачивает проверенные шрифты в utils\\fonts. При офлайне
+            // приложение запускается с системным fallback и повторит попытку позже.
+            Core.EnsureUiFonts();
             Core.Info(string.Format(Loc.T("app.startedLog"), Core.Root));
             Core.Info(Core.IsAdmin() ? Loc.T("app.adminYes") : Loc.T("app.adminNo"));
 

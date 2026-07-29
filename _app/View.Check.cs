@@ -557,6 +557,11 @@ namespace ZapretStudio
 
             ThreadPool.QueueUserWorkItem(delegate
             {
+              if (!Core.TryBeginWinwsOperation())
+              {
+                Dispatcher.Invoke((Action)delegate { EndBusy(); Core.Warn(Loc.T("mw.busy")); });
+                return;
+              }
               try {
                 foreach (var rr in queue)
                 {
@@ -622,6 +627,7 @@ namespace ZapretStudio
                     if (!_stratCancel) ShowComparison();
                 });
               } catch { }
+              finally { Core.EndWinwsOperation(); }
             });
         }
 

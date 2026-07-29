@@ -37,6 +37,7 @@ namespace ZapretStudio
         public static StratScore TestStrategy(string batFile, List<Target> probes, Func<bool> cancel)
         {
             var sc = new StratScore { File = batFile, Total = probes.Count };
+            if (!TryBeginWinwsOperation()) return sc;
             try
             {
                 KillWinws();
@@ -60,7 +61,7 @@ namespace ZapretStudio
                 if (msCount > 0) sc.AvgMs = (double)msSum / msCount;
             }
             catch { }
-            finally { try { KillWinws(); } catch { } }
+            finally { try { KillWinws(); } catch { } EndWinwsOperation(); }
             return sc;
         }
 

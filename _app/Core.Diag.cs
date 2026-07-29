@@ -18,6 +18,12 @@ namespace ZapretStudio
         public const string VersionUrl = "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/main/.service/version.txt";
         public const string ReleaseUrl = "https://github.com/Flowseal/zapret-discord-youtube/releases/latest";
         public const string RepoUrl    = "https://github.com/Flowseal/zapret-discord-youtube";
+        public const string AppReleaseUrl = "https://github.com/krinix1337/lantern-zapret/releases/latest";
+
+        // Включается только вместе с реализацией проверки подписи и жёстко
+        // закреплённым публичным ключом издателя. На текущих релизах такого
+        // манифеста нет, поэтому все пути установки работают fail-closed.
+        public static bool VerifiedUpdateManifestAvailable { get { return false; } }
 
         public static bool IsAdmin()
         {
@@ -171,45 +177,16 @@ namespace ZapretStudio
 
         public static string AppInstallerUrl()
         {
-            try
-            {
-                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
-                using (var wc = new WebClient())
-                {
-                    wc.Encoding = System.Text.Encoding.UTF8;
-                    wc.Headers.Add("User-Agent", "Lantern");
-                    string json = wc.DownloadString(AppReleaseApi);
-                    var m = System.Text.RegularExpressions.Regex.Match(json, "\"browser_download_url\"\\s*:\\s*\"([^\"]+\\.exe)\"");
-                    if (m.Success) return m.Groups[1].Value;
-                }
-            }
-            catch { }
+            // Релизы не подписаны и не публикуют подписанный манифест. Fail-closed:
+            // URL установщика не возвращается, чтобы его нельзя было скачать и запустить.
             return null;
         }
 
         // Скачать установщик и запустить. Вызывать из фонового потока.
         public static bool SelfUpdate(string url, out string error)
         {
-            error = null;
-            try
-            {
-                string tmp = Path.Combine(Path.GetTempPath(), "Lantern-Setup.exe");
-                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
-                using (var wc = new WebClient())
-                {
-                    wc.Headers.Add("User-Agent", "Lantern");
-                    wc.DownloadFile(url, tmp);
-                }
-                if (!File.Exists(tmp)) { error = "File not saved"; return false; }
-                var psi = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = tmp,
-                    UseShellExecute = true
-                };
-                System.Diagnostics.Process.Start(psi);
-                return true;
-            }
-            catch (Exception ex) { error = ex.Message; return false; }
+            error = Loc.T("update.unverified");
+            return false;
         }
 
         // Текст changelog из последнего релиза (body). Для показа после обновления.

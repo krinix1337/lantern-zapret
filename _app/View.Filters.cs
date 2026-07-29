@@ -50,8 +50,8 @@ namespace ZapretStudio
         {
             Body.Children.Add(SectionLabel(Loc.T("filters.sec.ipset")));
             _ipset = new Toggle(Loc.T("filters.ipset"));
-            _ipset.Checked += (s, e) => MarkDirty();
-            _ipset.Unchecked += (s, e) => MarkDirty();
+            _ipset.Checked += (s, e) => { Core.IpsetEnabled = true; MarkDirty(); };
+            _ipset.Unchecked += (s, e) => { Core.IpsetEnabled = false; MarkDirty(); };
             bool has = File.Exists(Core.IpsetFile);
             var right = _ipset as UIElement;
             var row = Row(Loc.T("filters.ipset"),
@@ -82,6 +82,7 @@ namespace ZapretStudio
                     if (ok)
                     {
                         Core.Good(string.Format(Loc.T("filters.listsUpdated"), Core.IpsetCount()));
+                        _ipset.IsEnabled = File.Exists(Core.IpsetFile);
                         MarkDirty();
                     }
                     else Core.Fail(string.Format(Loc.T("filters.listsErr"), err));
@@ -259,6 +260,8 @@ namespace ZapretStudio
         void Sync()
         {
             _game.IsChecked = Core.GameMode != "off";
+            _ipset.IsChecked = Core.IpsetEnabled;
+            _ipset.IsEnabled = File.Exists(Core.IpsetFile);
             _doh.IsChecked = Core.DohMode > 0;
             ReloadList();
             ClearDirty();

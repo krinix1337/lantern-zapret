@@ -193,8 +193,29 @@ namespace ZapretStudio
             Apply(NextMode());
         }
 
-        public static readonly FontFamily UiFont  = new FontFamily("Segoe UI, Inter, sans-serif");
-        public static readonly FontFamily MonoFont = new FontFamily("JetBrains Mono, Cascadia Mono, Consolas, monospace");
+        // До первого скачивания доступны системные fallback-шрифты. После успешной
+        // проверки SHA-256 Core.ConfigureUiFonts подменяет эти семейства на локальные
+        // Google Sans / Google Sans Code из папки utils\\fonts.
+        public static FontFamily UiFont = new FontFamily("Google Sans, Google Sans Text, Product Sans, Segoe UI");
+        public static FontFamily MonoFont = new FontFamily("Google Sans Code, Cascadia Mono, Consolas");
+
+        public static bool ConfigureDownloadedFonts(string fontDirectory)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(fontDirectory) || !System.IO.Directory.Exists(fontDirectory)) return false;
+                string dir = System.IO.Path.GetFullPath(fontDirectory);
+                if (!dir.EndsWith(System.IO.Path.DirectorySeparatorChar.ToString())) dir += System.IO.Path.DirectorySeparatorChar;
+                var uri = new Uri(dir, UriKind.Absolute);
+                UiFont = new FontFamily(uri, "./#Google Sans");
+                MonoFont = new FontFamily(uri, "./#Google Sans Code");
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
 
         public const double FsDisplay = 30;
         public const double FsH1 = 22;
@@ -221,45 +242,49 @@ namespace ZapretStudio
         public static SolidColorBrush Alpha(Color c, byte a) { var b = new SolidColorBrush(Color.FromArgb(a, c.R, c.G, c.B)); b.Freeze(); return b; }
     }
 
-    // Векторные иконки (24x24 path data, штриховые, минималистичные).
+    // Material Design 3 icons (24x24 SVG path data). Контуры намеренно не
+    // используются: MD3-иконки — заливочные, с единым визуальным весом.
     static class Icons
     {
-        public const string Home     = "M4 11 L12 4 L20 11 M6 10 V19 H18 V10";
-        public const string Grid     = "M4 4 H10 V10 H4 Z M14 4 H20 V10 H14 Z M4 14 H10 V20 H4 Z M14 14 H20 V20 H14 Z";
-        public const string Pulse    = "M3 12 H7 L9 6 L13 18 L15 12 H21";
-        public const string Gear     = "M4 21 V14 M4 10 V3 M12 21 V12 M12 8 V3 M20 21 V16 M20 12 V3 M1 14 H7 M9 8 H15 M17 16 H23";
-        public const string Server   = "M4 5 H20 V10 H4 Z M4 14 H20 V19 H4 Z M7 7.5 H7.01 M7 16.5 H7.01";
-        public const string Filter   = "M4 5 H20 L14 12 V19 L10 21 V12 Z";
-        public const string List     = "M8 6 H20 M8 12 H20 M8 18 H20 M4 6 H4.01 M4 12 H4.01 M4 18 H4.01";
-        public const string Info     = "M12 3 A9 9 0 1 0 12 21 A9 9 0 1 0 12 3 M12 8 H12.01 M11 12 H12 V16 H13";
-        public const string Play     = "M7 4 V20 L19 12 Z";
-        public const string Stop     = "M6 6 H18 V18 H6 Z";
-        public const string Restart  = "M4 12 A8 8 0 1 0 6 6 M6 6 V10 M6 6 H10";
-        public const string Refresh  = "M20 12 A8 8 0 1 1 18 6 M18 6 V2 M18 6 H14";
-        public const string Folder   = "M4 6 H10 L12 8 H20 V18 H4 Z";
+        public const string Home = "M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z";
+        public const string Grid = "M3 3h8v8H3V3m10 0h8v8h-8V3M3 13h8v8H3v-8m10 0h8v8h-8v-8z";
+        public const string Pulse = "M3.55 19.09 7 15.64l4 4L22.45 8.18l-1.41-1.41L11 16.81l-4-4-4.86 4.87zM14 4l2.29 2.29-4.88 4.88 1.41 1.41 4.88-4.88L20 10V4z";
+        public const string Gear = "M3 17v2h6v-2H3M3 5v2h10V5H3m10 14v-2h8v-2h-8v-2h-2v6h2M7 9v2H3v2h4v2h2V9H7m14 4v-2H11v2h10M15 9h2V7h4V5h-4V3h-2v6z";
+        public const string Server = "M3 3h18v6H3V3m2 2v2h14V5H5m-2 6h18v6H3v-6m2 2v2h14v-2H5m-2 6h18v2H3v-2z";
+        public const string Filter = "M3 5h18l-7 8v5l-4 2v-7L3 5z";
+        public const string List = "M3 13h2v-2H3v2m0 4h2v-2H3v2m0-8h2V7H3v2m4 4h14v-2H7v2m0 4h14v-2H7v2m0-8v2h14V7H7z";
+        public const string Info = "M11 17h2v-6h-2v6m1-15a10 10 0 1 0 0 20 10 10 0 0 0 0-20m0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16m-1-11h2V7h-2v2z";
+        public const string Play = "M8 5v14l11-7z";
+        public const string Stop = "M6 6h12v12H6z";
+        public const string Restart = "M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z";
+        public const string Refresh = Restart;
+        public const string Folder = "M10 4H2v16h20V6H12l-2-2m10 14H4V8h16v10z";
         public const string Github   = "M12 2 A10 10 0 0 0 9 21.5 C9 20 9 18.5 9 18 C6.5 18.5 6 16.5 6 16.5 C5.5 15 4.5 14.5 4.5 14.5 C3.5 14 4.5 14 4.5 14 C6 14 6.5 15.5 6.5 15.5 C7.5 17 9 16.5 9.5 16.5 C9.5 15.5 10 15 10.5 14.5 C7.5 14 5.5 13 5.5 9.5 C5.5 8 6 7 6.5 6.5 C6.5 6 6 5 6.5 3.5 C6.5 3.5 8 3.5 9.5 5 C10.5 4.5 13.5 4.5 14.5 5 C16 3.5 17.5 3.5 17.5 3.5 C18 5 17.5 6 17.5 6.5 C18 7 18.5 8 18.5 9.5 C18.5 13 16.5 14 13.5 14.5 C14 15 14.5 16 14.5 17.5 C14.5 18.5 14.5 20 14.5 21.5 A10 10 0 0 0 12 2";
-        public const string Check    = "M5 12 L10 17 L19 7";
-        public const string Cross    = "M6 6 L18 18 M18 6 L6 18";
-        public const string Warn     = "M12 3 L22 20 H2 Z M12 9 V14 M12 17 H12.01";
-        public const string Search   = "M11 4 A7 7 0 1 0 11 18 A7 7 0 1 0 11 4 M16 16 L21 21";
-        public const string Star     = "M12 3 L14.5 9 L21 9.5 L16 14 L17.5 20.5 L12 17 L6.5 20.5 L8 14 L3 9.5 L9.5 9 Z";
-        public const string Copy     = "M8 8 H18 V20 H8 Z M6 16 H4 V4 H14 V6";
-        public const string Save     = "M5 4 H16 L20 8 V20 H5 Z M8 4 V9 H15 M8 15 H16";
-        public const string External = "M14 4 H20 V10 M20 4 L11 13 M18 14 V19 H5 V6 H10";
-        public const string Shield   = "M12 3 L20 6 V11 C20 16 16 20 12 21 C8 20 4 16 4 11 V6 Z";
-        public const string Dot      = "M12 8 A4 4 0 1 0 12 16 A4 4 0 1 0 12 8";
-        public const string Down     = "M6 9 L12 15 L18 9";
-        public const string Menu     = "M5 7 H19 M5 12 H19 M5 17 H19";
-        public const string Sun      = "M12 7 A5 5 0 1 0 12 17 A5 5 0 1 0 12 7 M12 1 V3 M12 21 V23 M4.2 4.2 L5.6 5.6 M18.4 18.4 L19.8 19.8 M1 12 H3 M21 12 H23 M4.2 19.8 L5.6 18.4 M18.4 5.6 L19.8 4.2";
-        public const string Moon     = "M20 14 A9 9 0 1 1 10 4 A7 7 0 0 0 20 14 Z";
-        public const string Globe    = "M12 3 A9 9 0 1 0 12 21 A9 9 0 1 0 12 3 M3 12 H21 M12 3 C15 6 15 18 12 21 C9 18 9 6 12 3";
-        public const string Game     = "M8 12 H12 M10 10 V14 M16 11 H16.01 M18 13 H18.01 M7 7 H17 A4 4 0 0 1 21 11 L20 17 A3 3 0 0 1 15 18 L14 16 H10 L9 18 A3 3 0 0 1 4 17 L3 11 A4 4 0 0 1 7 7 Z";
-        public const string Plug     = "M9 3 V8 M15 3 V8 M7 8 H17 V12 A5 5 0 0 1 7 12 Z M12 17 V21";
-        public const string Download = "M12 3 V15 M7 10 L12 15 L17 10 M5 19 H19";
-        public const string Telegram = "M21 5 L2 12 L9 14 L11 20 L14 16 L18 19 Z M9 14 L18 7";
-        public const string Link     = "M9 12 H15 M10 8 H7 A4 4 0 0 0 7 16 H10 M14 8 H17 A4 4 0 0 1 17 16 H14";
-        public const string Bolt     = "M13 2 L4 14 H11 L10 22 L20 9 H13 Z";
-        public const string Lantern  = "M9 4 A3 2 0 0 1 15 4 M7 6 H17 M8 6 V17 A2 2 0 0 0 10 19 H14 A2 2 0 0 0 16 17 V6 M6 19 H18 M12 9 A2 3 0 0 0 12 15 A2 3 0 0 0 12 9";
+        public const string Check = "m9 16.17-4.17-4.18L3.41 13.4 9 19 21 7l-1.41-1.41z";
+        public const string Cross = "M18.3 5.71 16.89 4.29 12 9.17 7.11 4.29 5.7 5.71 10.59 10.59 5.7 15.48l1.41 1.41L12 12l4.89 4.89 1.41-1.41-4.89-4.89z";
+        public const string Warn = "M1 21h22L12 2 1 21m12-3h-2v-2h2v2m0-4h-2v-4h2v4z";
+        public const string Search = "M9.5 3a6.5 6.5 0 0 1 5.2 10.4L21 19.7 19.7 21l-6.3-6.3A6.5 6.5 0 1 1 9.5 3m0 2a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z";
+        // Material Symbols Rounded SVG paths, imported from Google's public icon set.
+        public const string Star = "M19.65 9.04l-4.84-.42-1.89-4.45c-.34-.81-1.5-.81-1.84 0L9.19 8.63l-4.83.41c-.88.07-1.24 1.17-.57 1.75l3.67 3.18-1.1 4.72c-.2.86.73 1.54 1.49 1.08l4.15-2.5 4.15 2.51c.76.46 1.69-.22 1.49-1.08l-1.1-4.73 3.67-3.18c.67-.58.32-1.68-.56-1.75zM12 15.4l-3.76 2.27 1-4.28-3.32-2.88 4.38-.38L12 6.1l1.71 4.04 4.38.38-3.32 2.88 1 4.28L12 15.4z";
+        public const string StarFilled = "M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z";
+        public const string Copy = "M19 21H8c-1.1 0-2-.9-2-2V8c0-1.1.9-2 2-2h11c1.1 0 2 .9 2 2v11c0 1.1-.9 2-2 2M8 8v11h11V8H8M16 3H4c-1.1 0-2 .9-2 2v12h2V5h12V3z";
+        public const string Save = "M17 3H5c-1.1 0-1.99.9-1.99 2L3 19c0 1.1.89 2 1.99 2H19c1.1 0 2-.9 2-2V7l-4-4m-5 16a3 3 0 1 1 0-6 3 3 0 0 1 0 6M6 8V5h9v3H6z";
+        public const string External = "M14 3v2h3.59L7.76 14.83l1.41 1.41L19 6.41V10h2V3h-7M5 5h7V3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7H5V5z";
+        public const string Shield = "M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4m0 4.18 5 2.22v3.36c0 3.54-2.29 6.86-5 7.93-2.71-1.07-5-4.39-5-7.93V7.4l5-2.22z";
+        public const string Dot = "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z";
+        public const string Down = "M7 10l5 5 5-5z";
+        public const string Menu = "M3 18h18v-2H3v2m0-5h18v-2H3v2m0-7v2h18V6H3z";
+        public const string MenuOpen = "M4 18h11c.55 0 1-.45 1-1s-.45-1-1-1H4c-.55 0-1 .45-1 1s.45 1 1 1m0-5h8c.55 0 1-.45 1-1s-.45-1-1-1H4c-.55 0-1 .45-1 1s.45 1 1 1M4 8h11c.55 0 1-.45 1-1s-.45-1-1-1H4c-.55 0-1 .45-1 1s.45 1 1 1m16.3 6.88L17.42 12l2.88-2.88c.39-.39.39-1.02 0-1.41s-1.02-.39-1.41 0l-3.59 3.59c-.39.39-.39 1.02 0 1.41l3.59 3.59c.39.39 1.02.39 1.41 0s.39-1.02 0-1.41z";
+        public const string Sun = "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6m0-7 1.25 2.75L16 5l-2.75 1.25L12 9l-1.25-2.75L8 5l2.75-.25L12 2m-7 8 2.75 1.25L8 14l-1.25-2.75L4 10l2.75-1.25L8 6l1.25 2.75L12 10l-2.75 1.25L8 14l-1.25-2.75L4 10m14-2 1.25 2.75L22 12l-2.75 1.25L18 16l-1.25-2.75L14 12l2.75-1.25L18 8z";
+        public const string Moon = "M9.37 5.51A7 7 0 0 0 18.49 14 7 7 0 1 1 9.37 5.51z";
+        public const string Globe = "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m6.9 6h-2.95c-.32-1.25-.84-2.45-1.55-3.35A8.03 8.03 0 0 1 18.9 8M12 4.04c.83 1.2 1.48 2.5 1.89 3.96h-3.78A14.1 14.1 0 0 1 12 4.04M4.26 14a8.2 8.2 0 0 1 0-4h3.13a16.6 16.6 0 0 0 0 4H4.26m.84 2h2.95c.32 1.25.84 2.45 1.55 3.35A8.03 8.03 0 0 1 5.1 16m2.95-8H5.1a8.03 8.03 0 0 1 4.5-3.35A13.7 13.7 0 0 0 8.05 8m1.84 8h4.22A14.1 14.1 0 0 1 12 19.96 14.1 14.1 0 0 1 9.89 16m-1-2a14.5 14.5 0 0 1 0-4h6.22a14.5 14.5 0 0 1 0 4H8.89m5.51 5.35c.71-.9 1.23-2.1 1.55-3.35h2.95a8.03 8.03 0 0 1-4.5 3.35M16.61 14a16.6 16.6 0 0 0 0-4h3.13a8.2 8.2 0 0 1 0 4h-3.13z";
+        public const string Game = "M7.97 16 5.5 18.35C4.9 18.92 3.87 18.5 3.87 17.67V9.5c0-3.04 2.46-5.5 5.5-5.5h5.26c3.04 0 5.5 2.46 5.5 5.5v8.17c0 .83-1.03 1.25-1.63.68L16.03 16h-2.05l-1.25 1.25c-.4.4-1.04.4-1.44 0L10.05 16H7.97m2.03-7H8v2H6v2h2v2h2v-2h2v-2h-2V9m5.5.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3m2.5 2a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z";
+        public const string Plug = "M7 2v6H5v2h2v3a5 5 0 0 0 4 4.9V22h2v-4.1a5 5 0 0 0 4-4.9v-3h2V8h-2V2h-2v6H9V2H7m2 8h6v3a3 3 0 0 1-6 0v-3z";
+        public const string Download = "M19 9h-4V3H9v6H5l7 7 7-7M5 18v2h14v-2H5z";
+        public const string Telegram = "M21 5 2 12l7 2 2 6 3-4 4 3 3-14M9.5 13.5 17.5 8l-6.3 7.1-.2 2.1-1-3.7z";
+        public const string Link = "M3.9 12c0-1.71 1.39-3.1 3.1-3.1H10V7H7a5 5 0 0 0 0 10h3v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1m4.1 1h8v-2H8v2m9-6h-3v1.9h3a3.1 3.1 0 0 1 0 6.2h-3V17h3a5 5 0 0 0 0-10z";
+        public const string Bolt = "M11 21h-1l1-7H7.5c-.88 0-.33-.75-.31-.78C8.48 10.94 10.42 7.54 13 3h1l-1 7h3.5c.4 0 .62.19.4.66C12.97 17.55 11 21 11 21z";
+        public const string Lantern = "M9 21h6v-1H9v1m3-19a7 7 0 0 0-4 12.74V17h8v-2.26A7 7 0 0 0 12 2m2 11.73V15h-4v-1.27l-.48-.3A5 5 0 1 1 14.48 13l-.48.3z";
     }
 
     static class UI
@@ -269,11 +294,7 @@ namespace ZapretStudio
             return new System.Windows.Shapes.Path
             {
                 Data = Geometry.Parse(data),
-                Stroke = stroke,
-                StrokeThickness = thickness,
-                StrokeStartLineCap = PenLineCap.Round,
-                StrokeEndLineCap = PenLineCap.Round,
-                StrokeLineJoin = PenLineJoin.Round,
+                Fill = stroke,
                 Stretch = Stretch.Uniform,
                 Width = size, Height = size,
                 SnapsToDevicePixels = false
