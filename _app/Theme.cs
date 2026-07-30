@@ -7,8 +7,8 @@ using System.Windows.Media.Effects;
 
 namespace ZapretStudio
 {
-    // Тема оформления: тёмная / светлая / AMOLED.
-    enum ThemeMode { Dark, Light, Amoled }
+    // Тема оформления: тёмная / светлая / AMOLED / северное сияние / Peter Griffin.
+    enum ThemeMode { Dark, Light, Amoled, Aurora, Peter }
 
     // Централизованная дизайн-система. Кисти НЕ заморожены — при смене темы
     // мутируем их .Color, и все контролы, держащие ту же ссылку, перерисовываются.
@@ -102,11 +102,57 @@ namespace ZapretStudio
             Err = Rgb(0xDB, 0x5E, 0x5E); ErrDim = Rgb(0x2C, 0x18, 0x18);
         }
 
+        // Тёплая глубокая тема с зелёным акцентом. Контраст подобран так, чтобы
+        // журнал и статусы оставались читаемыми даже на неярких мониторах.
+        static void SetAuroraPalette()
+        {
+            BgDeep     = Rgb(0x0B, 0x16, 0x16);
+            BgBase     = Rgb(0x0F, 0x20, 0x20);
+            Surface    = Rgb(0x15, 0x2A, 0x2A);
+            SurfaceAlt = Rgb(0x1A, 0x34, 0x33);
+            SurfaceHi  = Rgb(0x24, 0x43, 0x40);
+            Stroke     = Rgb(0x30, 0x51, 0x4E);
+            StrokeSoft = Rgb(0x22, 0x3B, 0x39);
+            Text       = Rgb(0xEF, 0xF7, 0xF3);
+            TextMuted  = Rgb(0xA7, 0xBF, 0xB7);
+            TextFaint  = Rgb(0x72, 0x91, 0x89);
+            AccentMain = Rgb(0x4D, 0xC5, 0x96);
+            AccentHi   = Rgb(0x7A, 0xE1, 0xB8);
+            AccentDim  = Rgb(0x1D, 0x5C, 0x49);
+            Ok  = Rgb(0x62, 0xD3, 0x8A); OkDim  = Rgb(0x16, 0x3A, 0x29);
+            Warn = Rgb(0xF0, 0xB8, 0x52); WarnDim = Rgb(0x43, 0x31, 0x12);
+            Err = Rgb(0xF0, 0x76, 0x76); ErrDim = Rgb(0x43, 0x20, 0x22);
+        }
+
+        // Мягкая семейная палитра: небесно-голубой фон, зелёные акценты и
+        // тёплая жёлтая подсветка — под фоновую иллюстрацию Питера Гриффина.
+        static void SetPeterPalette()
+        {
+            BgDeep     = Rgb(0xD9, 0xEC, 0xF3);
+            BgBase     = Rgb(0xEE, 0xF7, 0xFA);
+            Surface    = Rgb(0xFA, 0xFD, 0xFE);
+            SurfaceAlt = Rgb(0xE5, 0xF1, 0xF5);
+            SurfaceHi  = Rgb(0xCF, 0xE3, 0xEA);
+            Stroke     = Rgb(0xAE, 0xCD, 0xD7);
+            StrokeSoft = Rgb(0xC9, 0xDF, 0xE6);
+            Text       = Rgb(0x1E, 0x35, 0x3B);
+            TextMuted  = Rgb(0x50, 0x70, 0x78);
+            TextFaint  = Rgb(0x7A, 0x99, 0xA1);
+            AccentMain = Rgb(0x4D, 0x9B, 0x62);
+            AccentHi   = Rgb(0x60, 0xB8, 0x77);
+            AccentDim  = Rgb(0xC5, 0xE5, 0xCC);
+            Ok  = Rgb(0x37, 0x96, 0x57); OkDim  = Rgb(0xD5, 0xEF, 0xDC);
+            Warn = Rgb(0xB7, 0x7B, 0x18); WarnDim = Rgb(0xFB, 0xED, 0xCB);
+            Err = Rgb(0xC1, 0x55, 0x4D); ErrDim = Rgb(0xF8, 0xDF, 0xDC);
+        }
+
         public static void Apply(ThemeMode mode)
         {
             Mode = mode;
             if (mode == ThemeMode.Light) SetLightPalette();
             else if (mode == ThemeMode.Amoled) SetAmoledPalette();
+            else if (mode == ThemeMode.Aurora) SetAuroraPalette();
+            else if (mode == ThemeMode.Peter) SetPeterPalette();
             else SetDarkPalette();
             BrBgDeep.Color = BgDeep;   BrBgBase.Color = BgBase;
             BrSurface.Color = Surface; BrSurfaceAlt.Color = SurfaceAlt; BrSurfaceHi.Color = SurfaceHi;
@@ -185,6 +231,8 @@ namespace ZapretStudio
         {
             if (Mode == ThemeMode.Dark) return ThemeMode.Amoled;
             if (Mode == ThemeMode.Amoled) return ThemeMode.Light;
+            if (Mode == ThemeMode.Light) return ThemeMode.Aurora;
+            if (Mode == ThemeMode.Aurora) return ThemeMode.Peter;
             return ThemeMode.Dark;
         }
 
@@ -435,6 +483,45 @@ namespace ZapretStudio
             b.Padding = new Thickness(0);
             b.Template = ButtonTemplate();
             b.FocusVisualStyle = FocusStyle();
+            AddMotion(b);
+        }
+
+        // Единая микроанимация для всех кнопок. Работает через RenderTransform,
+        // поэтому не запускает перерасчёт разметки и остаётся лёгкой на слабых ПК.
+        // При «Уменьшить анимацию» состояние меняется мгновенно.
+        public static void AddMotion(System.Windows.Controls.Primitives.ButtonBase control)
+        {
+            if (control == null || control.RenderTransform is ScaleTransform) return;
+
+            var scale = new ScaleTransform(1, 1);
+            control.RenderTransform = scale;
+            control.RenderTransformOrigin = new Point(0.5, 0.5);
+
+            Action<double, int> setScale = (target, duration) =>
+            {
+                if (!Theme.AnimationsEnabled)
+                {
+                    scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                    scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                    scale.ScaleX = target;
+                    scale.ScaleY = target;
+                    return;
+                }
+
+                var anim = new DoubleAnimation(target, TimeSpan.FromMilliseconds(duration))
+                {
+                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+                };
+                scale.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
+                scale.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
+            };
+
+            control.MouseEnter += (s, e) => { if (control.IsEnabled) setScale(1.012, 110); };
+            control.MouseLeave += (s, e) => setScale(1, 120);
+            control.PreviewMouseLeftButtonDown += (s, e) => { if (control.IsEnabled) setScale(0.972, 70); };
+            control.PreviewMouseLeftButtonUp += (s, e) => setScale(control.IsMouseOver ? 1.012 : 1, 130);
+            control.LostMouseCapture += (s, e) => setScale(control.IsMouseOver ? 1.012 : 1, 120);
+            control.IsEnabledChanged += (s, e) => { if (!control.IsEnabled) setScale(1, 0); };
         }
 
         static System.Windows.Controls.ControlTemplate ButtonTemplate()
@@ -474,6 +561,7 @@ namespace ZapretStudio
         public static CheckBox Check(string autoName)
         {
             var cb = new CheckBox { Foreground = Theme.BrText, Template = CheckTemplate() };
+            AddMotion(cb);
             if (!string.IsNullOrEmpty(autoName)) AutomationSetName(cb, autoName);
             return cb;
         }
@@ -605,6 +693,7 @@ namespace ZapretStudio
             Content = _track;
             Template = MakeTemplate();
             FocusVisualStyle = Ctl.FocusStyle();
+            Ctl.AddMotion(this);
             Checked += (s, e) => Render(true);
             Unchecked += (s, e) => Render(true);
             Ctl.AutomationSetName(this, accessibleName);

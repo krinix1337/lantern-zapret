@@ -14,7 +14,9 @@ namespace ZapretStudio
         public override string Subtitle { get { return Loc.T("filters.sub"); } }
 
         readonly MainWindow _win;
-        Toggle _game, _ipset, _doh;
+        Toggle _doh;
+        ComboBox _gameMode, _ipsetMode;
+        bool _syncing;
         Border _restartBar;
 
         // Визуальный редактор списков
@@ -38,28 +40,36 @@ namespace ZapretStudio
         void BuildGame()
         {
             Body.Children.Add(SectionLabel(Loc.T("filters.sec.game")));
-            _game = new Toggle(Loc.T("filters.game"));
-            _game.Checked += (s, e) => { Core.GameMode = "all"; MarkDirty(); };
-            _game.Unchecked += (s, e) => { Core.GameMode = "off"; MarkDirty(); };
+            _gameMode = Combo(185);
+            _gameMode.Items.Add(Loc.T("filters.game.off"));
+            _gameMode.Items.Add(Loc.T("filters.game.all"));
+            _gameMode.Items.Add(Loc.T("filters.game.tcp"));
+            _gameMode.Items.Add(Loc.T("filters.game.udp"));
+            _gameMode.SelectionChanged += (s, e) =>
+            {
+                if (_syncing) return;
+                Core.GameMode = _gameMode.SelectedIndex == 1 ? "all" : _gameMode.SelectedIndex == 2 ? "tcp" : _gameMode.SelectedIndex == 3 ? "udp" : "off";
+                MarkDirty();
+            };
             Body.Children.Add(Row(Loc.T("filters.game"),
                 Loc.T("filters.game.desc"),
-                _game));
+                _gameMode));
         }
 
         void BuildIpset()
         {
             Body.Children.Add(SectionLabel(Loc.T("filters.sec.ipset")));
-            _ipset = new Toggle(Loc.T("filters.ipset"));
-            _ipset.Checked += (s, e) => { Core.IpsetEnabled = true; MarkDirty(); };
-            _ipset.Unchecked += (s, e) => { Core.IpsetEnabled = false; MarkDirty(); };
-            bool has = File.Exists(Core.IpsetFile);
-            var right = _ipset as UIElement;
-            var row = Row(Loc.T("filters.ipset"),
-                has ? Loc.T("filters.ipset.on")
-                    : Loc.T("filters.ipset.off"),
-                right);
-            if (!has) _ipset.IsEnabled = false;
-            Body.Children.Add(row);
+            _ipsetMode = Combo(185);
+            _ipsetMode.Items.Add(Loc.T("filters.ipset.loaded"));
+            _ipsetMode.Items.Add(Loc.T("filters.ipset.none"));
+            _ipsetMode.Items.Add(Loc.T("filters.ipset.any"));
+            _ipsetMode.SelectionChanged += (s, e) =>
+            {
+                if (_syncing) return;
+                Core.SetIpsetMode(_ipsetMode.SelectedIndex == 1 ? "none" : _ipsetMode.SelectedIndex == 2 ? "any" : "loaded");
+                MarkDirty();
+            };
+            Body.Children.Add(Row(Loc.T("filters.ipset"), Loc.T("filters.ipset.on"), _ipsetMode));
 
             // Кнопка обновления списков с GitHub
             var updBtn = Ctl.Button(Loc.T("filters.updateLists"), Icons.Refresh, 1);
@@ -82,7 +92,6 @@ namespace ZapretStudio
                     if (ok)
                     {
                         Core.Good(string.Format(Loc.T("filters.listsUpdated"), Core.IpsetCount()));
-                        _ipset.IsEnabled = File.Exists(Core.IpsetFile);
                         MarkDirty();
                     }
                     else Core.Fail(string.Format(Loc.T("filters.listsErr"), err));
@@ -259,9 +268,11 @@ namespace ZapretStudio
 
         void Sync()
         {
-            _game.IsChecked = Core.GameMode != "off";
-            _ipset.IsChecked = Core.IpsetEnabled;
-            _ipset.IsEnabled = File.Exists(Core.IpsetFile);
+            _syncing = true;
+            _gameMode.SelectedIndex = Core.GameMode == "all" ? 1 : Core.GameMode == "tcp" ? 2 : Core.GameMode == "udp" ? 3 : 0;
+            string ipset = Core.IpsetStatus();
+            _ipsetMode.SelectedIndex = ipset == "none" ? 1 : ipset == "any" ? 2 : 0;
+            _syncing = false;
             _doh.IsChecked = Core.DohMode > 0;
             ReloadList();
             ClearDirty();

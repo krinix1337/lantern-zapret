@@ -1,7 +1,9 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace ZapretStudio
 {
@@ -31,7 +33,7 @@ namespace ZapretStudio
             root.Children.Add(head);
 
             Body = new StackPanel { Margin = new Thickness(28, 12, 28, 28) };
-            var sv = new ScrollViewer
+            var sv = new SmoothScrollViewer
             {
                 Content = Body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(0)
@@ -211,7 +213,7 @@ namespace ZapretStudio
                 new System.Windows.Data.Binding("ActualWidth") { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
             popBorder.SetValue(Border.EffectProperty, new System.Windows.Media.Effects.DropShadowEffect { Color = Colors.Black, BlurRadius = 14, ShadowDepth = 3, Opacity = 0.35, Direction = 270 });
 
-            var scroll = new FrameworkElementFactory(typeof(ScrollViewer));
+            var scroll = new FrameworkElementFactory(typeof(SmoothScrollViewer));
             scroll.SetValue(ScrollViewer.MaxHeightProperty, 280.0);
             scroll.SetValue(ScrollViewer.VerticalScrollBarVisibilityProperty, ScrollBarVisibility.Auto);
             var items = new FrameworkElementFactory(typeof(ItemsPresenter));
@@ -254,5 +256,64 @@ namespace ZapretStudio
         }
 
         static UIElement space10() { return new Border { Height = 10 }; }
+    }
+
+    // Небольшая инерция колеса мыши для всех экранов. Вместо LayoutTransform
+    // используется ScrollToVerticalOffset: во время движения работает один
+    // короткий таймер, без тяжёлого перерасчёта содержимого.
+    class SmoothScrollViewer : ScrollViewer
+    {
+        const double WheelStep = 72;
+        const int DurationMs = 165;
+        readonly DispatcherTimer _timer;
+        DateTime _started;
+        double _from;
+        double _target;
+
+        public SmoothScrollViewer()
+        {
+            _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(15) };
+            _timer.Tick += (s, e) => Tick();
+            PreviewMouseWheel += OnPreviewMouseWheel;
+        }
+
+        void OnPreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            if (ScrollableHeight <= 0) return;
+            e.Handled = true;
+            double baseOffset = _timer.IsEnabled ? _target : VerticalOffset;
+            double steps = e.Delta / 120.0;
+            ScrollSmoothly(baseOffset - steps * WheelStep);
+        }
+
+        void ScrollSmoothly(double offset)
+        {
+            double max = Math.Max(0, ScrollableHeight);
+            _from = VerticalOffset;
+            _target = Math.Max(0, Math.Min(max, offset));
+            if (!Theme.AnimationsEnabled)
+            {
+                _timer.Stop();
+                ScrollToVerticalOffset(_target);
+                return;
+            }
+            if (Math.Abs(_target - _from) < 0.5) return;
+            _started = DateTime.UtcNow;
+            _timer.Start();
+        }
+
+        void Tick()
+        {
+            double t = (DateTime.UtcNow - _started).TotalMilliseconds / DurationMs;
+            if (t >= 1)
+            {
+                ScrollToVerticalOffset(_target);
+                _timer.Stop();
+                return;
+            }
+            // Cubic ease-out: быстро реагирует на колесо и мягко останавливается.
+            double eased = 1 - Math.Pow(1 - t, 3);
+            ScrollToVerticalOffset(_from + (_target - _from) * eased);
+        }
     }
 }

@@ -25,8 +25,9 @@ namespace ZapretStudio
             BuildToolbar();
             BuildFilterBar();
             _lines = new StackPanel();
-            _sv = new ScrollViewer { Content = _lines, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Background = Theme.BrBgDeep, Padding = new Thickness(12) };
+            _sv = new SmoothScrollViewer { Content = _lines, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Background = Theme.BrBgDeep, Padding = new Thickness(12, 12, 16, 12) };
             var card = new Border { Child = _sv, CornerRadius = Theme.R10, BorderBrush = Theme.BrStroke,
                 BorderThickness = new Thickness(1), Margin = new Thickness(0, 8, 0, 0) };
             // Адаптивная высота: Grid с star-строкой вместо фиксированных 460px.
@@ -171,8 +172,8 @@ namespace ZapretStudio
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            var time = new TextBlock { Text = e.Time.ToString("HH:mm:ss.fff"), Foreground = Theme.BrFaint,
-                FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont, Width = 94, VerticalAlignment = VerticalAlignment.Top };
+            var time = new TextBlock { Text = e.Time.ToString("HH:mm:ss"), Foreground = Theme.BrFaint,
+                FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont, Width = 68, VerticalAlignment = VerticalAlignment.Top };
             Grid.SetColumn(time, 0); g.Children.Add(time);
             var level = new TextBlock { Text = LevelName(e.Level), Foreground = UI2.SevBrush(e.Level),
                 FontSize = Theme.FsTiny, FontFamily = Theme.MonoFont, FontWeight = FontWeights.Bold, Width = 48,
@@ -182,7 +183,7 @@ namespace ZapretStudio
                 FontFamily = Theme.MonoFont, TextWrapping = TextWrapping.Wrap };
             Grid.SetColumn(msg, 2); g.Children.Add(msg);
             var accent = UI2.SevColor(e.Level);
-            return new Border { Child = g, Margin = new Thickness(0, 0, 0, 3), Padding = new Thickness(9, 7, 9, 7),
+            return new Border { Child = g, Margin = new Thickness(0, 0, 0, 4), Padding = new Thickness(10, 7, 10, 7),
                 Background = Theme.Alpha(accent, 10), BorderBrush = Theme.Alpha(accent, 54),
                 BorderThickness = new Thickness(2, 0, 0, 0), CornerRadius = Theme.R6 };
         }

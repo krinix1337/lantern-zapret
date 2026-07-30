@@ -146,12 +146,20 @@ namespace ZapretStudio
         // верхний каталог (zapret-discord-youtube-main) — «поднимаем» его содержимое.
         public static bool ExtractZapretZip(string zipPath, string destDir, out string error)
         {
+            return ExtractZapretZip(zipPath, destDir, out error, null);
+        }
+
+        // Этапы передаются отдельно от прогресса загрузки: распаковка и замена
+        // файлов выполняются локально и не имеют достоверного процента байтов.
+        public static bool ExtractZapretZip(string zipPath, string destDir, out string error, Action<string> onStage)
+        {
             error = null;
             try
             {
                 string tmp = destDir + "_unz_tmp";
                 if (Directory.Exists(tmp)) Directory.Delete(tmp, true);
                 Directory.CreateDirectory(tmp);
+                if (onStage != null) onStage("extract");
                 System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, tmp);
 
                 // Определяем корень: если одна папка верхнего уровня с bin внутри — используем её.
@@ -161,6 +169,7 @@ namespace ZapretStudio
                 if (files.Length == 0 && dirs.Length == 1) src = dirs[0];
 
                 if (!Directory.Exists(destDir)) Directory.CreateDirectory(destDir);
+                if (onStage != null) onStage("replace");
                 CopyDir(src, destDir);
                 try { Directory.Delete(tmp, true); } catch { }
                 return true;

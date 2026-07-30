@@ -1,6 +1,6 @@
 ; Lantern Installer — Inno Setup 6
 #define AppName "Lantern"
-#define AppVersion "3.0"
+#define AppVersion "4.0"
 #define AppPublisher "krinix1337"
 #define AppURL "https://github.com/krinix1337/lantern-zapret"
 #define AppExeName "Lantern.exe"
@@ -41,6 +41,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; Only the app — zapret components are downloaded in-app
 Source: "{#SrcDir}\Lantern.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SrcDir}\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SrcDir}\assets\peter-songs\*.mp3"; DestDir: "{app}\assets\peter-songs"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"

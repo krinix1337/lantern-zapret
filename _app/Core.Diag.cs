@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Security.Principal;
@@ -177,16 +178,38 @@ namespace ZapretStudio
 
         public static string AppInstallerUrl()
         {
-            // Релизы не подписаны и не публикуют подписанный манифест. Fail-closed:
-            // URL установщика не возвращается, чтобы его нельзя было скачать и запустить.
+            // Берём адрес именно из GitHub Releases, а не из захардкоженной ссылки.
+            // Так приложение всегда использует ассет опубликованного релиза.
+            try
+            {
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                using (var wc = new WebClient())
+                {
+                    wc.Encoding = System.Text.Encoding.UTF8;
+                    wc.Headers.Add("User-Agent", "Lantern");
+                    string json = wc.DownloadString(AppReleaseApi);
+                    var m = System.Text.RegularExpressions.Regex.Match(json,
+                        "\\\"name\\\"\\s*:\\s*\\\"Lantern-Setup\\.exe\\\"[\\s\\S]*?\\\"browser_download_url\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+                    if (m.Success) return m.Groups[1].Value.Replace("\\/", "/");
+                }
+            }
+            catch { }
             return null;
         }
 
         // Скачать установщик и запустить. Вызывать из фонового потока.
-        public static bool SelfUpdate(string url, out string error)
+        public static bool SelfUpdate(string url, System.Action<DlProgress> onProgress, out string error)
         {
-            error = Loc.T("update.unverified");
-            return false;
+            error = null;
+            if (string.IsNullOrEmpty(url)) { error = Loc.T("mw.verFail"); return false; }
+            try
+            {
+                string file = Path.Combine(Path.GetTempPath(), "Lantern-Setup-" + Guid.NewGuid().ToString("N") + ".exe");
+                if (!DownloadFile(url, file, onProgress, null)) { error = Loc.T("tg.dlFail"); return false; }
+                Process.Start(new ProcessStartInfo { FileName = file, UseShellExecute = true });
+                return true;
+            }
+            catch (Exception ex) { error = Short(ex.Message); return false; }
         }
 
         // Текст changelog из последнего релиза (body). Для показа после обновления.

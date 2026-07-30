@@ -119,6 +119,41 @@ namespace ZapretStudio
             catch { return "any"; }
         }
 
+        // Те же три состояния, что в service.bat: загруженный список, пустой
+        // список (any) и служебная запись-заглушка (none). При переходе в none
+        // оригинальный список сохраняется рядом, чтобы его можно было вернуть.
+        public static void SetIpsetMode(string mode)
+        {
+            try
+            {
+                string backup = IpsetFile + ".backup";
+                string current = IpsetStatus();
+                if (mode == "loaded")
+                {
+                    if (File.Exists(backup))
+                    {
+                        if (File.Exists(IpsetFile)) File.Delete(IpsetFile);
+                        File.Move(backup, IpsetFile);
+                    }
+                }
+                else if (mode == "none")
+                {
+                    if (current == "loaded" && File.Exists(IpsetFile))
+                    {
+                        if (File.Exists(backup)) File.Delete(backup);
+                        File.Move(IpsetFile, backup);
+                    }
+                    File.WriteAllText(IpsetFile, "203.0.113.113/32" + Environment.NewLine);
+                }
+                else if (mode == "any")
+                {
+                    File.WriteAllText(IpsetFile, "");
+                }
+                IpsetEnabled = true;
+            }
+            catch { }
+        }
+
         // IPSet — отдельная пользовательская настройка. Наличие файла не означает,
         // что пользователь хочет добавлять его к аргументам winws.
         public static bool IpsetEnabled

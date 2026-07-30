@@ -30,6 +30,23 @@ namespace ZapretStudio
 
         public static string FontsDir { get { return Path.Combine(UtilsDir, "fonts"); } }
 
+        public static bool ConfigureUiFontsFromCache()
+        {
+            if (string.IsNullOrEmpty(Root)) return false;
+            foreach (var asset in UiFontAssets)
+                if (!FileMatches(Path.Combine(FontsDir, asset.Name), asset.Sha256)) return false;
+            return Theme.ConfigureDownloadedFonts(FontsDir);
+        }
+
+        public static void EnsureUiFontsInBackground()
+        {
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                try { EnsureUiFonts(); }
+                catch { }
+            });
+        }
+
         // Выполняется при запуске до создания MainWindow. Возвращает true, если
         // шрифты готовы к применению; отсутствие сети не блокирует запуск Lantern.
         public static bool EnsureUiFonts()

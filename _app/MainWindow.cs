@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
 namespace ZapretStudio
@@ -127,7 +129,21 @@ namespace ZapretStudio
             root.Children.Add(side);
 
             _host = new ContentControl();
-            var hostBorder = new Border { Child = _host, Background = Theme.BrBgDeep };
+            var contentLayer = new Grid { ClipToBounds = true };
+            if (Theme.Mode == ThemeMode.Peter && Core.GetBool("peter_backdrop", true))
+            {
+                var source = PeterBackdrop();
+                if (source != null)
+                {
+                    contentLayer.Children.Add(new Image { Source = source, Width = 560, Opacity = 0.28,
+                        Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Right,
+                        VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 20, 0),
+                        IsHitTestVisible = false });
+                    contentLayer.Children.Add(new Border { Background = Theme.Alpha(Theme.BgDeep, 150), IsHitTestVisible = false });
+                }
+            }
+            contentLayer.Children.Add(_host);
+            var hostBorder = new Border { Child = contentLayer, Background = Theme.BrBgDeep };
             Grid.SetRow(hostBorder, 1); Grid.SetColumn(hostBorder, 1);
             root.Children.Add(hostBorder);
 
@@ -144,6 +160,55 @@ namespace ZapretStudio
 
         Grid _rootGrid;
         StackPanel _toastHost;
+        readonly MediaPlayer _peterPlayer = new MediaPlayer();
+        readonly Random _peterRandom = new Random();
+        string _lastPeterTrack;
+        static ImageSource _peterBackdrop;
+
+        static ImageSource PeterBackdrop()
+        {
+            if (_peterBackdrop != null) return _peterBackdrop;
+            try
+            {
+                var asm = System.Reflection.Assembly.GetExecutingAssembly();
+                using (var stream = asm.GetManifestResourceStream("ZapretStudio.Assets.PeterGriffin"))
+                {
+                    if (stream == null) return null;
+                    var image = new BitmapImage();
+                    image.BeginInit();
+                    image.CacheOption = BitmapCacheOption.OnLoad;
+                    image.StreamSource = stream;
+                    image.EndInit();
+                    image.Freeze();
+                    _peterBackdrop = image;
+                    return _peterBackdrop;
+                }
+            }
+            catch { return null; }
+        }
+
+        public void PlayRandomPeterSong()
+        {
+            try
+            {
+                string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assets", "peter-songs");
+                string[] tracks = Directory.Exists(dir) ? Directory.GetFiles(dir, "*.mp3") : new string[0];
+                if (tracks.Length == 0) { ShowToast(Loc.T("settings.peter.song.none"), Sev.Warn); return; }
+                int index = _peterRandom.Next(tracks.Length);
+                if (tracks.Length > 1 && tracks[index] == _lastPeterTrack) index = (index + 1) % tracks.Length;
+                _lastPeterTrack = tracks[index];
+                _peterPlayer.Open(new Uri(_lastPeterTrack));
+                _peterPlayer.Volume = 0.7;
+                _peterPlayer.Play();
+                ShowToast(string.Format(Loc.T("settings.peter.song.playing"), Path.GetFileNameWithoutExtension(_lastPeterTrack)), Sev.Ok);
+            }
+            catch (Exception ex) { Core.Fail(ex.Message); ShowToast(Loc.T("settings.peter.song.none"), Sev.Warn); }
+        }
+
+        public void StopPeterSong()
+        {
+            try { _peterPlayer.Stop(); _peterPlayer.Close(); } catch { }
+        }
 
         // Toast-стек: быстрые уведомления отображаются одно над другим, без наложения.
         public void ShowToast(string text, Sev sev)
@@ -260,7 +325,7 @@ namespace ZapretStudio
         void ToggleTheme()
         {
             var next = Theme.NextMode();
-            Core.Set("theme", next == ThemeMode.Light ? "light" : next == ThemeMode.Amoled ? "amoled" : "dark");
+            Core.Set("theme", next == ThemeMode.Light ? "light" : next == ThemeMode.Amoled ? "amoled" : next == ThemeMode.Aurora ? "aurora" : next == ThemeMode.Peter ? "peter" : "dark");
             Core.SaveConfig();
             Theme.Apply(next);
         }
@@ -271,6 +336,7 @@ namespace ZapretStudio
         StackPanel _bottomBox;
         Button _collapseBtn;
         bool _collapsed;
+        int _sidebarAnimationId;
         const double SideWide = 248, SideNarrow = 64;
 
         Border BuildSidebar()
@@ -290,7 +356,7 @@ namespace ZapretStudio
             nav.Children.Add(NavItem("settings", Icons.Gear, Loc.T("nav.settings")));
             nav.Children.Add(NavItem("log", Icons.List, Loc.T("nav.log")));
             nav.Children.Add(NavItem("about", Icons.Info, Loc.T("nav.about")));
-            var sv = new ScrollViewer { Content = nav, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            var sv = new SmoothScrollViewer { Content = nav, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
             Grid.SetRow(sv, 0); outer.Children.Add(sv);
 
@@ -329,6 +395,13 @@ namespace ZapretStudio
                 FontSize = Theme.FsTiny, FontFamily = Theme.UiFont, TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 4, 0, 0) };
             _bottomBox.Children.Add(_tgVerSidebar);
+
+            _appVerSidebar = new TextBlock { Foreground = Theme.BrFaint,
+                FontSize = Theme.FsTiny, FontFamily = Theme.UiFont, TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 4, 0, 0) };
+            _bottomBox.Children.Add(_appVerSidebar);
+            UpdateAppSidebarVersion();
+
             var gh = new Button { Cursor = Cursors.Hand, Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
             Ctl.StripChrome(gh);
             var ghsp = new StackPanel { Orientation = Orientation.Horizontal };
@@ -339,15 +412,12 @@ namespace ZapretStudio
             gh.Click += (s, e) => Core.OpenUrl(Core.AppRepo);
             Ctl.AutomationSetName(gh, Loc.T("mw.openGithub"));
             _bottomBox.Children.Add(gh);
-            var appv = new TextBlock { Text = string.Format(Loc.T("mw.appShell"), Core.AppVersion), Foreground = Theme.BrFaint,
-                FontSize = Theme.FsTiny, FontFamily = Theme.UiFont, Margin = new Thickness(0, 10, 0, 0) };
-            _bottomBox.Children.Add(appv);
             bottomWrap.Children.Add(_bottomBox);
 
             Grid.SetRow(bottomWrap, 1); outer.Children.Add(bottomWrap);
 
             _sidebar = new Border { Child = outer, BorderBrush = Theme.BrStroke, BorderThickness = new Thickness(0, 0, 1, 0),
-                Width = _collapsed ? SideNarrow : SideWide };
+                Width = _collapsed ? SideNarrow : SideWide, ClipToBounds = true };
             ApplyCollapsedState(false);
             return _sidebar;
         }
@@ -366,26 +436,25 @@ namespace ZapretStudio
 
         void ApplyCollapsedState(bool animate)
         {
+            int animationId = ++_sidebarAnimationId;
             double target = _collapsed ? SideNarrow : SideWide;
+
+            // При изменении ширины не оставляем текст в разметке: он не должен
+            // перемерять панель на каждом кадре анимации. При разворачивании
+            // подписи и нижний блок появятся только после достижения ширины.
             foreach (var lbl in _navLabels)
             {
                 if (_collapsed)
                 {
-                    if (animate && Theme.AnimationsEnabled)
-                    {
-                        var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(lbl.Opacity, 0, TimeSpan.FromMilliseconds(90));
-                        fadeOut.Completed += (s, e) => lbl.Visibility = Visibility.Collapsed;
-                        lbl.BeginAnimation(OpacityProperty, fadeOut);
-                    }
-                    else lbl.Visibility = Visibility.Collapsed;
+                    lbl.BeginAnimation(OpacityProperty, null);
+                    lbl.Opacity = 0;
+                    lbl.Visibility = Visibility.Collapsed;
                 }
                 else
                 {
-                    lbl.Visibility = Visibility.Visible;
+                    lbl.BeginAnimation(OpacityProperty, null);
                     lbl.Opacity = animate && Theme.AnimationsEnabled ? 0 : 1;
-                    if (animate && Theme.AnimationsEnabled)
-                        lbl.BeginAnimation(OpacityProperty, new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160))
-                        { BeginTime = TimeSpan.FromMilliseconds(80) });
+                    lbl.Visibility = animate && Theme.AnimationsEnabled ? Visibility.Collapsed : Visibility.Visible;
                 }
             }
             if (_collapseLabel != null) _collapseLabel.Text = _collapsed ? "" : Loc.T("mw.collapse");
@@ -399,9 +468,11 @@ namespace ZapretStudio
                 bd.Padding = _collapsed ? new Thickness(0, 10, 0, 10) : new Thickness(12, 10, 12, 10);
                 sp.HorizontalAlignment = _collapsed ? HorizontalAlignment.Center : HorizontalAlignment.Left;
                 kv.Value.Width = _collapsed ? 44 : double.NaN;
-                kv.Value.Height = _collapsed ? 44 : double.NaN;
+                // Высота и вертикальный отступ не меняются: в компактном виде
+                // расстояние между иконками остаётся таким же, как в обычном.
+                kv.Value.Height = double.NaN;
                 kv.Value.HorizontalAlignment = _collapsed ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
-                kv.Value.Margin = _collapsed ? new Thickness(0, 0, 0, 6) : new Thickness(0, 0, 0, 4);
+                kv.Value.Margin = new Thickness(0, 0, 0, 4);
             }
             // Уменьшаем горизонтальные поля навигационной панели в свёрнутом виде,
             // чтобы иконки (18px) гарантированно помещались в 64px без обрезки.
@@ -411,15 +482,39 @@ namespace ZapretStudio
                 _collapseSp.HorizontalAlignment = _collapsed ? HorizontalAlignment.Center : HorizontalAlignment.Left;
             if (_collapseBd != null)
                 _collapseBd.Padding = _collapsed ? new Thickness(0, 9, 0, 9) : new Thickness(12, 9, 12, 9);
-            if (_bottomBox != null) _bottomBox.Visibility = _collapsed ? Visibility.Collapsed : Visibility.Visible;
+            if (_bottomBox != null)
+            {
+                _bottomBox.BeginAnimation(OpacityProperty, null);
+                _bottomBox.Visibility = _collapsed || (animate && Theme.AnimationsEnabled)
+                    ? Visibility.Collapsed : Visibility.Visible;
+                _bottomBox.Opacity = 1;
+            }
             if (_sidebar == null) return;
             if (animate && Theme.AnimationsEnabled)
             {
                 double from = _sidebar.ActualWidth;
                 _sidebar.BeginAnimation(FrameworkElement.WidthProperty, null);
                 _sidebar.Width = target;
-                var a = new System.Windows.Media.Animation.DoubleAnimation(from, target, TimeSpan.FromMilliseconds(260))
-                { EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut } };
+                var a = new System.Windows.Media.Animation.DoubleAnimation(from, target, TimeSpan.FromMilliseconds(180))
+                { EasingFunction = new System.Windows.Media.Animation.QuadraticEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut } };
+                a.Completed += (s, e) =>
+                {
+                    // Быстрое повторное нажатие не должно показать элементы,
+                    // если панель к моменту завершения уже снова свёрнута.
+                    if (animationId != _sidebarAnimationId || _collapsed) return;
+                    foreach (var lbl in _navLabels)
+                    {
+                        lbl.Visibility = Visibility.Visible;
+                        lbl.Opacity = 0;
+                        var fade = new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(110));
+                        lbl.BeginAnimation(OpacityProperty, fade);
+                    }
+                    if (_bottomBox != null)
+                    {
+                        _bottomBox.Visibility = Visibility.Visible;
+                        _bottomBox.Opacity = 1;
+                    }
+                };
                 _sidebar.BeginAnimation(FrameworkElement.WidthProperty, a);
             }
             else
@@ -431,12 +526,22 @@ namespace ZapretStudio
 
         TextBlock _updateLine;
         TextBlock _tgVerSidebar;
+        TextBlock _appVerSidebar;
 
         static string TgSidebarText()
         {
             if (!Core.TgProxyInstalled()) return Loc.T("mw.tgVer.none");
             string v = Core.TgProxyLocalVersion();
             return string.Format(Loc.T("mw.tgVer"), string.IsNullOrEmpty(v) ? "?" : v.TrimStart('v', 'V'));
+        }
+
+        void UpdateAppSidebarVersion()
+        {
+            if (_appVerSidebar == null) return;
+            bool hasUpdate = !string.IsNullOrEmpty(_lastAppLatest)
+                && SettingsPage.CompareVersions(_lastAppLatest, Core.AppVersion) > 0;
+            _appVerSidebar.Text = string.Format(Loc.T(hasUpdate ? "mw.appShell.update" : "mw.appShell"), Core.AppVersion);
+            _appVerSidebar.Foreground = hasUpdate ? Theme.BrWarn : Theme.BrFaint;
         }
 
         Button NavItem(string key, string icon, string label)
@@ -518,6 +623,10 @@ namespace ZapretStudio
             var p = PageFor(key);
             _host.Content = p;
             p.OnShow();
+            var settings = p as SettingsPage;
+            if (settings != null && _haveUpdateResults)
+                settings.SetAutomaticUpdateResults(_lastZapretLatest, _lastZapretLocal,
+                    _lastTgLatest, _lastTgLocal, _lastAppLatest, Core.AppVersion);
             PaintNav();
             if (_navPanel != null) _navPanel.UpdateLayout();
             if (Theme.AnimationsEnabled && !Core.GetBool("reduce_motion", false))
@@ -685,10 +794,34 @@ namespace ZapretStudio
 
         // ---------- Обновления ----------
         volatile bool _updating;
+        volatile bool _checkingUpdates;
+        bool _haveUpdateResults;
+        string _lastZapretLatest, _lastZapretLocal, _lastTgLatest, _lastTgLocal, _lastAppLatest;
+
+        void SetZapretUpdateProgress(string phase, int percent)
+        {
+            Page settingsPage;
+            if (_pages.TryGetValue("settings", out settingsPage))
+            {
+                var settings = settingsPage as SettingsPage;
+                if (settings != null) settings.SetZapretUpdateProgress(phase, percent);
+            }
+        }
+
+        void FinishZapretUpdate(string text, bool ok)
+        {
+            Page settingsPage;
+            if (_pages.TryGetValue("settings", out settingsPage))
+            {
+                var settings = settingsPage as SettingsPage;
+                if (settings != null) settings.FinishZapretUpdate(text, ok);
+            }
+        }
 
         public void CheckUpdates()
         {
-            if (_updating) return;
+            if (_checkingUpdates) return;
+            _checkingUpdates = true;
             Core.Info(Loc.T("mw.checkVer"));
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
@@ -705,27 +838,32 @@ namespace ZapretStudio
 
                     Dispatcher.Invoke((Action)delegate
                     {
+                        _lastZapretLatest = latest; _lastZapretLocal = local;
+                        _lastTgLatest = tgLatest; _lastTgLocal = tgLocal;
+                        _lastAppLatest = appLatest; _haveUpdateResults = true;
                         // --- zapret ---
                         if (latest == null) { Core.Warn(Loc.T("mw.verFail")); }
-                        else if (SettingsPage.NormVer(latest) == SettingsPage.NormVer(local))
+                        else if (SettingsPage.CompareVersions(latest, local) == 0)
                         {
                             Core.Good(string.Format(Loc.T("mw.verOk"), latest));
                             _updateLine.Text = string.Format(Loc.T("mw.verCurrent"), local);
+                        }
+                        else if (SettingsPage.CompareVersions(latest, local) < 0)
+                        {
+                            Core.Info(string.Format(Loc.T("settings.localNewer"), local, latest));
+                            _updateLine.Text = string.Format(Loc.T("mw.verLine"), local);
                         }
                         else
                         {
                             Core.Warn(string.Format(Loc.T("mw.verNew"), latest, local));
                             _updateLine.Text = string.Format(Loc.T("mw.verUpdate"), local);
-                            var r = MessageBox.Show(string.Format(Loc.T("mw.verNew"), latest, local) + "\n\n" + Loc.T("update.unverified"),
-                                Loc.T("mw.verDlgTitle"), MessageBoxButton.YesNo, MessageBoxImage.Information);
-                            if (r == MessageBoxResult.Yes) Core.OpenUrl(Core.ReleaseUrl);
                         }
 
                         // --- TG proxy ---
                         if (Core.TgProxyInstalled() && !string.IsNullOrEmpty(tgLocal))
                         {
                             string tgLv = tgLocal.TrimStart('v', 'V');
-                            if (tgLatest != null && SettingsPage.NormVer(tgLatest) != SettingsPage.NormVer(tgLocal))
+                            if (tgLatest != null && SettingsPage.CompareVersions(tgLatest, tgLocal) > 0)
                             {
                                 _tgVerSidebar.Text = string.Format(Loc.T("mw.tgVer.update"), tgLv);
                                 Core.Warn(string.Format(Loc.T("mw.verNew"), tgLatest, tgLv));
@@ -738,13 +876,25 @@ namespace ZapretStudio
                         }
 
                         // --- app ---
-                        if (appLatest != null && SettingsPage.NormVer(appLatest) != SettingsPage.NormVer(Core.AppVersion))
+                        if (appLatest != null && SettingsPage.CompareVersions(appLatest, Core.AppVersion) > 0)
                             Core.Warn(string.Format(Loc.T("mw.verNew"), appLatest, Core.AppVersion));
-                        else if (appLatest != null)
+                        else if (appLatest != null && SettingsPage.CompareVersions(appLatest, Core.AppVersion) == 0)
                             Core.Good(string.Format(Loc.T("mw.verOk"), Core.AppVersion));
+                        else if (appLatest != null)
+                            Core.Info(string.Format(Loc.T("settings.localNewer"), Core.AppVersion, appLatest));
+                        UpdateAppSidebarVersion();
+
+                        Page settingsPage;
+                        if (_pages.TryGetValue("settings", out settingsPage))
+                        {
+                            var settings = settingsPage as SettingsPage;
+                            if (settings != null)
+                                settings.SetAutomaticUpdateResults(latest, local, tgLatest, tgLocal, appLatest, Core.AppVersion);
+                        }
                     });
                 }
                 catch { }
+                finally { _checkingUpdates = false; }
             });
         }
 
@@ -760,6 +910,7 @@ namespace ZapretStudio
             string root = Core.Root;
             Core.Info(string.Format(Loc.T("mw.updStart"), ver));
             _updateLine.Text = Loc.T("mw.updProgress");
+            SetZapretUpdateProgress(Loc.T("settings.update.downloading"), 0);
 
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
@@ -776,6 +927,8 @@ namespace ZapretStudio
                                 string pct = p.Total > 0 ? " (" + (int)((double)p.BytesRead / p.Total * 100) + "%)" : "";
                                 _updateLine.Text = Loc.T("mw.updProgress") + " " + Core.HumanSize(p.BytesRead) +
                                     (p.Total > 0 ? " / " + Core.HumanSize(p.Total) : "") + pct;
+                                int progress = p.Total > 0 ? (int)(p.BytesRead * 88 / p.Total) : -1;
+                                SetZapretUpdateProgress(Loc.T("settings.update.downloading"), progress);
                             });
                         }
                         catch { }
@@ -786,14 +939,27 @@ namespace ZapretStudio
                         Dispatcher.Invoke((Action)delegate
                         {
                             _updateLine.Text = Loc.T("mw.updFail");
+                            FinishZapretUpdate(Loc.T("mw.updFail"), false);
                             Core.Fail(Loc.T("mw.updFail"));
                         });
                         return;
                     }
 
-                    Dispatcher.Invoke((Action)delegate { _updateLine.Text = Loc.T("dl.extracting"); });
                     string err;
-                    bool ex = Core.ExtractZapretZip(zip, root, out err);
+                    bool ex = Core.ExtractZapretZip(zip, root, out err, delegate (string stage)
+                    {
+                        try
+                        {
+                            Dispatcher.Invoke((Action)delegate
+                            {
+                                bool extract = stage == "extract";
+                                _updateLine.Text = extract ? Loc.T("dl.extracting") : Loc.T("settings.update.replacing");
+                                SetZapretUpdateProgress(Loc.T(extract ? "settings.update.unpacking" : "settings.update.replacing"),
+                                    extract ? 90 : 96);
+                            });
+                        }
+                        catch { }
+                    });
                     try { System.IO.File.Delete(zip); } catch { }
 
                     string changelog = null;
@@ -805,6 +971,7 @@ namespace ZapretStudio
                         {
                             string newVer = Core.ZapretVersion();
                             _updateLine.Text = string.Format(Loc.T("mw.verCurrent"), newVer);
+                            FinishZapretUpdate(Loc.T("settings.update.done") + ": " + newVer, true);
                             Core.Good(string.Format(Loc.T("mw.updDone"), newVer));
                             string msg = string.Format(Loc.T("mw.updDone"), newVer);
                             if (!string.IsNullOrEmpty(changelog))
@@ -816,6 +983,7 @@ namespace ZapretStudio
                         else
                         {
                             _updateLine.Text = Loc.T("mw.updFail");
+                            FinishZapretUpdate(Loc.T("mw.updFail"), false);
                             Core.Fail(string.Format(Loc.T("dl.failExtract"), err != null ? ": " + err : ""));
                         }
                     });
@@ -825,9 +993,18 @@ namespace ZapretStudio
             });
         }
 
+        public void UpdateZapret(string latestVersion)
+        {
+            if (string.IsNullOrEmpty(latestVersion)) { Core.Warn(Loc.T("mw.verFail")); return; }
+            if (SettingsPage.CompareVersions(latestVersion, Core.ZapretVersion()) <= 0) return;
+            DoUpdate(latestVersion);
+        }
+
         void AfterLoad()
         {
-            if (Core.GetBool("check_updates", true)) CheckUpdates();
+            // Проверка всегда выполняется в фоне при каждом входе в приложение.
+            // Она ничего сама не скачивает и не показывает модальные окна.
+            CheckUpdates();
             if (Core.GetBool("autostart_run", false) && !string.IsNullOrEmpty(_currentStrategyFile) && Core.IsAdmin())
                 RunStrategy(_currentStrategyFile);
             RefreshTop();
@@ -931,12 +1108,18 @@ namespace ZapretStudio
                 menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
                 Add(menu, Loc.T("mw.tray.exit"), delegate { Dispatcher.Invoke((Action)delegate { _forceClose = true; Close(); }); });
                 _tray.ContextMenuStrip = menu;
+                _tray.MouseClick += (s, e) =>
+                {
+                    if (e.Button == System.Windows.Forms.MouseButtons.Left)
+                        Dispatcher.BeginInvoke((Action)ToggleTrayWidget);
+                };
                 _tray.DoubleClick += (s, e) => Dispatcher.Invoke((Action)ShowWindow);
             }
             catch { }
         }
 
         System.Windows.Forms.ToolStripMenuItem _trayStatus;
+        TrayStatusWidget _trayWidget;
         bool _forceClose;
 
         void Add(System.Windows.Forms.ContextMenuStrip m, string text, Action act)
@@ -949,6 +1132,7 @@ namespace ZapretStudio
         void UpdateTray(bool on)
         {
             if (_trayStatus != null) _trayStatus.Text = on ? Loc.T("state.running") + " · " + (CurrentStrategyName() ?? "") : Loc.T("state.stopped");
+            if (_trayWidget != null) _trayWidget.Refresh();
         }
 
         void Notify(string title, string text)
@@ -962,6 +1146,38 @@ namespace ZapretStudio
             Show(); WindowState = WindowState.Normal; Activate(); Topmost = true; Topmost = false;
         }
 
+        // Используется виджетом: сам виджет не знает о внутренней навигации окна.
+        public void ShowWindowFromTray() { ShowWindow(); }
+
+        public void ToggleTgProxyFromTray()
+        {
+            if (!Core.TgProxyInstalled())
+            {
+                ShowWindow();
+                Navigate("overview");
+                return;
+            }
+            if (Core.TgProxyRunning())
+            {
+                Core.TgProxyStop();
+                Core.Info(Loc.T("tg.stoppedOk"));
+            }
+            else
+            {
+                string error;
+                if (Core.TgProxyStart(out error)) Core.Good(Loc.T("tg.startedOk"));
+                else Core.Fail(string.Format(Loc.T("tg.startErr"), error));
+            }
+            RefreshTop();
+        }
+
+        void ToggleTrayWidget()
+        {
+            if (_trayWidget == null) _trayWidget = new TrayStatusWidget(this);
+            if (_trayWidget.IsVisible) _trayWidget.Hide();
+            else _trayWidget.ShowAtCursor();
+        }
+
         void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
         {
             if (!_forceClose && Core.GetBool("tray_on_close", true))
@@ -973,9 +1189,11 @@ namespace ZapretStudio
             }
             try { if (_watchdogTimer != null) _watchdogTimer.Stop(); } catch { }
             try { if (_bypassMonitor != null) _bypassMonitor.Stop(); } catch { }
+            StopPeterSong();
             foreach (var p in _pages.Values) { try { p.OnHide(); } catch { } }
             Loc.LanguageChanged -= OnUiChanged;
             Theme.ThemeChanged -= OnUiChanged;
+            try { if (_trayWidget != null) { _trayWidget.Close(); _trayWidget = null; } } catch { }
             try { if (_tray != null) { _tray.Visible = false; _tray.Dispose(); _tray = null; } } catch { }
         }
     }

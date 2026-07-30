@@ -93,6 +93,10 @@ namespace ZapretStudio
             NavCheck(win, "overview");
             Theme.Apply(ThemeMode.Dark); Pump(); ForceLayout(win); Shot(win, "overview-dark");
             Theme.Apply(ThemeMode.Light); Pump(); ForceLayout(win); Shot(win, "overview-light");
+            Theme.Apply(ThemeMode.Amoled); Pump(); ForceLayout(win); Shot(win, "overview-amoled");
+            Theme.Apply(ThemeMode.Aurora); Pump(); ForceLayout(win); Shot(win, "overview-aurora");
+            Core.SetBool("peter_backdrop", true);
+            Theme.Apply(ThemeMode.Peter); Pump(); ForceLayout(win); Shot(win, "overview-peter");
             NavCheck(win, "strategies"); ForceLayout(win); Shot(win, "strategies-light");
             NavCheck(win, "service"); ForceLayout(win); Shot(win, "service-light");
             NavCheck(win, "settings"); ForceLayout(win); Shot(win, "settings-light");
@@ -270,6 +274,15 @@ namespace ZapretStudio
             }
         }
 
+        static void ScrollToBottom(DependencyObject root)
+        {
+            var sv = root as ScrollViewer;
+            if (sv != null) sv.ScrollToEnd();
+            int n = 0;
+            try { n = VisualTreeHelper.GetChildrenCount(root); } catch { return; }
+            for (int i = 0; i < n; i++) ScrollToBottom(VisualTreeHelper.GetChild(root, i));
+        }
+
         static void Try(string what, Action act)
         {
             try { act(); _pass++; }
@@ -292,7 +305,14 @@ namespace ZapretStudio
                 rtb.Render(win);
                 var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
                 enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
-                string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "_shot_" + name + ".png");
+                string dir;
+                if (name.StartsWith("overview-", StringComparison.OrdinalIgnoreCase))
+                {
+                    dir = Path.Combine(Core.Root, "docs", "themes");
+                    Directory.CreateDirectory(dir);
+                }
+                else dir = AppDomain.CurrentDomain.BaseDirectory;
+                string path = Path.Combine(dir, (dir == AppDomain.CurrentDomain.BaseDirectory ? "_shot_" : "") + name + ".png");
                 using (var fs = new FileStream(path, FileMode.Create)) enc.Save(fs);
                 Line("SHOT", name + " -> " + path);
             }

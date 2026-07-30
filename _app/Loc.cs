@@ -46,7 +46,8 @@ namespace ZapretStudio
             A("mw.verUpdate",   "Версия zapret: {0} — есть обновление", "zapret version: {0} — update available");
             A("mw.openGithub",  "Открыть GitHub",     "Open GitHub");
             A("mw.collapse",    "Свернуть меню",      "Collapse menu");
-            A("mw.appShell",    "Оболочка v{0}",      "Shell v{0}");
+            A("mw.appShell",    "Версия оболочки: v{0} — актуально", "Shell version: v{0} — up to date");
+            A("mw.appShell.update", "Версия оболочки: v{0} — есть обновление", "Shell version: v{0} — update available");
             A("mw.tgVer",       "Версия TG-Proxy: {0} — актуально", "TG-Proxy version: {0} — up to date");
             A("mw.tgVer.update","Версия TG-Proxy: {0} — есть обновление", "TG-Proxy version: {0} — update available");
             A("mw.tgVer.none",  "TG-Proxy: не установлен", "TG-Proxy: not installed");
@@ -87,6 +88,11 @@ namespace ZapretStudio
             A("mw.tray.exit",   "Выход",              "Exit");
             A("mw.tray.minTitle","{0} свёрнут",    "{0} minimized");
             A("mw.tray.minBody","Приложение работает в области уведомлений", "The app is running in the notification area");
+            A("tray.widget.caption", "Быстрый статус", "Quick status");
+            A("tray.widget.strategy", "Текущая стратегия", "Current strategy");
+            A("tray.widget.strategyNone", "Стратегия не выбрана", "No strategy selected");
+            A("tray.widget.open", "Открыть приложение", "Open application");
+            A("tray.widget.refresh", "Обновить статус", "Refresh status");
             A("mw.bypassDown.title","Обход остановлен", "Bypass stopped");
             A("mw.bypassDown.body","Winws перестал работать. Проверьте стратегию.", "Winws has stopped. Check your strategy.");
             A("strat.recommend", "Подобрать стратегию по провайдеру", "Recommend strategy by ISP");
@@ -121,10 +127,21 @@ namespace ZapretStudio
             A("check.strat.run",   "Проверить эту стратегию","Test this strategy");
             A("check.strat.hint",  "Каждая стратегия запускается на короткое время, затем проверяется доступность выбранных адресов. Требуются права администратора.", "Each strategy is started briefly, then the chosen hosts are re-checked. Administrator rights required.");
             A("settings.theme",       "Тема оформления", "Theme");
-            A("settings.theme.desc",  "Тёмная, AMOLED или светлая тема интерфейса.", "Dark, AMOLED or light interface theme.");
+            A("settings.theme.desc",  "Тёмная, AMOLED, светлая или северное сияние.", "Dark, AMOLED, light or Aurora interface theme.");
             A("settings.theme.dark",  "Тёмная",  "Dark");
             A("settings.theme.amoled","AMOLED",  "AMOLED");
             A("settings.theme.light", "Светлая", "Light");
+            A("settings.theme.aurora", "Северное сияние", "Aurora");
+            A("settings.theme.peter", "Питер Гриффин", "Peter Griffin");
+            A("settings.peter.sec", "Режим Питера", "Peter mode");
+            A("settings.peter.backdrop", "Большой Питер на фоне", "Large Peter in background");
+            A("settings.peter.backdrop.desc", "Показывает Питера примерно на половину рабочей области. Доступно только в теме Питера.", "Shows Peter across about half of the workspace. Available only in the Peter theme.");
+            A("settings.peter.song", "Песня Питера", "Peter's song");
+            A("settings.peter.song.desc", "Запускает случайный MP3 из assets\\peter-songs. Сейчас добавлен Surfin' Bird.", "Plays a random MP3 from assets\\peter-songs. Surfin' Bird is included now.");
+            A("settings.peter.song.open", "Включить случайную песню", "Play a random song");
+            A("settings.peter.song.stop", "Стоп", "Stop");
+            A("settings.peter.song.none", "Не найдено MP3 в папке assets\\peter-songs", "No MP3 files found in assets\\peter-songs");
+            A("settings.peter.song.playing", "Играет: {0}", "Now playing: {0}");
             A("settings.lang",        "Язык интерфейса", "Interface language");
             A("settings.lang.desc",   "Russian или English. Применяется сразу.", "Russian or English. Applies immediately.");
             A("settings.sec.general",  "Основные",           "General");
@@ -162,6 +179,10 @@ namespace ZapretStudio
             A("settings.checkUpdates.desc","Сверять локальную версию zapret с версией в репозитории. Ничего не скачивается автоматически.", "Compare the local zapret version with the repository. Nothing is downloaded automatically.");
             A("settings.checkNow",      "Проверить сейчас", "Check now");
             A("settings.versionCheck",  "Проверка версии", "Version check");
+            A("settings.checkingOnStart", "Проверка выполняется при запуске…", "Checking on startup…");
+            A("settings.latestFull", "Последняя версия (GitHub): {0} — актуально", "Latest version (GitHub): {0} — up to date");
+            A("settings.updateFull", "Последняя версия (GitHub): {0} — есть обновление", "Latest version (GitHub): {0} — update available");
+            A("settings.localNewer", "Локальная версия {0} новее последней на GitHub: {1}", "Local version {0} is newer than the latest on GitHub: {1}");
             A("settings.localVersion",  "Локальная версия: ", "Local version: ");
             A("settings.tgVer",         "Версия Telegram-прокси", "Telegram proxy version");
             A("settings.tgVer.desc",    "Проверить установленную версию tg-ws-proxy и последнюю на GitHub.", "Check the installed tg-ws-proxy version and the latest one on GitHub.");
@@ -435,10 +456,17 @@ namespace ZapretStudio
             A("filters.sec.game",  "Игровой фильтр", "Game filter");
             A("filters.game",      "Обход для игр (порты выше 1023)", "Bypass for games (ports above 1023)");
             A("filters.game.desc", "Расширяет обход на игровой трафик по TCP и UDP. Может помочь с играми, использующими нестандартные порты.", "Extends the bypass to game traffic over TCP and UDP. May help with games using non-standard ports.");
+            A("filters.game.off", "Выключен", "Disabled");
+            A("filters.game.all", "TCP и UDP", "TCP and UDP");
+            A("filters.game.tcp", "Только TCP", "TCP only");
+            A("filters.game.udp", "Только UDP", "UDP only");
             A("filters.sec.ipset", "IPSet-фильтр", "IPSet filter");
             A("filters.ipset",     "Использовать список IP (ipset-all.txt)", "Use IP list (ipset-all.txt)");
             A("filters.ipset.on",  "Применять обход к адресам из списка ipset-all.txt.", "Apply the bypass to addresses from ipset-all.txt.");
             A("filters.ipset.off", "Файл lists/ipset-all.txt не найден — фильтр недоступен.", "lists/ipset-all.txt not found - filter unavailable.");
+            A("filters.ipset.loaded", "Загруженный список", "Loaded list");
+            A("filters.ipset.none", "Ничего", "None");
+            A("filters.ipset.any", "Любой IP", "Any IP");
             A("filters.restart.note", "Изменения фильтров вступят в силу после перезапуска обхода.", "Filter changes take effect after restarting the bypass.");
             A("filters.restartNow",   "Перезапустить сейчас", "Restart now");
             // Стратегии
@@ -563,6 +591,11 @@ namespace ZapretStudio
             A("settings.profile.deleted", "Профиль удалён: {0}", "Profile deleted: {0}");
             A("settings.updateNow", "Обновить", "Update");
             A("settings.latestVer", "Последняя версия", "Latest version");
+            A("settings.update.downloading", "Загрузка обновления", "Downloading update");
+            A("settings.update.unpacking", "Распаковка обновления", "Extracting update");
+            A("settings.update.replacing", "Замена файлов", "Replacing files");
+            A("settings.update.installer", "Запуск установщика", "Starting installer");
+            A("settings.update.done", "Обновление установлено", "Update installed");
         }
 
         static void A(string key, string ru, string en) { M[key] = new[] { ru, en }; }

@@ -10,6 +10,7 @@ utils/
 general*.bat
 service.bat
 SHA256SUMS.txt
+update.md
 
 # Old GUI
 _gui/

@@ -197,24 +197,23 @@ namespace ZapretStudio
 
             var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
             var star = new Button { Cursor = System.Windows.Input.Cursors.Hand, VerticalAlignment = VerticalAlignment.Center,
-                Width = 32, Height = 32, Margin = new Thickness(-4, -4, 8, -4) };
+                Width = 24, Height = 24, Margin = new Thickness(0, 0, 8, 0) };
             Ctl.StripChrome(star);
             bool fav = _fav.Contains(file);
-            var starBg = new Border { Width = 32, Height = 32, CornerRadius = Theme.R8,
-                Background = fav ? Theme.Alpha(Theme.Warn, 34) : Brushes.Transparent };
+            var starBg = new Border { Width = 24, Height = 24, Background = Brushes.Transparent };
             starBg.Child = UI.Icon(fav ? Icons.StarFilled : Icons.Star, 18, fav ? Theme.BrWarn : Theme.BrFaint, 1.6);
             star.Content = starBg;
             Ctl.AutomationSetName(star, (fav ? Loc.T("strat.favRemove") : Loc.T("strat.favAdd")) + name);
             star.ToolTip = fav ? Loc.T("strat.favRemove") + name : Loc.T("strat.favAdd") + name;
-            star.MouseEnter += (s, e) => { if (!_fav.Contains(file)) starBg.Background = Theme.BrSurfaceHi; };
-            star.MouseLeave += (s, e) => { if (!_fav.Contains(file)) starBg.Background = Brushes.Transparent; };
+            // У звезды нет подложки: состояние отмечает только заливка самой иконки.
+            star.MouseEnter += (s, e) => { };
+            star.MouseLeave += (s, e) => { };
             star.Click += (s, e) =>
             {
                 bool adding = !_fav.Contains(file);
                 if (adding) _fav.Add(file); else _fav.Remove(file);
                 SaveFav();
-                // Ясный переключатель: залитая звезда и тёплая подложка означают избранное.
-                starBg.Background = adding ? Theme.Alpha(Theme.Warn, 34) : Brushes.Transparent;
+                starBg.Background = Brushes.Transparent;
                 var newIcon = UI.Icon(adding ? Icons.StarFilled : Icons.Star, 18, adding ? Theme.BrWarn : Theme.BrFaint, 1.6);
                 starBg.Child = newIcon;
                 star.ToolTip = (adding ? Loc.T("strat.favRemove") : Loc.T("strat.favAdd")) + name;
@@ -262,18 +261,82 @@ namespace ZapretStudio
             var card = UI.Card(outer, new Thickness(16, 14, 16, 14));
             card.Margin = new Thickness(0, 0, Gap, Gap);
             card.Cursor = System.Windows.Input.Cursors.Hand;
+            card.RenderTransformOrigin = new Point(0.5, 0.5);
+            var cardScale = new ScaleTransform(1, 1);
+            card.RenderTransform = cardScale;
+
+            Brush normalBackground = card.Background;
+            Brush normalBorder = card.BorderBrush;
+            if (isCurrent)
+            {
+                normalBorder = Theme.Alpha(Theme.Ok, 90);
+                normalBackground = Theme.Alpha(Theme.Ok, 12);
+                card.BorderBrush = normalBorder;
+                card.Background = normalBackground;
+            }
+            bool selecting = false;
+            card.MouseEnter += (s, e) =>
+            {
+                if (selecting) return;
+                card.Background = isCurrent ? Theme.Alpha(Theme.Ok, 22) : Theme.BrSurfaceHi;
+                card.BorderBrush = isCurrent ? Theme.BrOk : Theme.BrAccent;
+                AnimateCardScale(cardScale, 1.018, 120);
+            };
+            card.MouseLeave += (s, e) =>
+            {
+                if (selecting) return;
+                card.Background = normalBackground;
+                card.BorderBrush = normalBorder;
+                AnimateCardScale(cardScale, 1, 140);
+            };
+            card.MouseLeftButtonDown += (s, e) =>
+            {
+                if (!IsInStar(e.OriginalSource as DependencyObject, star)) AnimateCardScale(cardScale, 0.988, 70);
+            };
             card.MouseLeftButtonUp += (s, e) =>
             {
                 if (e.OriginalSource is DependencyObject && IsInStar((DependencyObject)e.OriginalSource, star)) return;
+                selecting = true;
+                card.Background = Theme.Alpha(Theme.AccentMain, 34);
+                card.BorderBrush = Theme.BrAccent;
                 _win.SelectStrategy(file);
-                Rebuild();
+                if (!Theme.AnimationsEnabled)
+                {
+                    Rebuild();
+                    return;
+                }
+
+                cardScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                cardScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                cardScale.ScaleX = 1.018;
+                cardScale.ScaleY = 1.018;
+                var confirm = new DoubleAnimation(1.045, TimeSpan.FromMilliseconds(110))
+                {
+                    AutoReverse = true,
+                    FillBehavior = FillBehavior.Stop,
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
+                confirm.Completed += (s2, e2) => Rebuild();
+                cardScale.BeginAnimation(ScaleTransform.ScaleXProperty, confirm);
+                cardScale.BeginAnimation(ScaleTransform.ScaleYProperty, confirm);
             };
-            if (isCurrent)
-            {
-                card.BorderBrush = Theme.Alpha(Theme.Ok, 90);
-                card.Background = Theme.Alpha(Theme.Ok, 12);
-            }
             return card;
+        }
+
+        static void AnimateCardScale(ScaleTransform scale, double target, int duration)
+        {
+            if (!Theme.AnimationsEnabled)
+            {
+                scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                scale.ScaleX = target;
+                scale.ScaleY = target;
+                return;
+            }
+            var animation = new DoubleAnimation(target, TimeSpan.FromMilliseconds(duration))
+            { EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut } };
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, animation);
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, animation);
         }
 
         static bool IsInStar(DependencyObject src, DependencyObject star)
