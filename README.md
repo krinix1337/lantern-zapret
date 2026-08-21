@@ -1,129 +1,196 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/krinix1337/lantern-zapret/master/_app/app.ico" width="96" height="96" alt="Lantern">
+<img src="https://raw.githubusercontent.com/krinix1337/lantern-zapret/master/_app/app.ico" width="100" height="100" alt="Lantern Logo">
 
-# Lantern
+# 🏮 Lantern
 
-### ⚡ Обход блокировок Discord и YouTube в один клик
+### Современный, легковесный и мощный GUI-менеджер для zapret и winws
+
+[![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/krinix1337/lantern-zapret)
+[![.NET Framework](https://img.shields.io/badge/.NET_Framework-4.0+-512BD4?style=for-the-badge&logo=dotnet&logoColor=white)](https://github.com/krinix1337/lantern-zapret)
+[![C# WPF](https://img.shields.io/badge/C%23-Pure_WPF-239120?style=for-the-badge&logo=csharp&logoColor=white)](https://github.com/krinix1337/lantern-zapret)
+[![License: MIT](https://img.shields.io/badge/License-MIT-E0A845?style=for-the-badge)](LICENSE.txt)
+[![Installer Size](https://img.shields.io/badge/Installer-2.2_MB-F28C28?style=for-the-badge&logo=inno-setup&logoColor=white)](https://github.com/krinix1337/lantern-zapret/releases/latest)
+[![Latest Release](https://img.shields.io/github/v/release/krinix1337/lantern-zapret?style=for-the-badge&color=00B4D8&label=%D0%A0%D0%B5%D0%BB%D0%B8%D0%B7)](https://github.com/krinix1337/lantern-zapret/releases/latest)
 
 <br>
 
-![Windows](https://img.shields.io/badge/Windows_10+-0078D6?style=flat-square&logo=windows&logoColor=white)
-![.NET](https://img.shields.io/badge/.NET_4.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)
-![C#](https://img.shields.io/badge/C%23-WPF-239120?style=flat-square&logo=csharp&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-E0A845?style=flat-square)
-![Size](https://img.shields.io/badge/Installer-2.2_MB-F28C28?style=flat-square)
+[**📥 Скачать установщик**](https://github.com/krinix1337/lantern-zapret/releases/latest) • [**📖 Руководство пользователя**](docs/guide.md) • [**🎨 Галерея тем**](docs/themes.md) • [**🧑‍💻 Исходный код**](_app)
 
 <br>
 
-[**Скачать**](https://github.com/krinix1337/lantern-zapret/releases/latest) · [Исходный код](https://github.com/krinix1337/lantern-zapret/tree/master/_app) · [Все релизы](https://github.com/krinix1337/lantern-zapret/releases)
+<img src="docs/screenshot.png" width="920" alt="Главный интерфейс Lantern 4.0">
 
 </div>
 
 <br>
 
-<a id="main"></a>
+---
 
-### Lantern - легкий GUI-менеджер для [zapret](https://github.com/bol-van/zapret) и `winws.exe`. Он запускает обход DPI-блокировок, помогает подобрать стратегию, проверяет доступность сервисов и показывает реальные события работы.
+## 📌 О проекте
 
-> Весь интерфейс написан на C# и WPF без XAML. Lantern использует существующие стратегии zapret и не меняет их внутреннюю логику.
+**Lantern** — это высокопроизводительная графическая оболочка для [zapret](https://github.com/bol-van/zapret) (`winws.exe`) и драйвера `WinDivert` в среде Windows. Приложение берет на себя всю рутину управления обходом DPI-блокировок: запуск и остановку процессов, установку и мониторинг системной службы, тестирование доступности сервисов, умный подбор стратегий под вашего провайдера и фоновую защиту соединения.
 
-<div align="center">
+> [!NOTE]
+> Весь интерфейс написан на **чистом C# и WPF без использования тяжелых XAML-разметок**. Lantern напрямую использует проверенные BAT-стратегии zapret, динамически парсит аргументы запуска и не вмешивается во внутреннюю логику обхода.
 
-<img src="docs/screenshot.png" width="960" alt="Lantern 4.0 — обложка приложения">
+---
 
-[Главное](#main) · [Темы](docs/themes.md) · [Установка](#installation)
+## 🧭 Навигация по документации
 
-</div>
+| Раздел | Описание | Ссылка |
+| :--- | :--- | :---: |
+| 🏠 **Главная** | Обзор возможностей, установка и сборка из исходников | [Перейти](#-возможности) |
+| 📖 **Руководство** | Полный разбор всех разделов, настроек, фильтров и службы Windows | [Открыть docs/guide.md](docs/guide.md) |
+| 🎨 **Темы оформления** | Описание и скриншоты 5 встроенных тем (Dark, AMOLED, Light, Aurora, Peter) | [Открыть docs/themes.md](docs/themes.md) |
 
 ---
 
 ## ✨ Возможности
 
-| Возможность | Что делает |
-| --- | --- |
-| ⚡ **Запуск в один клик** | Старт, стоп и перезапуск `winws.exe` с выбором стратегии из 20+ готовых `.bat` |
-| 🔎 **Проверка стратегий** | Проверка реальных целей через HTTP/1.1, TLS 1.2 и TLS 1.3 |
-| 📦 **Автообновление** | zapret и TG Proxy скачиваются из GitHub прямо в приложении |
-| 🛠️ **Служба Windows** | Установка `winws.exe` как службы для автозапуска вместе с системой |
-| ⭐ **Избранное** | Рабочие стратегии отмечаются звездочкой и всегда остаются сверху списка |
-| 📋 **Логи** | Просмотр событий `winws.exe` в реальном времени с цветовой индикацией |
-| 🎨 **Пять тем** | Тёмная, AMOLED, светлая, «Северное сияние» и «Питер Гриффин» — без перезапуска приложения |
-| 🔄 **Проверка обновлений** | При запуске проверяются zapret, Telegram Proxy и Lantern; результат остаётся в настройках |
+```
+  ⚡ Запуск в 1 клик       🔎 Тест соединений       🛠️ Служба Windows
+  ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+  │ Старт, стоп и   │      │ Проверка HTTP,  │      │ Автозапуск      │
+  │ рестарт winws   │ ───► │ TLS 1.2/1.3 и   │ ───► │ winws вместе    │
+  │ из 20+ BAT      │      │ ICMP Ping       │      │ с системой      │
+  └─────────────────┘      └─────────────────┘      └─────────────────┘
+           │                        │                        │
+           ▼                        ▼                        ▼
+  ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+  │ Умный подбор по │      │ Интеграция с    │      │ Watchdog и      │
+  │ ISP провайдера  │      │ TG-WS-Proxy     │      │ 5 стильных тем  │
+  └─────────────────┘      └─────────────────┘      └─────────────────┘
+  🌐 Рекомендации          ✈️ Telegram Desktop       🎨 Персонализация
+```
+
+<br>
+
+| Функция | Описание |
+| :--- | :--- |
+| ⚡ **Управление в один клик** | Мгновенный запуск, остановка и перезапуск `winws.exe` с любой из 20+ готовых стратегий. |
+| 🌐 **Умная рекомендация по ISP** | Автоопределение вашего провайдера (Ростелеком, МТС, Билайн, Мегафон и др.) и подбор оптимальной конфигурации. |
+| 🧪 **Бенчмарк и проверка стратегий** | Тестирование целевых хостов (Discord, YouTube, Google) через сокеты и `curl` по протоколам HTTP/1.1, TLS 1.2 и TLS 1.3. |
+| 🛡️ **Служба Windows** | Бесшовная установка `winws.exe` в качестве системной службы с автозапуском до входа пользователя. |
+| 🐶 **Watchdog (Сторож)** | Фоновый мониторинг связи и автоматическое переключение на рабочую стратегию при блокировке текущей. |
+| ✈️ **Telegram Proxy** | Встроенное управление и автозапуск утилиты `tg-ws-proxy` для максимальной скорости Telegram Desktop. |
+| 🎛️ **Гибкие фильтры** | Быстрое переключение игрового фильтра (TCP / UDP), списков IPSet и системного DNS-over-HTTPS (DoH). |
+| 📋 **Журнал реального времени** | Подробный цветной лог событий с индикацией нормальной работы, предупреждений и сбоев. |
+| 🎨 **5 динамических тем** | Тёмная, AMOLED, Светлая, «Северное сияние» и «Питер Гриффин» (с MP3-пасхалками) — мгновенное переключение без перезапуска. |
+| 🔄 **Автообновление компонентов** | Проверка и загрузка свежих релизов zapret, TG Proxy и Lantern напрямую из официальных GitHub-репозиториев. |
 
 ---
 
-## 🎨 Темы Lantern 4.0
+## 🚀 Установка и первый запуск
 
-Главный экран и описание каждой из пяти тем вынесены на отдельную страницу: [посмотреть темы](docs/themes.md).
+### Способ 1: Установщик (Рекомендуется)
 
-Подробное описание всех разделов интерфейса и их работы: [руководство по Lantern](docs/guide.md).
+1. Скачайте **`Lantern-Setup.exe`** со [страницы последнего релиза](https://github.com/krinix1337/lantern-zapret/releases/latest).
+2. Запустите установщик и следуйте простым подсказкам мастера.
+3. Запустите **Lantern** от имени администратора.
+4. При первом старте Lantern автоматически загрузит актуальную сборку `zapret`.
 
----
+> [!IMPORTANT]
+> Для взаимодействия с сетевым драйвером **WinDivert**, создания системных служб и применения DNS-over-HTTPS требуются **права администратора**.
 
-<a id="installation"></a>
+### Способ 2: Портативный запуск
 
-## 🚀 Установка
-
-1. 📥 Скачайте **`Lantern-Setup.exe`** со [страницы релизов](https://github.com/krinix1337/lantern-zapret/releases/latest).
-2. 🧩 Запустите установщик и завершите установку.
-3. ✨ При первом запуске Lantern скачает zapret автоматически.
-
-> **Примечание:** TG Proxy для ускорения Telegram можно скачать в разделе **Настройки**.
-
-> **Важно:** для работы `winws.exe` и WinDivert требуются права администратора.
+1. Распакуйте архив релиза в удобную папку (например, `C:\Program Files\Lantern` или корень диска).
+2. Убедитесь, что рядом находится папка с компонентами `zapret` (папки `bin`, `lists`, `utils`).
+3. Запустите `Lantern.exe` от имени администратора.
 
 ---
 
-## 🧑‍💻 Сборка из исходников
+## 🧑‍💻 Сборка из исходного кода
+
+Сборка Lantern не требует установки Visual Studio, MSBuild или сторонних пакетов. Достаточно встроенного в Windows компилятора `csc.exe` из поставки .NET Framework:
 
 ```bat
+# Перейдите в каталог исходного кода
 cd _app
+
+# Запустите скрипт компиляции
 build.cmd
 ```
 
-После сборки в папке `_app` появится `zapret.exe`. При необходимости его можно переименовать в `Lantern.exe`.
+После завершения в папке `_app` появится готовый бинарный файл `zapret.exe` (можно переименовать в `Lantern.exe`).
 
-Для сборки используется `csc.exe` из .NET Framework 4.0. Дополнительные инструменты устанавливать не нужно.
+<details>
+<summary><b>📦 Сборка установщика через Inno Setup</b></summary>
+
+Если вам требуется собрать единый инсталлятор `Lantern-Setup.exe`:
+1. Установите [Inno Setup 6](https://jrsoftware.org/isdl.php).
+2. Откройте файл `_installer/Lantern.iss`.
+3. Нажмите кнопку **Compile** (или `Ctrl + F9`).
+4. Готовый установщик будет сохранен в папке `_installer/`.
+
+</details>
 
 ---
 
 ## 🗂️ Структура проекта
 
 ```text
-_app/               Исходный код приложения на C# и WPF
-├── Core.*.cs       Ядро: процессы, сеть, конфиг, загрузка и TG Proxy
-├── View.*.cs       Страницы: обзор, стратегии, проверка, настройки и другое
-├── MainWindow.cs   Главное окно и навигация
-├── build.cmd       Сборка через csc.exe
-└── app.ico         Иконка приложения
-
-_installer/         Inno Setup 6
-└── Lantern.iss     Скрипт сборки установщика
+lantern-zapret/
+├── _app/               # 💻 Исходный код приложения на C# и WPF (Pure Code-behind)
+│   ├── App.cs          # Точка входа, перехват ошибок, инициализация стилей
+│   ├── Core.*.cs       # Системное ядро: процессы, сеть, стратегии, служба, конфиг
+│   ├── View.*.cs       # Страницы интерфейса: Обзор, Стратегии, Проверка, Фильтры и др.
+│   ├── Theme.cs        # Палитры и динамическая дизайн-система тем
+│   ├── Loc.cs          # Двуязычная локализация (RU / EN)
+│   ├── build.cmd       # Однострочный скрипт сборки через csc.exe
+│   └── app.ico         # Фирменная иконка приложения
+│
+├── _installer/         # 📦 Конфигурация сборщика Inno Setup
+│   └── Lantern.iss     # Сценарий генерации инсталлятора
+│
+├── docs/               # 📚 Документация и медиа-ресурсы
+│   ├── guide.md        # Подробное иллюстрированное руководство пользователя
+│   ├── themes.md       # Галерея и описание всех тем оформления
+│   ├── screenshot.png  # Главный скриншот программы
+│   └── themes/         # Скриншоты отдельных тем
+│
+├── lists/              # 📋 Списки доменов и исключений (ipset, list-general и др.)
+├── utils/              # 🛠️ Вспомогательные утилиты, скрипты и конфигурации
+├── bin/                # ⚙️ Исполняемые файлы winws.exe, WinDivert64.sys, curl.exe
+└── general*.bat        # 🎯 Готовые BAT-стратегии обхода блокировок
 ```
 
 ---
 
-## 📌 Требования
+## 🖥️ Системные требования
 
-- 🪟 **Windows 10** или новее
-- 🧩 **.NET Framework 4.0** - уже встроен в Windows
-- 🛡️ **Права администратора** - нужны для работы WinDivert
+| Компонент | Минимальные требования |
+| :--- | :--- |
+| **Операционная система** | Windows 10 (версия 1809+) или Windows 11 (x64 / ARM64) |
+| **Среда выполнения** | .NET Framework 4.0 или новее *(предустановлен в Windows)* |
+| **Привилегии** | Права локального администратора *(для работы WinDivert)* |
+| **Свободное место** | ~25 МБ на диске (включая компоненты zapret) |
 
 ---
 
-## 🙌 Благодарности
+## 🤝 Благодарности и используемые проекты
 
-| Проект | Описание |
-| --- | --- |
-| [bol-van/zapret](https://github.com/bol-van/zapret) | DPI bypass multiplatform |
-| [Flowseal/zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube) | Стратегии и списки для Discord и YouTube |
-| [Flowseal/tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) | Ускорение Telegram Desktop |
+Разработка Lantern опирается на фундаментальные проекты сообщества по исследованию и обходу DPI:
+
+- [**bol-van/zapret**](https://github.com/bol-van/zapret) — мультиплатформенный комплекс обхода DPI и утилита `winws`.
+- [**Flowseal/zapret-discord-youtube**](https://github.com/Flowseal/zapret-discord-youtube) — оптимизированные конфигурации, списки и стратегии для Discord и YouTube.
+- [**Flowseal/tg-ws-proxy**](https://github.com/Flowseal/tg-ws-proxy) — решение для ускорения и проксирования Telegram Desktop.
 
 ---
 
 <div align="center">
 
-**MIT License** - [LICENSE.txt](LICENSE.txt)
+### ⚖️ Лицензия
+
+Проект распространяется под свободной лицензией **MIT**. Подробности в файле [LICENSE.txt](LICENSE.txt).
+
+<br>
+
+**[⭐ Поставить звезду проекту на GitHub](https://github.com/krinix1337/lantern-zapret)**
+
+<br>
+
+<sub>Разработано с ❤️ для свободного и быстрого интернета.</sub>
 
 </div>
