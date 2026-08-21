@@ -87,22 +87,29 @@ namespace ZapretStudio
             var cb = FindByName<Button>(win, Loc.T("mw.collapse"));
             if (cb != null) { cb.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); Pump(); ForceLayout(win); Shot(win, "collapsed"); cb.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); Pump(); ForceLayout(win); }
 
-            // 5c) Скриншоты для визуальной проверки (главное меню, светлая тема, службы).
+            // 5c) Скриншоты для визуальной проверки (темы оформления и все разделы в единой тёмной теме).
             Core.SetBool("reduce_motion", true); // без анимаций — контент виден сразу
-            win.Width = 1200; Pump(); ForceLayout(win);
+            win.Width = 1200; win.Height = 800; Pump(); ForceLayout(win);
+            
+            // 5 тем оформления
             NavCheck(win, "overview");
             Theme.Apply(ThemeMode.Dark); Pump(); ForceLayout(win); Shot(win, "overview-dark");
-            Theme.Apply(ThemeMode.Light); Pump(); ForceLayout(win); Shot(win, "overview-light");
             Theme.Apply(ThemeMode.Amoled); Pump(); ForceLayout(win); Shot(win, "overview-amoled");
+            Theme.Apply(ThemeMode.Light); Pump(); ForceLayout(win); Shot(win, "overview-light");
             Theme.Apply(ThemeMode.Aurora); Pump(); ForceLayout(win); Shot(win, "overview-aurora");
             Core.SetBool("peter_backdrop", true);
             Theme.Apply(ThemeMode.Peter); Pump(); ForceLayout(win); Shot(win, "overview-peter");
-            NavCheck(win, "strategies"); ForceLayout(win); Shot(win, "strategies-light");
-            NavCheck(win, "service"); ForceLayout(win); Shot(win, "service-light");
-            NavCheck(win, "settings"); ForceLayout(win); Shot(win, "settings-light");
-            NavCheck(win, "about"); ForceLayout(win); Shot(win, "about-light");
+            
+            // Все разделы приложения в единой фирменной тёмной теме (Dark)
             Theme.Apply(ThemeMode.Dark); Pump(); ForceLayout(win);
-            NavCheck(win, "service"); ForceLayout(win); Shot(win, "service-dark");
+            NavCheck(win, "overview"); ForceLayout(win); Shot(win, "section-overview");
+            NavCheck(win, "strategies"); ForceLayout(win); Shot(win, "section-strategies");
+            NavCheck(win, "check"); ForceLayout(win); Shot(win, "section-check");
+            NavCheck(win, "service"); ForceLayout(win); Shot(win, "section-service");
+            NavCheck(win, "filters"); ForceLayout(win); Shot(win, "section-filters");
+            NavCheck(win, "settings"); ForceLayout(win); Shot(win, "section-settings");
+            NavCheck(win, "log"); ForceLayout(win); Shot(win, "section-log");
+            NavCheck(win, "about"); ForceLayout(win); Shot(win, "section-about");
 
             // 6) Разные ширины окна (проверка сетки/раскладки)
             foreach (var w in new double[] { 1120, 1000, 1300, 1600 })            {
@@ -291,13 +298,13 @@ namespace ZapretStudio
 
         static void Line(string lvl, string msg) { Log.AppendLine("[" + lvl + "] " + msg); }
 
-        // Рендер окна в PNG для визуальной проверки.
-        static void Shot(MainWindow win, string name)
+        // Рендер окна в PNG для визуальной проверки и автогенерации документации.
+        static void SavePng(MainWindow win, string fullPath)
         {
             try
             {
                 int w = (int)win.ActualWidth, h = (int)win.ActualHeight;
-                if (w < 10 || h < 10) { Line("WARN", "shot " + name + " skipped (size)"); return; }
+                if (w < 10 || h < 10) return;
                 var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
                 win.Measure(new Size(w, h));
                 win.Arrange(new Rect(0, 0, w, h));
@@ -305,18 +312,39 @@ namespace ZapretStudio
                 rtb.Render(win);
                 var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
                 enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
-                string dir;
-                if (name.StartsWith("overview-", StringComparison.OrdinalIgnoreCase))
-                {
-                    dir = Path.Combine(Core.Root, "docs", "themes");
-                    Directory.CreateDirectory(dir);
-                }
-                else dir = AppDomain.CurrentDomain.BaseDirectory;
-                string path = Path.Combine(dir, (dir == AppDomain.CurrentDomain.BaseDirectory ? "_shot_" : "") + name + ".png");
-                using (var fs = new FileStream(path, FileMode.Create)) enc.Save(fs);
-                Line("SHOT", name + " -> " + path);
+                string dir = Path.GetDirectoryName(fullPath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                using (var fs = new FileStream(fullPath, FileMode.Create)) enc.Save(fs);
+                Line("SHOT", fullPath);
             }
-            catch (Exception ex) { Line("WARN", "shot " + name + ": " + ex.Message); }
+            catch (Exception ex) { Line("WARN", "shot " + fullPath + ": " + ex.Message); }
+        }
+
+        static void Shot(MainWindow win, string name)
+        {
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string docsDir = Path.GetFullPath(Path.Combine(baseDir, "..", "docs"));
+
+            SavePng(win, Path.Combine(baseDir, "_shot_" + name + ".png"));
+
+            if (name.StartsWith("overview-"))
+            {
+                SavePng(win, Path.Combine(docsDir, "themes", name + ".png"));
+                if (name == "overview-dark")
+                {
+                    SavePng(win, Path.Combine(docsDir, "screenshot.png"));
+                    SavePng(win, Path.Combine(docsDir, "screens", "overview.png"));
+                }
+            }
+            else if (name.StartsWith("section-"))
+            {
+                string sName = name.Substring("section-".Length);
+                SavePng(win, Path.Combine(docsDir, "screens", sName + ".png"));
+            }
+            else if (name == "collapsed")
+            {
+                SavePng(win, Path.Combine(docsDir, "screens", "collapsed.png"));
+            }
         }
 
         static void Pump()
