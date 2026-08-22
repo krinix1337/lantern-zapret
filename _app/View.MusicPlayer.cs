@@ -326,7 +326,7 @@ namespace ZapretStudio
         AudioTrackInfo _currentTrack;
 
         public static readonly string[] SupportedExtensions = {
-            ".mp3", ".wav", ".m4a", ".aac", ".flac", ".wma", ".ogg", ".mp4"
+            ".mp3", ".wav", ".m4a", ".aac", ".flac", ".wma", ".mp4"
         };
 
         public event Action StateChanged;

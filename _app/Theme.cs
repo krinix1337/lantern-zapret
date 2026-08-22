@@ -684,8 +684,29 @@ namespace ZapretStudio
 
             StripChrome(b);
             b.Tag = new object[] { border, bg, kind };
-            b.MouseEnter += (s, e) => { border.Background = Hover(bg, kind); };
-            b.MouseLeave += (s, e) => { border.Background = bg; };
+            b.MouseEnter += (s, e) =>
+            {
+                var tag = b.Tag as object[];
+                if (tag != null)
+                {
+                    var curBd = tag[0] as Border;
+                    var curBg = tag[1] as Brush;
+                    int curKind = (int)tag[2];
+                    if (curBd != null) curBd.Background = Hover(curBg, curKind);
+                }
+                else border.Background = Hover(bg, kind);
+            };
+            b.MouseLeave += (s, e) =>
+            {
+                var tag = b.Tag as object[];
+                if (tag != null)
+                {
+                    var curBd = tag[0] as Border;
+                    var curBg = tag[1] as Brush;
+                    if (curBd != null) curBd.Background = curBg;
+                }
+                else border.Background = bg;
+            };
             AutomationSetName(b, text ?? Loc.T("common.button"));
             return b;
         }

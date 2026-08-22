@@ -46,13 +46,16 @@ namespace ZapretStudio
                 _statusTitle.Text = Loc.T("ov.launching");
                 _statusTitle.Foreground = Theme.BrAccent;
                 _statusSub.Text = Loc.T("mw.startTask");
-                _mainBtn.IsEnabled = false;
-                _restartBtn.IsEnabled = false;
+                if (_mainBtn != null) _mainBtn.IsEnabled = false;
+                if (_restartBtn != null) _restartBtn.IsEnabled = false;
                 PulseCard(_statusCard, true);
             }
             else
             {
                 PulseCard(_statusCard, false);
+                if (_mainBtn != null) _mainBtn.IsEnabled = true;
+                if (_restartBtn != null) _restartBtn.IsEnabled = true;
+                _lastRunning = null;
                 Refresh();
             }
         }
@@ -65,12 +68,15 @@ namespace ZapretStudio
                 _tgStatusTitle.Text = Loc.T("ov.tgLaunching");
                 _tgStatusTitle.Foreground = Theme.BrAccent;
                 _tgStatusSub.Text = Loc.T("tg.dlProgress");
-                _tgBtn.IsEnabled = false;
+                if (_tgBtn != null) _tgBtn.IsEnabled = false;
                 PulseCard(_tgCard, true);
             }
             else
             {
                 PulseCard(_tgCard, false);
+                if (_tgBtn != null) _tgBtn.IsEnabled = true;
+                _lastTgRunning = null;
+                _lastTgInstalled = null;
                 RefreshTg();
             }
         }
@@ -117,16 +123,22 @@ namespace ZapretStudio
 
         Border BuildZapretCard()
         {
-            var sp = new StackPanel();
-            var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
+            var g = new Grid { MinHeight = 185 };
+            g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
             head.Children.Add(UI.Icon(Icons.Shield, 18, Theme.BrAccent, 1.8));
             var ht = UI.T(Loc.T("ov.zap.title"), Theme.FsSmall, Theme.BrFaint, FontWeights.SemiBold);
             ht.Margin = new Thickness(9, 0, 0, 0); ht.VerticalAlignment = VerticalAlignment.Center;
             head.Children.Add(ht);
-            sp.Children.Add(head);
+            Grid.SetRow(head, 0); g.Children.Add(head);
 
             _statusTitle = UI.T("—", Theme.FsDisplay, Theme.BrText, FontWeights.Bold);
-            sp.Children.Add(_statusTitle);
+            Grid.SetRow(_statusTitle, 1); g.Children.Add(_statusTitle);
+
             _statusSub = new TextBlock
             {
                 Text = "",
@@ -134,15 +146,18 @@ namespace ZapretStudio
                 FontSize = Theme.FsBody,
                 FontFamily = Theme.UiFont,
                 Margin = new Thickness(0, 6, 0, 16),
-                TextWrapping = TextWrapping.Wrap
+                TextWrapping = TextWrapping.Wrap,
+                MinHeight = 40,
+                VerticalAlignment = VerticalAlignment.Top
             };
-            sp.Children.Add(_statusSub);
+            Grid.SetRow(_statusSub, 2); g.Children.Add(_statusSub);
 
             var btnRow = new Grid();
             btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             _mainBtn = Ctl.Button(Loc.T("common.start"), Icons.Play, 0);
             _mainBtn.HorizontalAlignment = HorizontalAlignment.Stretch;
+            _mainBtn.Height = 40;
             _mainBtn.Click += (s, e) =>
             {
                 if (!System.IO.File.Exists(Core.WinwsExe)) { ZapretDownload(); return; }
@@ -150,27 +165,34 @@ namespace ZapretStudio
             };
             Grid.SetColumn(_mainBtn, 0); btnRow.Children.Add(_mainBtn);
             _restartBtn = Ctl.Button(Loc.T("ov.restart"), Icons.Restart, 3);
+            _restartBtn.Height = 40;
             _restartBtn.Margin = new Thickness(10, 0, 0, 0);
             _restartBtn.Click += (s, e) => _win.RestartCurrent();
             Grid.SetColumn(_restartBtn, 1); btnRow.Children.Add(_restartBtn);
-            sp.Children.Add(btnRow);
+            Grid.SetRow(btnRow, 3); g.Children.Add(btnRow);
 
-            _statusCard = UI.Card(sp, new Thickness(22, 20, 22, 20));
+            _statusCard = UI.Card(g, new Thickness(22, 20, 22, 20));
             return _statusCard;
         }
 
         Border BuildTgCard()
         {
-            var sp = new StackPanel();
-            var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
+            var g = new Grid { MinHeight = 185 };
+            g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
             head.Children.Add(UI.Icon(Icons.Telegram, 18, Theme.BrAccent, 1.8));
             var ht = UI.T(Loc.T("ov.sec.tg"), Theme.FsSmall, Theme.BrFaint, FontWeights.SemiBold);
             ht.Margin = new Thickness(9, 0, 0, 0); ht.VerticalAlignment = VerticalAlignment.Center;
             head.Children.Add(ht);
-            sp.Children.Add(head);
+            Grid.SetRow(head, 0); g.Children.Add(head);
 
             _tgStatusTitle = UI.T("—", Theme.FsDisplay, Theme.BrText, FontWeights.Bold);
-            sp.Children.Add(_tgStatusTitle);
+            Grid.SetRow(_tgStatusTitle, 1); g.Children.Add(_tgStatusTitle);
+
             _tgStatusSub = new TextBlock
             {
                 Text = Loc.T("ov.tg.desc"),
@@ -178,24 +200,28 @@ namespace ZapretStudio
                 FontSize = Theme.FsBody,
                 FontFamily = Theme.UiFont,
                 Margin = new Thickness(0, 6, 0, 16),
-                TextWrapping = TextWrapping.Wrap
+                TextWrapping = TextWrapping.Wrap,
+                MinHeight = 40,
+                VerticalAlignment = VerticalAlignment.Top
             };
-            sp.Children.Add(_tgStatusSub);
+            Grid.SetRow(_tgStatusSub, 2); g.Children.Add(_tgStatusSub);
 
             var btnRow = new Grid();
             btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             _tgBtn = Ctl.Button(Loc.T("common.start"), Icons.Play, 0);
             _tgBtn.HorizontalAlignment = HorizontalAlignment.Stretch;
+            _tgBtn.Height = 40;
             _tgBtn.Click += (s, e) => TgToggle();
             Grid.SetColumn(_tgBtn, 0); btnRow.Children.Add(_tgBtn);
             _tgFolderBtn = Ctl.Button(Loc.T("ov.qa.tgFolder"), Icons.Folder, 3);
+            _tgFolderBtn.Height = 40;
             _tgFolderBtn.Margin = new Thickness(10, 0, 0, 0);
             _tgFolderBtn.Click += (s, e) => { try { System.IO.Directory.CreateDirectory(Core.TgToolsDir); Core.OpenFolder(Core.TgToolsDir); } catch { } };
             Grid.SetColumn(_tgFolderBtn, 1); btnRow.Children.Add(_tgFolderBtn);
-            sp.Children.Add(btnRow);
+            Grid.SetRow(btnRow, 3); g.Children.Add(btnRow);
 
-            _tgCard = UI.Card(sp, new Thickness(22, 20, 22, 20));
+            _tgCard = UI.Card(g, new Thickness(22, 20, 22, 20));
             return _tgCard;
         }
 
@@ -362,7 +388,9 @@ namespace ZapretStudio
 
         void RefreshTg()
         {
-            if (_tgBtn == null || _tgBusy) return;
+            if (_tgBtn == null) return;
+            _tgBtn.IsEnabled = !_tgBusy;
+            if (_tgBusy) return;
             bool installed = Core.TgProxyInstalled();
             bool running = Core.TgProxyRunning();
 
@@ -460,6 +488,7 @@ namespace ZapretStudio
 
         public void Refresh()
         {
+            if (_mainBtn != null) _mainBtn.IsEnabled = !_zapBusy;
             if (_zapBusy) { RefreshTg(); return; }
             if (!System.IO.File.Exists(Core.WinwsExe))
             {
@@ -469,7 +498,8 @@ namespace ZapretStudio
                 Ctl.SetButton(_mainBtn, Loc.T("ov.zap.download"), Icons.Download, 0);
                 _statusCard.BorderBrush = Theme.BrStroke;
                 _statusCard.Background = Theme.BrSurface;
-                _restartBtn.IsEnabled = false;
+                if (_restartBtn != null) _restartBtn.IsEnabled = false;
+                RefreshTg();
                 return;
             }
 
@@ -489,7 +519,7 @@ namespace ZapretStudio
                     Ctl.SetButton(_mainBtn, Loc.T("common.stop"), Icons.Stop, 2);
                     _statusCard.BorderBrush = Theme.Alpha(Theme.Ok, 80);
                     _statusCard.Background = Theme.Alpha(Theme.Ok, 12);
-                    _restartBtn.IsEnabled = true;
+                    if (_restartBtn != null) _restartBtn.IsEnabled = true;
                     PulseStatus();
                 }
                 else
@@ -500,7 +530,7 @@ namespace ZapretStudio
                     Ctl.SetButton(_mainBtn, Loc.T("common.start"), Icons.Play, 0);
                     _statusCard.BorderBrush = Theme.BrStroke;
                     _statusCard.Background = Theme.BrSurface;
-                    _restartBtn.IsEnabled = false;
+                    if (_restartBtn != null) _restartBtn.IsEnabled = false;
                 }
             }
 
