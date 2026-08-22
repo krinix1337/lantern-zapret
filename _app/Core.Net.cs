@@ -326,7 +326,10 @@ namespace ZapretStudio
         {
             if (string.IsNullOrEmpty(s)) return "";
             s = s.Replace("\r", " ").Replace("\n", " ");
-            return s.Length > 140 ? s.Substring(0, 140) + "…" : s;
+            if (s.Length <= 140) return s;
+            int limit = 140;
+            if (limit > 0 && char.IsHighSurrogate(s[limit - 1])) limit--;
+            return s.Substring(0, limit) + "\u2026";
         }
     }
 }

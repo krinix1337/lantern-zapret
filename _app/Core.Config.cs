@@ -14,8 +14,9 @@ namespace ZapretStudio
 
     static partial class Core
     {
-        static Dictionary<string,string> _cfg;
+        static Dictionary<string,string> _cfg = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
         static readonly object _cfgLock = new object();
+        static volatile bool _cfgLoaded;
 
         public static void LoadConfig()
         {
@@ -32,13 +33,13 @@ namespace ZapretStudio
                         d[s.Substring(0, eq).Trim()] = s.Substring(eq + 1).Trim();
                     }
             }
-            catch { }
-            lock (_cfgLock) { _cfg = d; }
+            catch (Exception ex) { Fail("LoadConfig: " + ex.Message); }
+            lock (_cfgLock) { _cfg = d; _cfgLoaded = true; }
         }
 
         public static string Get(string key, string dflt)
         {
-            if (_cfg == null) LoadConfig();
+            if (!_cfgLoaded) LoadConfig();
             lock (_cfgLock)
             {
                 string v; return _cfg.TryGetValue(key, out v) ? v : dflt;
@@ -52,7 +53,7 @@ namespace ZapretStudio
         }
         public static void Set(string key, string val)
         {
-            if (_cfg == null) LoadConfig();
+            if (!_cfgLoaded) LoadConfig();
             lock (_cfgLock) { _cfg[key] = val; }
         }
         public static void SetBool(string key, bool val) { Set(key, val ? "1" : "0"); }
@@ -70,7 +71,7 @@ namespace ZapretStudio
         {
             lock (_cfgLock)
             {
-                if (_cfg == null) return;
+                if (_cfg == null || !_cfgLoaded) return;
                 try
                 {
                     var sb = new System.Text.StringBuilder();
@@ -80,7 +81,7 @@ namespace ZapretStudio
                     if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
                     File.WriteAllText(ConfigFile, sb.ToString());
                 }
-                catch { }
+                catch (Exception ex) { Fail("SaveConfig: " + ex.Message); }
             }
         }
 

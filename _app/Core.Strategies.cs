@@ -22,8 +22,9 @@ namespace ZapretStudio
             catch { return new List<string>(); }
         }
 
+        static readonly Regex _naturalKeyRegex = new Regex("[0-9]+", RegexOptions.Compiled);
         static string NaturalKey(string s)
-        { return Regex.Replace(s, "[0-9]+", m => m.Value.PadLeft(8, '0')); }
+        { return _naturalKeyRegex.Replace(s, m => m.Value.PadLeft(8, '0')); }
 
         // Категория по имени файла (General / ALT / FAKE / SIMPLE / Другая)
         public static string CategoryOf(string bat)
@@ -105,6 +106,8 @@ namespace ZapretStudio
         }
 
         // ---------- IPSet filter (loaded / none / any) ----------
+        const string IpsetSentinel = "203.0.113.113/32";
+
         public static string IpsetStatus()
         {
             try
@@ -113,7 +116,7 @@ namespace ZapretStudio
                 if (!File.Exists(IpsetFile)) return "any";
                 var lines = File.ReadAllLines(IpsetFile).Where(l => l.Trim().Length > 0).ToList();
                 if (lines.Count == 0) return "any";
-                if (lines.Any(l => l.Contains("203.0.113.113/32"))) return "none";
+                if (lines.Any(l => l.Contains(IpsetSentinel))) return "none";
                 return "loaded";
             }
             catch { return "any"; }
@@ -143,7 +146,7 @@ namespace ZapretStudio
                         if (File.Exists(backup)) File.Delete(backup);
                         File.Move(IpsetFile, backup);
                     }
-                    File.WriteAllText(IpsetFile, "203.0.113.113/32" + Environment.NewLine);
+                    File.WriteAllText(IpsetFile, IpsetSentinel + Environment.NewLine);
                 }
                 else if (mode == "any")
                 {
@@ -189,7 +192,7 @@ namespace ZapretStudio
             {
                 string p;
                 p = Path.Combine(Lists, "ipset-exclude-user.txt");
-                if (!File.Exists(p)) File.WriteAllText(p, "203.0.113.113/32\r\n");
+                if (!File.Exists(p)) File.WriteAllText(p, IpsetSentinel + "\r\n");
                 p = Path.Combine(Lists, "list-general-user.txt");
                 if (!File.Exists(p)) File.WriteAllText(p, "# Never leave this file empty\r\ndomain.example.abc\r\n");
                 p = Path.Combine(Lists, "list-exclude-user.txt");

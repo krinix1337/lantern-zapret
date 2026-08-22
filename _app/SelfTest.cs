@@ -91,12 +91,13 @@ namespace ZapretStudio
             Core.SetBool("reduce_motion", true); // без анимаций — контент виден сразу
             win.Width = 1200; win.Height = 800; Pump(); ForceLayout(win);
             
-            // 5 тем оформления
+            // 6 тем оформления
             NavCheck(win, "overview");
             Theme.Apply(ThemeMode.Dark); Pump(); ForceLayout(win); Shot(win, "overview-dark");
             Theme.Apply(ThemeMode.Amoled); Pump(); ForceLayout(win); Shot(win, "overview-amoled");
             Theme.Apply(ThemeMode.Light); Pump(); ForceLayout(win); Shot(win, "overview-light");
             Theme.Apply(ThemeMode.Aurora); Pump(); ForceLayout(win); Shot(win, "overview-aurora");
+            Theme.Apply(ThemeMode.Sunset); Pump(); ForceLayout(win); Shot(win, "overview-sunset");
             Core.SetBool("peter_backdrop", true);
             Theme.Apply(ThemeMode.Peter); Pump(); ForceLayout(win); Shot(win, "overview-peter");
             

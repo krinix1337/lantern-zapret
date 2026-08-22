@@ -11,6 +11,7 @@ namespace ZapretStudio
     {
         public static DateTime? StartedAt; // время запуска (для uptime), пока процессом управляет приложение
         static int _winwsOperation;
+        static int _lastKnownWinwsPid = -1;
 
         // Один экземпляр winws нельзя безопасно одновременно перезапускать,
         // тестировать и переключать watchdog-ом.
@@ -23,8 +24,7 @@ namespace ZapretStudio
             System.Threading.Interlocked.Exchange(ref _winwsOperation, 0);
         }
 
-        static readonly char BS = (char)92; // обратный слэш без литерала в исходнике
-        static string RegKey { get { return "HKLM" + BS + "System" + BS + "CurrentControlSet" + BS + "Services" + BS + "zapret"; } }
+        static string RegKey { get { return @"HKLM\System\CurrentControlSet\Services\zapret"; } }
         static string Q(string s) { return "\"" + s + "\""; }
 
         // ---- winws процесс ----
@@ -57,19 +57,35 @@ namespace ZapretStudio
 
         public static bool IsWinwsRunning()
         {
+            if (_lastKnownWinwsPid > 0)
+            {
+                try
+                {
+                    var p = Process.GetProcessById(_lastKnownWinwsPid);
+                    if (!p.HasExited && p.ProcessName.Equals("winws", StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+                catch { _lastKnownWinwsPid = -1; }
+            }
+
             var procs = RootWinwsProcesses();
             try
             {
-                return procs.Count > 0;
+                if (procs.Count > 0)
+                {
+                    _lastKnownWinwsPid = procs[0].Id;
+                    return true;
+                }
+                return false;
             }
             finally { foreach (var p in procs) p.Dispose(); }
         }
 
         // Системные TCP timestamps не нужны для работы winws. Не меняем глобальные
         // параметры Windows без отдельного действия пользователя.
+[Obsolete]
         public static void EnableTcpTimestamps()
         {
-            // Оставлено как совместимая точка вызова для старых сценариев.
         }
 
         public static bool StartWinws(string batFileName)
@@ -98,6 +114,7 @@ namespace ZapretStudio
                         Say(Sev.Err, "StartWinws: winws exited with code " + p.ExitCode);
                         return false;
                     }
+                    _lastKnownWinwsPid = p.Id;
                     StartedAt = DateTime.Now;
                     return true;
                 }
@@ -108,6 +125,7 @@ namespace ZapretStudio
         public static bool KillWinws()
         {
             bool ok = true;
+            _lastKnownWinwsPid = -1;
             var procs = RootWinwsProcesses();
             try
             {
@@ -128,20 +146,37 @@ namespace ZapretStudio
             try { return File.Exists(WinDivertSys); } catch { return false; }
         }
 
-        // ---- Служба ----
+        // ---- Служба (через прямой Win32 ServiceController) ----
         public static bool ServiceExists()
         {
-            string o = Capture("sc", "query \"" + ServiceName + "\"", 15000);
-            return o.IndexOf("STATE", StringComparison.OrdinalIgnoreCase) >= 0;
+            try
+            {
+                using (var sc = new System.ServiceProcess.ServiceController(ServiceName))
+                {
+                    var s = sc.Status;
+                    return true;
+                }
+            }
+            catch (InvalidOperationException) { return false; }
+            catch { return false; }
         }
 
         // running / stopped / notinstalled
         public static string ServiceState()
         {
-            string o = Capture("sc", "query \"" + ServiceName + "\"", 15000);
-            if (o.IndexOf("STATE", StringComparison.OrdinalIgnoreCase) < 0) return "notinstalled";
-            if (o.IndexOf("RUNNING", StringComparison.OrdinalIgnoreCase) >= 0) return "running";
-            return "stopped";
+            try
+            {
+                using (var sc = new System.ServiceProcess.ServiceController(ServiceName))
+                {
+                    var status = sc.Status;
+                    if (status == System.ServiceProcess.ServiceControllerStatus.Running ||
+                        status == System.ServiceProcess.ServiceControllerStatus.StartPending)
+                        return "running";
+                    return "stopped";
+                }
+            }
+            catch (InvalidOperationException) { return "notinstalled"; }
+            catch { return "stopped"; }
         }
 
         // Стратегия, с которой установлена служба (из реестра, как делает service.bat)
@@ -166,26 +201,27 @@ namespace ZapretStudio
             string args;
             try { args = BuildArgs(batFileName); }
             catch (Exception ex) { Say(Sev.Err, "InstallService: " + ex.Message); return false; }
-            string q = "\\\"";
-            string binPath = q + WinwsExe + q + " " + args.Replace("\"", "\\\"");
-            if (!Run("sc", "create " + ServiceName + " binPath= \"" + binPath + "\" DisplayName= \"zapret\" start= auto", 20000)) return false;
-            if (!Run("sc", "description " + ServiceName + " \"Zapret DPI bypass software\"", 15000)) return false;
-            if (!Run("sc", "start " + ServiceName, 20000)) return false;
+string binPath = Q(WinwsExe) + " " + args;
+            string err;
+            if (!Run("sc", "create " + ServiceName + " binPath= " + Q(binPath) + " DisplayName= \"zapret\" start= auto", 20000, out err)) return false;
+            if (!Run("sc", "description " + ServiceName + " \"Zapret DPI bypass software\"", 15000, out err)) return false;
+            if (!Run("sc", "start " + ServiceName, 20000, out err)) return false;
             // отметим стратегию в реестре (как в service.bat)
             string name = PrettyName(batFileName);
-            if (!Run("reg", "add " + Q(RegKey) + " /v zapret-discord-youtube /t REG_SZ /d " + Q(name) + " /f", 15000)) return false;
+            if (!Run("reg", "add " + Q(RegKey) + " /v zapret-discord-youtube /t REG_SZ /d " + Q(name) + " /f", 15000, out err)) return false;
             StartedAt = DateTime.Now;
             return true;
         }
 
-        public static bool StartService() { bool ok = Run("sc", "start " + ServiceName, 20000); if (ok) StartedAt = DateTime.Now; return ok; }
-        public static bool StopService()  { bool ok = Run("sc", "stop " + ServiceName, 20000); if (ok) StartedAt = null; return ok; }
+public static bool StartService() { string err; bool ok = Run("sc", "start " + ServiceName, 20000, out err); if (ok) StartedAt = DateTime.Now; return ok; }
+        public static bool StopService()  { string err; bool ok = Run("sc", "stop " + ServiceName, 20000, out err); if (ok) StartedAt = null; return ok; }
 
-        public static bool RemoveService()
+public static bool RemoveService()
         {
-            Run("net", "stop " + ServiceName, 20000);
+            string err;
+            Run("net", "stop " + ServiceName, 20000, out err);
             bool existed = ServiceExists();
-            bool ok = !existed || Run("sc", "delete " + ServiceName, 15000);
+            bool ok = !existed || Run("sc", "delete " + ServiceName, 15000, out err);
             KillWinws();
             StartedAt = null;
             return ok;
@@ -272,9 +308,10 @@ namespace ZapretStudio
             try { Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true }); } catch { }
         }
 
-        // ---- helpers: скрытый запуск (async read + timeout + kill) ----
-        static bool Run(string file, string args, int timeoutMs)
+// ---- helpers: скрытый запуск (async read + timeout + kill) ----
+        static bool Run(string file, string args, int timeoutMs, out string error)
         {
+            error = null;
             try
             {
                 var psi = new ProcessStartInfo
@@ -286,12 +323,14 @@ namespace ZapretStudio
                 {
                     p.BeginOutputReadLine();
                     p.BeginErrorReadLine();
-                    if (!p.WaitForExit(timeoutMs)) { try { p.Kill(); } catch { } return false; }
+                    if (!p.WaitForExit(timeoutMs)) { error = "timeout"; try { p.Kill(); } catch { } return false; }
                     p.WaitForExit();
-                    return p.ExitCode == 0;
+                    int code = p.ExitCode;
+                    if (code != 0) error = "exit code " + code;
+                    return code == 0;
                 }
             }
-            catch { return false; }
+            catch (Exception ex) { error = Short(ex.Message); return false; }
         }
         static string Capture(string file, string args, int timeoutMs)
         {

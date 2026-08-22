@@ -147,7 +147,7 @@ namespace ZapretStudio
             }
         }
 
-        void Rebuild()
+        public void Rebuild()
         {
             _list.Children.Clear();
             var files = Core.GetStrategyFiles();
@@ -193,9 +193,13 @@ namespace ZapretStudio
 
         Border StrategyCard(string file, string name, string cat, bool isCurrent)
         {
-            var outer = new StackPanel();
+var outer = new StackPanel();
 
-            var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
+            var titleRow = new Grid();
+            titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
             var star = new Button { Cursor = System.Windows.Input.Cursors.Hand, VerticalAlignment = VerticalAlignment.Center,
                 Width = 24, Height = 24, Margin = new Thickness(0, 0, 8, 0) };
             Ctl.StripChrome(star);
@@ -205,7 +209,6 @@ namespace ZapretStudio
             star.Content = starBg;
             Ctl.AutomationSetName(star, (fav ? Loc.T("strat.favRemove") : Loc.T("strat.favAdd")) + name);
             star.ToolTip = fav ? Loc.T("strat.favRemove") + name : Loc.T("strat.favAdd") + name;
-            // У звезды нет подложки: состояние отмечает только заливка самой иконки.
             star.MouseEnter += (s, e) => { };
             star.MouseLeave += (s, e) => { };
             star.Click += (s, e) =>
@@ -217,7 +220,6 @@ namespace ZapretStudio
                 var newIcon = UI.Icon(adding ? Icons.StarFilled : Icons.Star, 18, adding ? Theme.BrWarn : Theme.BrFaint, 1.6);
                 starBg.Child = newIcon;
                 star.ToolTip = (adding ? Loc.T("strat.favRemove") : Loc.T("strat.favAdd")) + name;
-                // Анимация пульса
                 var st = new ScaleTransform(1, 1);
                 newIcon.RenderTransform = st;
                 newIcon.RenderTransformOrigin = new Point(0.5, 0.5);
@@ -228,19 +230,36 @@ namespace ZapretStudio
                 };
                 st.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
                 st.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
-                // Тост
                 _win.ShowToast(string.Format(adding ? Loc.T("strat.favAdded") : Loc.T("strat.favRemoved"), name),
                     adding ? Sev.Ok : Sev.Neutral);
-                // Пересобрать список (с задержкой чтобы анимация была видна)
                 var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(280) };
                 timer.Tick += (s2, e2) => { timer.Stop(); Rebuild(); };
                 timer.Start();
             };
+            Grid.SetColumn(star, 0);
             titleRow.Children.Add(star);
+
             var nameT = UI.T(name, Theme.FsBody, Theme.BrText, FontWeights.SemiBold);
             nameT.VerticalAlignment = VerticalAlignment.Center;
             nameT.TextTrimming = TextTrimming.CharacterEllipsis;
+            Grid.SetColumn(nameT, 1);
             titleRow.Children.Add(nameT);
+
+            var gear = new Button { Cursor = System.Windows.Input.Cursors.Hand, VerticalAlignment = VerticalAlignment.Center,
+                Width = 24, Height = 24, Margin = new Thickness(4, 0, 0, 0) };
+            Ctl.StripChrome(gear);
+            gear.Content = UI.Icon(Icons.Gear, 16, Theme.BrFaint, 1.6);
+            Ctl.AutomationSetName(gear, Loc.T("strat.settings") + name);
+            gear.ToolTip = Loc.T("strat.settings");
+            Ctl.AddMotion(gear);
+            gear.Click += (s, e) =>
+            {
+                try { System.Diagnostics.Process.Start("notepad.exe", System.IO.Path.Combine(Core.Root, file)); }
+                catch { }
+            };
+            Grid.SetColumn(gear, 2);
+            titleRow.Children.Add(gear);
+
             outer.Children.Add(titleRow);
 
             var badgeRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
@@ -289,13 +308,15 @@ namespace ZapretStudio
                 card.BorderBrush = normalBorder;
                 AnimateCardScale(cardScale, 1, 140);
             };
-            card.MouseLeftButtonDown += (s, e) =>
+card.MouseLeftButtonDown += (s, e) =>
             {
-                if (!IsInStar(e.OriginalSource as DependencyObject, star)) AnimateCardScale(cardScale, 0.988, 70);
+                if (!IsInStar(e.OriginalSource as DependencyObject, star) &&
+                    !IsInStar(e.OriginalSource as DependencyObject, gear)) AnimateCardScale(cardScale, 0.988, 70);
             };
             card.MouseLeftButtonUp += (s, e) =>
             {
                 if (e.OriginalSource is DependencyObject && IsInStar((DependencyObject)e.OriginalSource, star)) return;
+                if (e.OriginalSource is DependencyObject && IsInStar((DependencyObject)e.OriginalSource, gear)) return;
                 selecting = true;
                 card.Background = Theme.Alpha(Theme.AccentMain, 34);
                 card.BorderBrush = Theme.BrAccent;

@@ -320,7 +320,7 @@ namespace ZapretStudio
             sb.AppendLine();
             foreach (var r in _rows)
                 sb.AppendLine(string.Format("{0,-24} {1,-10} {2,-8} {3}",
-                    r.T.Name, ((TextBlock)((StackPanel)((Border)r.StatePill).Child).Children[1]).Text,
+                    r.T.Name, Pill.GetText(r.StatePill),
                     r.Latency.Text, r.Detail.Text));
             try
             {

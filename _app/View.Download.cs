@@ -213,14 +213,8 @@ namespace ZapretStudio
             _stat1.Text = Loc.T("dl.downloaded") + ": " + Core.HumanSize(p.BytesRead) +
                 (p.Total > 0 ? " / " + Core.HumanSize(p.Total) : "");
             _stat2.Text = Loc.T("dl.speed") + ": " + Core.HumanSpeed(p.SpeedBps);
-            _stat3.Text = Loc.T("dl.elapsed") + ": " + FmtTime(p.Elapsed);
+            _stat3.Text = Loc.T("dl.elapsed") + ": " + Core.FmtTime(p.Elapsed);
             _stat4.Text = Loc.T("dl.when") + ": " + DateTime.Now.ToString("HH:mm:ss");
-        }
-
-        static string FmtTime(TimeSpan t)
-        {
-            if (t.TotalMinutes >= 1) return (int)t.TotalMinutes + " min " + t.Seconds + " s";
-            return t.Seconds + "," + (t.Milliseconds / 100) + " s";
         }
     }
 }

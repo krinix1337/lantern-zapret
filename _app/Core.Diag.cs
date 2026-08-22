@@ -141,7 +141,7 @@ namespace ZapretStudio
             return false;
         }
 
-        // ---- Обновления (только проверка версии, ничего не скачиваем без подтверждения) ----
+        // ---- Обновления zapret: берём актуальный tag_name из официального GitHub Releases API ----
         public static string CheckLatestVersion()
         {
             try
@@ -149,8 +149,26 @@ namespace ZapretStudio
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
                 using (var wc = new WebClient())
                 {
-                    wc.Headers.Add("User-Agent", "ZapretStudio");
-                    string v = wc.DownloadString(VersionUrl).Trim();
+                    wc.Encoding = System.Text.Encoding.UTF8;
+                    wc.Headers.Add("User-Agent", "Lantern");
+                    string json = wc.DownloadString(ZapretReleaseApi);
+                    var m = System.Text.RegularExpressions.Regex.Match(json, "\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
+                    if (m.Success)
+                    {
+                        string tag = m.Groups[1].Value.Trim().TrimStart('v', 'V');
+                        return tag;
+                    }
+                }
+            }
+            catch { }
+            // Резервный опрос через version.txt при недоступности API
+            try
+            {
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                using (var wc = new WebClient())
+                {
+                    wc.Headers.Add("User-Agent", "Lantern");
+                    string v = wc.DownloadString(VersionUrl).Trim().TrimStart('v', 'V');
                     return v;
                 }
             }

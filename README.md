@@ -19,7 +19,7 @@
 
 <br>
 
-<img src="docs/screenshot.png" width="920" alt="Главный интерфейс Lantern 4.0">
+<img src="docs/screenshot.png" width="920" alt="Главный интерфейс Lantern 5.0">
 
 </div>
 

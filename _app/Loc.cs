@@ -72,6 +72,14 @@ namespace ZapretStudio
             A("mw.verFail",     "Не удалось получить версию из репозитория", "Could not fetch the version from the repository");
             A("mw.verOk",       "Актуальная версия (GitHub): {0}", "Latest version (GitHub): {0}");
             A("mw.verNew",      "Доступна версия {0} (у вас {1})", "Version {0} available (you have {1})");
+            A("mw.zapVerOk",    "zapret: установлена актуальная версия {0}", "zapret: up-to-date version {0} installed");
+            A("mw.zapVerNew",   "zapret: доступна новая версия {0} (у вас {1})", "zapret: new version {0} available (you have {1})");
+            A("mw.zapLocalNewer","zapret: локальная версия {0} новее последней на GitHub: {1}", "zapret: local version {0} is newer than latest on GitHub: {1}");
+            A("mw.tgVerOk",     "TG-Proxy: установлена актуальная версия {0}", "TG-Proxy: up-to-date version {0} installed");
+            A("mw.tgVerNew",    "TG-Proxy: доступна новая версия {0} (у вас {1})", "TG-Proxy: new version {0} available (you have {1})");
+            A("mw.appVerOk",    "Lantern: установлена актуальная версия {0}", "Lantern: up-to-date version {0} installed");
+            A("mw.appVerNew",   "Lantern: доступна новая версия {0} (у вас {1})", "Lantern: new version {0} available (you have {1})");
+            A("mw.appLocalNewer","Lantern: локальная версия {0} новее последней на GitHub: {1}", "Lantern: local version {0} is newer than latest on GitHub: {1}");
             A("mw.verDlg",      "Доступна версия zapret {0} (у вас {1}).\n\nСкачать и установить обновление автоматически?", "zapret {0} is available (you have {1}).\n\nDownload and install the update automatically?");
             A("mw.verDlgTitle", "Обновление",         "Update");
             A("mw.updStart",    "Загрузка обновления {0}…", "Downloading update {0}…");
@@ -127,21 +135,31 @@ namespace ZapretStudio
             A("check.strat.run",   "Проверить эту стратегию","Test this strategy");
             A("check.strat.hint",  "Каждая стратегия запускается на короткое время, затем проверяется доступность выбранных адресов. Требуются права администратора.", "Each strategy is started briefly, then the chosen hosts are re-checked. Administrator rights required.");
             A("settings.theme",       "Тема оформления", "Theme");
-            A("settings.theme.desc",  "Тёмная, AMOLED, светлая или северное сияние.", "Dark, AMOLED, light or Aurora interface theme.");
+            A("settings.theme.desc",  "Тёмная, AMOLED, светлая, северное сияние, закат или Питер Гриффин.", "Dark, AMOLED, light, Aurora, Sunset or Peter Griffin theme.");
             A("settings.theme.dark",  "Тёмная",  "Dark");
             A("settings.theme.amoled","AMOLED",  "AMOLED");
             A("settings.theme.light", "Светлая", "Light");
             A("settings.theme.aurora", "Северное сияние", "Aurora");
+            A("settings.theme.sunset", "Закат", "Sunset");
             A("settings.theme.peter", "Питер Гриффин", "Peter Griffin");
             A("settings.peter.sec", "Режим Питера", "Peter mode");
             A("settings.peter.backdrop", "Большой Питер на фоне", "Large Peter in background");
             A("settings.peter.backdrop.desc", "Показывает Питера примерно на половину рабочей области. Доступно только в теме Питера.", "Shows Peter across about half of the workspace. Available only in the Peter theme.");
-            A("settings.peter.song", "Песня Питера", "Peter's song");
-            A("settings.peter.song.desc", "Запускает случайный MP3 из assets\\peter-songs. Сейчас добавлен Surfin' Bird.", "Plays a random MP3 from assets\\peter-songs. Surfin' Bird is included now.");
-            A("settings.peter.song.open", "Включить случайную песню", "Play a random song");
-            A("settings.peter.song.stop", "Стоп", "Stop");
-            A("settings.peter.song.none", "Не найдено MP3 в папке assets\\peter-songs", "No MP3 files found in assets\\peter-songs");
+            A("settings.peter.song", "Музыка Питера", "Peter's music");
+            A("settings.peter.song.desc", "Воспроизведение треков из папки assets\\peter-songs (поддерживаются MP3, WAV, FLAC, M4A, AAC, WMA, OGG).", "Plays tracks from assets\\peter-songs (supports MP3, WAV, FLAC, M4A, AAC, WMA, OGG).");
+            A("settings.peter.song.play", "Включить музыку", "Play music");
+            A("settings.peter.song.open", "Включить музыку", "Play music");
+            A("settings.peter.song.stop", "Выключить музыку", "Turn off music");
+            A("settings.peter.song.none", "Не найдено аудиофайлов в папке assets\\peter-songs", "No audio files found in assets\\peter-songs");
             A("settings.peter.song.playing", "Играет: {0}", "Now playing: {0}");
+            A("player.prev", "Предыдущий трек", "Previous track");
+            A("player.next", "Следующий трек", "Next track");
+            A("player.play", "Воспроизвести", "Play");
+            A("player.pause", "Пауза", "Pause");
+            A("player.stop", "Остановить", "Stop");
+            A("player.shuffle", "Случайный порядок", "Shuffle");
+            A("player.close", "Закрыть плеер", "Close player");
+            A("player.defaultArtist", "Питер Гриффин", "Peter Griffin");
             A("settings.lang",        "Язык интерфейса", "Interface language");
             A("settings.lang.desc",   "Russian или English. Применяется сразу.", "Russian or English. Applies immediately.");
             A("settings.sec.general",  "Основные",           "General");
@@ -596,6 +614,21 @@ namespace ZapretStudio
             A("settings.update.replacing", "Замена файлов", "Replacing files");
             A("settings.update.installer", "Запуск установщика", "Starting installer");
             A("settings.update.done", "Обновление установлено", "Update installed");
+            // Настройки стратегии (шестерёнка)
+            A("strat.settings", "Настройки стратегии", "Strategy settings");
+            A("strat.opt.game", "Игровой режим", "Game mode");
+            A("strat.opt.gameDesc", "Отключает обработку UDP (порты 27000-27200) и игрового трафика", "Disables UDP (ports 27000-27200) and game traffic processing");
+            A("strat.opt.ipset", "IPSet-фильтр", "IPSet filter");
+            A("strat.opt.ipsetDesc", "Ограничивает обход заданным списком IP-адресов", "Limits bypass to a specified IP address list");
+            A("strat.opt.dns", "DNS-over-HTTPS", "DNS-over-HTTPS");
+            A("strat.opt.dnsDesc", "Маршрутизирует DNS-запросы через зашифрованный канал", "Routes DNS queries through an encrypted channel");
+            A("strat.opt.gameOn", "Игровой режим включён", "Game mode enabled");
+            A("strat.opt.gameOff", "Игровой режим выключен", "Game mode disabled");
+            A("strat.opt.ipsetOn", "IPSet-фильтр включён", "IPSet filter enabled");
+            A("strat.opt.ipsetOff", "IPSet-фильтр выключен", "IPSet filter disabled");
+            // Шрифты
+            A("fonts.dlFail", "Не удалось безопасно скачать шрифт интерфейса: {0}", "Could not safely download interface font: {0}");
+            A("fonts.downloaded", "Шрифты Google Sans загружены и проверены.", "Google Sans fonts downloaded and verified.");
         }
 
         static void A(string key, string ru, string en) { M[key] = new[] { ru, en }; }

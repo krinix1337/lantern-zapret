@@ -64,33 +64,41 @@ namespace ZapretStudio
                 using (var sr = new StreamReader(rs))
                 {
                     string json = sr.ReadToEnd();
-                    // Простой парсинг "body": "..." без внешних зависимостей.
-                    int idx = json.IndexOf("\"body\"", StringComparison.Ordinal);
-                    if (idx < 0) return null;
-                    int start = json.IndexOf('"', idx + 6);
-                    if (start < 0) return null;
-                    start++;
-                    var sb = new System.Text.StringBuilder();
-                    for (int i = start; i < json.Length; i++)
-                    {
-                        char c = json[i];
-                        if (c == '\\' && i + 1 < json.Length)
-                        {
-                            char next = json[i + 1];
-                            if (next == 'n') { sb.Append('\n'); i++; continue; }
-                            if (next == 'r') { i++; continue; }
-                            if (next == '"') { sb.Append('"'); i++; continue; }
-                            if (next == '\\') { sb.Append('\\'); i++; continue; }
-                            sb.Append(c); continue;
-                        }
-                        if (c == '"') break;
-                        sb.Append(c);
-                    }
-                    string body = sb.ToString().Trim();
+                    var m = System.Text.RegularExpressions.Regex.Match(json,
+                        "\"body\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"",
+                        System.Text.RegularExpressions.RegexOptions.Singleline);
+                    if (!m.Success) return null;
+                    string body = UnescapeJson(m.Groups[1].Value).Trim();
                     return body.Length > 0 ? body : null;
                 }
             }
             catch { return null; }
+        }
+
+        static string UnescapeJson(string s)
+        {
+            var sb = new System.Text.StringBuilder(s.Length);
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c == '\\' && i + 1 < s.Length)
+                {
+                    char next = s[i + 1];
+                    if (next == 'n') { sb.Append('\n'); i++; continue; }
+                    if (next == 'r') { i++; continue; }
+                    if (next == 't') { sb.Append('\t'); i++; continue; }
+                    if (next == '"' || next == '\\' || next == '/') { sb.Append(next); i++; continue; }
+                    if (next == 'u' && i + 5 < s.Length)
+                    {
+                        string hex = s.Substring(i + 2, 4);
+                        int cp;
+                        if (int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out cp))
+                        { sb.Append((char)cp); i += 5; continue; }
+                    }
+                }
+                sb.Append(c);
+            }
+            return sb.ToString();
         }
     }
 }

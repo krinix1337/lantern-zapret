@@ -143,7 +143,7 @@ namespace ZapretStudio
                     {
                         if (p.Failed) return;
                         string size = Core.HumanSize(p.BytesRead) + (p.Total > 0 ? " / " + Core.HumanSize(p.Total) : "");
-                        _detail.Text = size + "      " + Core.HumanSpeed(p.SpeedBps) + "      " + FmtTime(p.Elapsed);
+                        _detail.Text = size + "      " + Core.HumanSpeed(p.SpeedBps) + "      " + Core.FmtTime(p.Elapsed);
                     });
                 }, null);
                 Dispatcher.Invoke((Action)delegate
@@ -181,12 +181,6 @@ namespace ZapretStudio
             Core.Info(Loc.T("tg.stoppedOk"));
             _detail.Text = "";
             Sync();
-        }
-
-        static string FmtTime(TimeSpan t)
-        {
-            if (t.TotalMinutes >= 1) return (int)t.TotalMinutes + " min " + t.Seconds + " s";
-            return t.Seconds + "," + (t.Milliseconds / 100) + " s";
         }
     }
 }

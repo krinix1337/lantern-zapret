@@ -258,62 +258,58 @@ namespace ZapretStudio
         static UIElement space10() { return new Border { Height = 10 }; }
     }
 
-    // Небольшая инерция колеса мыши для всех экранов. Вместо LayoutTransform
-    // используется ScrollToVerticalOffset: во время движения работает один
-    // короткий таймер, без тяжёлого перерасчёта содержимого.
+    // Плавная инерционная прокрутка на частоте обновления монитора (CompositionTarget.Rendering)
     class SmoothScrollViewer : ScrollViewer
     {
-        const double WheelStep = 72;
-        const int DurationMs = 165;
-        readonly DispatcherTimer _timer;
-        DateTime _started;
-        double _from;
-        double _target;
+        const double WheelStep = 80;
+        double _targetOffset;
+        bool _isAnimating;
 
         public SmoothScrollViewer()
         {
-            _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(15) };
-            _timer.Tick += (s, e) => Tick();
             PreviewMouseWheel += OnPreviewMouseWheel;
+            ScrollChanged += (s, e) =>
+            {
+                if (!_isAnimating) _targetOffset = VerticalOffset;
+            };
         }
 
         void OnPreviewMouseWheel(object sender, MouseWheelEventArgs e)
         {
             if (ScrollableHeight <= 0) return;
             e.Handled = true;
-            double baseOffset = _timer.IsEnabled ? _target : VerticalOffset;
-            double steps = e.Delta / 120.0;
-            ScrollSmoothly(baseOffset - steps * WheelStep);
-        }
+            double delta = (e.Delta / 120.0) * WheelStep;
+            double cur = _isAnimating ? _targetOffset : VerticalOffset;
+            _targetOffset = Math.Max(0, Math.Min(ScrollableHeight, cur - delta));
 
-        void ScrollSmoothly(double offset)
-        {
-            double max = Math.Max(0, ScrollableHeight);
-            _from = VerticalOffset;
-            _target = Math.Max(0, Math.Min(max, offset));
             if (!Theme.AnimationsEnabled)
             {
-                _timer.Stop();
-                ScrollToVerticalOffset(_target);
+                ScrollToVerticalOffset(_targetOffset);
                 return;
             }
-            if (Math.Abs(_target - _from) < 0.5) return;
-            _started = DateTime.UtcNow;
-            _timer.Start();
+
+            if (!_isAnimating)
+            {
+                _isAnimating = true;
+                CompositionTarget.Rendering += OnRendering;
+            }
         }
 
-        void Tick()
+        void OnRendering(object sender, EventArgs e)
         {
-            double t = (DateTime.UtcNow - _started).TotalMilliseconds / DurationMs;
-            if (t >= 1)
+            double cur = VerticalOffset;
+            double diff = _targetOffset - cur;
+            if (Math.Abs(diff) < 0.5 || ScrollableHeight <= 0)
             {
-                ScrollToVerticalOffset(_target);
-                _timer.Stop();
+                ScrollToVerticalOffset(_targetOffset);
+                _isAnimating = false;
+                CompositionTarget.Rendering -= OnRendering;
                 return;
             }
-            // Cubic ease-out: быстро реагирует на колесо и мягко останавливается.
-            double eased = 1 - Math.Pow(1 - t, 3);
-            ScrollToVerticalOffset(_from + (_target - _from) * eased);
+
+            // Плавная интерполяция к цели на каждом кадре дисплея
+            double next = cur + diff * 0.28;
+            ScrollToVerticalOffset(next);
         }
     }
 }

@@ -37,7 +37,8 @@ namespace ZapretStudio
                         else k.SetValue(DohRegKey, value, RegistryValueKind.DWord);
                     }
                     // Перезапустить DNS-кэш для применения
-                    Run("ipconfig", "/flushdns", 10000);
+                    string err;
+                    Run("ipconfig", "/flushdns", 10000, out err);
                 }
                 catch (Exception ex) { Fail(string.Format(Loc.T("doh.err"), ex.Message)); }
             }

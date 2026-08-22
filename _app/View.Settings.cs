@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Threading;
 
 namespace ZapretStudio
 {
@@ -100,13 +101,14 @@ namespace ZapretStudio
             theme.Items.Add(Loc.T("settings.theme.amoled"));
             theme.Items.Add(Loc.T("settings.theme.light"));
             theme.Items.Add(Loc.T("settings.theme.aurora"));
+            theme.Items.Add(Loc.T("settings.theme.sunset"));
             theme.Items.Add(Loc.T("settings.theme.peter"));
-            theme.SelectedIndex = Theme.Mode == ThemeMode.Amoled ? 1 : Theme.Mode == ThemeMode.Light ? 2 : Theme.Mode == ThemeMode.Aurora ? 3 : Theme.Mode == ThemeMode.Peter ? 4 : 0;
+            theme.SelectedIndex = Theme.Mode == ThemeMode.Amoled ? 1 : Theme.Mode == ThemeMode.Light ? 2 : Theme.Mode == ThemeMode.Aurora ? 3 : Theme.Mode == ThemeMode.Sunset ? 4 : Theme.Mode == ThemeMode.Peter ? 5 : 0;
             theme.SelectionChanged += (s, e) =>
             {
-                ThemeMode next = theme.SelectedIndex == 4 ? ThemeMode.Peter : theme.SelectedIndex == 3 ? ThemeMode.Aurora : theme.SelectedIndex == 2 ? ThemeMode.Light : theme.SelectedIndex == 1 ? ThemeMode.Amoled : ThemeMode.Dark;
+                ThemeMode next = theme.SelectedIndex == 5 ? ThemeMode.Peter : theme.SelectedIndex == 4 ? ThemeMode.Sunset : theme.SelectedIndex == 3 ? ThemeMode.Aurora : theme.SelectedIndex == 2 ? ThemeMode.Light : theme.SelectedIndex == 1 ? ThemeMode.Amoled : ThemeMode.Dark;
                 if (next == Theme.Mode) return;
-                Core.Set("theme", next == ThemeMode.Light ? "light" : next == ThemeMode.Amoled ? "amoled" : next == ThemeMode.Aurora ? "aurora" : next == ThemeMode.Peter ? "peter" : "dark");
+                Core.Set("theme", next == ThemeMode.Light ? "light" : next == ThemeMode.Amoled ? "amoled" : next == ThemeMode.Aurora ? "aurora" : next == ThemeMode.Sunset ? "sunset" : next == ThemeMode.Peter ? "peter" : "dark");
                 Core.SaveConfig();
                 Theme.Apply(next);
             };
@@ -144,15 +146,25 @@ namespace ZapretStudio
                     Theme.Apply(ThemeMode.Peter);
                 })));
             Body.Children.Add(space());
-            var musicButtons = new StackPanel { Orientation = Orientation.Horizontal };
-            var song = Ctl.Button(Loc.T("settings.peter.song.open"), Icons.Play, 0);
-            song.Click += (s, e) => _win.PlayRandomPeterSong();
-            var stop = Ctl.Button(Loc.T("settings.peter.song.stop"), Icons.Stop, 3);
-            stop.Margin = new Thickness(8, 0, 0, 0);
-            stop.Click += (s, e) => _win.StopPeterSong();
-            musicButtons.Children.Add(song);
-            musicButtons.Children.Add(stop);
-            Body.Children.Add(Row(Loc.T("settings.peter.song"), Loc.T("settings.peter.song.desc"), musicButtons));
+
+            bool active = _win.PeterMusic.IsActive;
+            var musicBtn = Ctl.Button(
+                active ? Loc.T("settings.peter.song.stop") : Loc.T("settings.peter.song.play"),
+                active ? Icons.Stop : Icons.Play,
+                active ? 3 : 0);
+            musicBtn.Click += (s, e) => _win.TogglePeterMusic();
+
+            Action updateMusicBtn = delegate
+            {
+                bool isAct = _win.PeterMusic.IsActive;
+                Ctl.SetButton(musicBtn,
+                    isAct ? Loc.T("settings.peter.song.stop") : Loc.T("settings.peter.song.play"),
+                    isAct ? Icons.Stop : Icons.Play,
+                    isAct ? 3 : 0);
+            };
+            _win.PeterMusic.StateChanged += updateMusicBtn;
+
+            Body.Children.Add(Row(Loc.T("settings.peter.song"), Loc.T("settings.peter.song.desc"), musicBtn));
         }
 
         void BuildUpdates()
@@ -162,9 +174,10 @@ namespace ZapretStudio
             // zapret версия
             var zapLeft = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             zapLeft.Children.Add(UI.T(Loc.T("settings.zapretVer"), Theme.FsBody, Theme.BrText, FontWeights.SemiBold));
-            zapLeft.Children.Add(new TextBlock { Text = Loc.T("settings.localVersion") + Core.ZapretVersion(),
+            _zapLocalVersion = new TextBlock { Text = Loc.T("settings.localVersion") + Core.ZapretVersion(),
                 Foreground = Theme.BrMuted, FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont,
-                Margin = new Thickness(0, 3, 0, 0) });
+                Margin = new Thickness(0, 3, 0, 0) };
+            zapLeft.Children.Add(_zapLocalVersion);
             _zapStatusLine = new TextBlock { Text = Loc.T("settings.checkingOnStart"), Foreground = Theme.BrMuted, FontSize = Theme.FsSmall,
                 FontFamily = Theme.UiFont, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap };
             zapLeft.Children.Add(_zapStatusLine);
@@ -191,10 +204,11 @@ namespace ZapretStudio
             string tgLocal = Core.TgProxyInstalled() ? Core.TgProxyLocalVersion() : null;
             var tgLeft = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             tgLeft.Children.Add(UI.T(Loc.T("settings.tgVer"), Theme.FsBody, Theme.BrText, FontWeights.SemiBold));
-            tgLeft.Children.Add(new TextBlock {
+            _tgLocalVersion = new TextBlock {
                 Text = Loc.T("settings.localVersion") + (string.IsNullOrEmpty(tgLocal) ? "—" : NormVer(tgLocal)),
                 Foreground = Theme.BrMuted, FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont,
-                Margin = new Thickness(0, 3, 0, 0) });
+                Margin = new Thickness(0, 3, 0, 0) };
+            tgLeft.Children.Add(_tgLocalVersion);
             _tgStatusLine = new TextBlock { Text = Loc.T("settings.checkingOnStart"), Foreground = Theme.BrMuted, FontSize = Theme.FsSmall,
                 FontFamily = Theme.UiFont, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap };
             tgLeft.Children.Add(_tgStatusLine);
@@ -220,9 +234,10 @@ namespace ZapretStudio
             // Версия самого приложения (Lantern)
             var appLeft = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             appLeft.Children.Add(UI.T(Loc.T("settings.appVer"), Theme.FsBody, Theme.BrText, FontWeights.SemiBold));
-            appLeft.Children.Add(new TextBlock { Text = Loc.T("settings.localVersion") + Core.AppVersion,
+            _appLocalVersion = new TextBlock { Text = Loc.T("settings.localVersion") + Core.AppVersion,
                 Foreground = Theme.BrMuted, FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont,
-                Margin = new Thickness(0, 3, 0, 0) });
+                Margin = new Thickness(0, 3, 0, 0) };
+            appLeft.Children.Add(_appLocalVersion);
             _appStatusLine = new TextBlock { Text = Loc.T("settings.checkingOnStart"), Foreground = Theme.BrMuted, FontSize = Theme.FsSmall,
                 FontFamily = Theme.UiFont, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap };
             appLeft.Children.Add(_appStatusLine);
@@ -248,15 +263,16 @@ namespace ZapretStudio
         TextBlock _tgStatusLine;
         TextBlock _zapStatusLine;
         TextBlock _appStatusLine;
+        TextBlock _tgLocalVersion;
+        TextBlock _zapLocalVersion;
+        TextBlock _appLocalVersion;
         UpdateProgressBar _zapProgress;
         UpdateProgressBar _tgProgress;
         UpdateProgressBar _appProgress;
-        // Кнопки ручной проверки удалены из интерфейса: проверка выполняется автоматически.
-        // Поля сохранены только для совместимости со старым кодом обновления.
-        Button _zapCheckBtn = null, _zapUpdateBtn;
-        Button _tgCheckBtn = null, _tgUpdateBtn;
-        Button _appCheckBtn = null, _appUpdateBtn;
-        string _appUpdateUrl;
+        // Кнопки обновления (ручная проверка удалена — используется автоматическая через SetAutomaticUpdateResults).
+        Button _zapUpdateBtn;
+        Button _tgUpdateBtn;
+        Button _appUpdateBtn;
         string _zapLatest;
 
         // Вызывается главным окном после единой автоматической проверки при старте.
@@ -264,10 +280,24 @@ namespace ZapretStudio
         public void SetAutomaticUpdateResults(string zapretLatest, string zapretLocal,
             string tgLatest, string tgLocal, string appLatest, string appLocal)
         {
-            _zapLatest = zapretLatest;
-            SetAutomaticStatus(_zapStatusLine, _zapUpdateBtn, zapretLatest, zapretLocal, Core.ReleaseUrl);
-            SetAutomaticStatus(_tgStatusLine, _tgUpdateBtn, tgLatest, tgLocal, Core.TgProxyReleasePage);
-            SetAutomaticStatus(_appStatusLine, _appUpdateBtn, appLatest, appLocal, Core.AppReleaseUrl);
+            string zLat = NormVer(zapretLatest);
+            string zLoc = NormVer(zapretLocal);
+            string tgLat = NormVer(tgLatest);
+            string tgLoc = NormVer(tgLocal);
+            string apLat = NormVer(appLatest);
+            string apLoc = NormVer(appLocal);
+
+            _zapLatest = zLat;
+            if (_zapLocalVersion != null)
+                _zapLocalVersion.Text = Loc.T("settings.localVersion") + zLoc;
+            if (_tgLocalVersion != null)
+                _tgLocalVersion.Text = Loc.T("settings.localVersion") + (string.IsNullOrEmpty(tgLoc) ? "—" : tgLoc);
+            if (_appLocalVersion != null)
+                _appLocalVersion.Text = Loc.T("settings.localVersion") + apLoc;
+
+            SetAutomaticStatus(_zapStatusLine, _zapUpdateBtn, zLat, zLoc, Core.ReleaseUrl);
+            SetAutomaticStatus(_tgStatusLine, _tgUpdateBtn, tgLat, tgLoc, Core.TgProxyReleasePage);
+            SetAutomaticStatus(_appStatusLine, _appUpdateBtn, apLat, apLoc, Core.AppReleaseUrl);
         }
 
         void SetAutomaticStatus(TextBlock line, Button updateButton, string latest, string local, string updateUrl)
@@ -331,6 +361,10 @@ namespace ZapretStudio
         public void FinishZapretUpdate(string text, bool ok)
         {
             FinishProgress(_zapProgress, _zapStatusLine, text, ok);
+            if (ok && _zapLocalVersion != null)
+            {
+                _zapLocalVersion.Text = Loc.T("settings.localVersion") + Core.ZapretVersion();
+            }
         }
 
         void SetTgUpdateProgress(string phase, int percent)
@@ -346,149 +380,51 @@ namespace ZapretStudio
         void FinishProgress(UpdateProgressBar progress, TextBlock line, string text, bool ok)
         {
             if (line != null) { line.Text = text; line.Foreground = ok ? Theme.BrOk : Theme.BrWarn; }
-            if (progress != null) progress.Show(text, ok ? 100 : -1, ok ? Theme.BrOk : Theme.BrWarn);
-        }
-
-        void CheckZapretVersion()
-        {
-            _zapStatusLine.Text = Loc.T("mw.checkVer");
-            _zapUpdateBtn.Visibility = Visibility.Collapsed;
-            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            if (progress != null)
             {
-                try
+                progress.Show(text, ok ? 100 : -1, ok ? Theme.BrOk : Theme.BrWarn);
+                if (ok)
                 {
-                    string latest = Core.CheckLatestVersion();
-                    string local = Core.ZapretVersion();
-                    Dispatcher.Invoke((Action)delegate
-                    {
-                        if (latest == null)
-                        {
-                            _zapStatusLine.Text = Loc.T("mw.verFail");
-                            return;
-                        }
-                        if (NormVer(latest) == NormVer(local))
-                        {
-                            _zapStatusLine.Text = string.Format(Loc.T("mw.verOk"), NormVer(latest));
-                            _zapStatusLine.Foreground = Theme.BrOk;
-                            // Зелёная кнопка "Последняя версия" на 5 секунд
-                            var greenBtn = Ctl.Button(Loc.T("settings.latestVer"), Icons.Check, 0);
-                            greenBtn.Click += (s2, e2) => { };
-                            var parent = _zapCheckBtn.Parent as StackPanel;
-                            if (parent != null)
-                            {
-                                int idx = parent.Children.IndexOf(_zapCheckBtn);
-                                if (idx >= 0) { parent.Children.RemoveAt(idx); parent.Children.Insert(idx, greenBtn); }
-                            }
-                            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
-                            timer.Tick += (s2, e2) =>
-                            {
-                                timer.Stop();
-                                _zapStatusLine.Foreground = Theme.BrMuted;
-                                if (parent != null)
-                                {
-                                    int idx2 = parent.Children.IndexOf(greenBtn);
-                                    if (idx2 >= 0) { parent.Children.RemoveAt(idx2); parent.Children.Insert(idx2, _zapCheckBtn); }
-                                }
-                            };
-                            timer.Start();
-                        }
-                        else
-                        {
-                            _zapStatusLine.Text = string.Format(Loc.T("mw.verNew"), NormVer(latest), NormVer(local));
-                            _zapStatusLine.Foreground = Theme.BrWarn;
-                            _zapUpdateBtn.Visibility = Visibility.Visible;
-                        }
-                    });
+                    var tm = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1400) };
+                    tm.Tick += (s, e) => { tm.Stop(); progress.Hide(); };
+                    tm.Start();
                 }
-                catch { }
-            });
+            }
         }
 
         internal static string NormVer(string v)
         {
             if (string.IsNullOrEmpty(v)) return "";
-            v = v.TrimStart('v', 'V');
-            while (v.EndsWith(".0")) v = v.Substring(0, v.Length - 2);
+            v = v.Trim().TrimStart('v', 'V');
+            string[] p = v.Split('.');
+            if (p.Length == 4 && p[3] == "0")
+                return p[0] + "." + p[1] + "." + p[2];
             return v;
         }
 
         internal static int CompareVersions(string left, string right)
         {
+            if (string.IsNullOrEmpty(left) && string.IsNullOrEmpty(right)) return 0;
+            if (string.IsNullOrEmpty(left)) return -1;
+            if (string.IsNullOrEmpty(right)) return 1;
+            string l = NormVer(left);
+            string r = NormVer(right);
+            if (string.Equals(l, r, StringComparison.OrdinalIgnoreCase)) return 0;
             Version a, b;
-            if (Version.TryParse(NormVer(left), out a) && Version.TryParse(NormVer(right), out b)) return a.CompareTo(b);
-            return string.Compare(NormVer(left), NormVer(right), StringComparison.OrdinalIgnoreCase);
-        }
-
-        void CheckTgVersion()
-        {
-            _tgStatusLine.Text = Loc.T("settings.tg.checking");
-            _tgStatusLine.Foreground = Theme.BrMuted;
-            _tgUpdateBtn.Visibility = Visibility.Collapsed;
-            string local = Core.TgProxyInstalled() ? Core.TgProxyLocalVersion() : null;
-            System.Threading.ThreadPool.QueueUserWorkItem(delegate
-            {
-                try
-                {
-                    string latest = Core.TgProxyLatestVersion();
-                    Dispatcher.Invoke((Action)delegate
-                    {
-                        if (latest == null)
-                        {
-                            _tgStatusLine.Text = Loc.T("mw.verFail");
-                            _tgStatusLine.Foreground = Theme.BrWarn;
-                            return;
-                        }
-                        if (!Core.TgProxyInstalled() || string.IsNullOrEmpty(local))
-                        {
-                            _tgStatusLine.Text = string.Format(Loc.T("settings.tg.latestOnly"), latest);
-                            _tgStatusLine.Foreground = Theme.BrMuted;
-                            return;
-                        }
-                        if (NormVer(local) == NormVer(latest))
-                        {
-                            _tgStatusLine.Text = string.Format(Loc.T("mw.verOk"), latest);
-                            _tgStatusLine.Foreground = Theme.BrOk;
-                            var greenBtn = Ctl.Button(Loc.T("settings.latestVer"), Icons.Check, 0);
-                            greenBtn.Click += (s2, e2) => { };
-                            var parent = _tgCheckBtn.Parent as StackPanel;
-                            if (parent != null)
-                            {
-                                int idx = parent.Children.IndexOf(_tgCheckBtn);
-                                if (idx >= 0) { parent.Children.RemoveAt(idx); parent.Children.Insert(idx, greenBtn); }
-                            }
-                            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
-                            timer.Tick += (s2, e2) =>
-                            {
-                                timer.Stop();
-                                if (parent != null)
-                                {
-                                    int idx2 = parent.Children.IndexOf(greenBtn);
-                                    if (idx2 >= 0) { parent.Children.RemoveAt(idx2); parent.Children.Insert(idx2, _tgCheckBtn); }
-                                }
-                            };
-                            timer.Start();
-                        }
-                        else
-                        {
-                            _tgStatusLine.Text = string.Format(Loc.T("mw.verNew"), NormVer(latest), NormVer(local));
-                            _tgStatusLine.Foreground = Theme.BrWarn;
-                            _tgUpdateBtn.Visibility = Visibility.Visible;
-                        }
-                    });
-                }
-                catch { }
-            });
+            if (Version.TryParse(l, out a) && Version.TryParse(r, out b)) return a.CompareTo(b);
+            return string.Compare(l, r, StringComparison.OrdinalIgnoreCase);
         }
 
         void UpdateTgProxy()
         {
             _tgUpdateBtn.Visibility = Visibility.Collapsed;
             SetTgUpdateProgress(Loc.T("settings.update.downloading"), 0);
+            bool wasRunning = Core.TgProxyRunning();
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
                 try
                 {
-                    Core.TgProxyStop();
+                    if (wasRunning) Core.TgProxyStop();
                     try { System.IO.Directory.CreateDirectory(Core.TgToolsDir); } catch { }
                     bool ok = Core.DownloadFile(Core.TgProxyDownloadUrl(), Core.TgProxyExe, delegate (DlProgress p)
                     {
@@ -508,69 +444,19 @@ namespace ZapretStudio
                         {
                             SetTgUpdateProgress(Loc.T("settings.update.replacing"), 96);
                             string nv = Core.TgProxyLocalVersion();
+                            string nvNorm = string.IsNullOrEmpty(nv) ? "—" : NormVer(nv);
                             FinishProgress(_tgProgress, _tgStatusLine,
-                                Loc.T("settings.update.done") + ": " + (string.IsNullOrEmpty(nv) ? "—" : NormVer(nv)), true);
+                                Loc.T("settings.update.done") + ": " + nvNorm, true);
+                            if (_tgLocalVersion != null)
+                                _tgLocalVersion.Text = Loc.T("settings.localVersion") + nvNorm;
                             _win.ShowToast(Loc.T("tg.dlOk"), Sev.Ok);
+                            _win.RefreshSidebarVersions();
+                            if (wasRunning) { string tgErr; Core.TgProxyStart(out tgErr); }
                         }
                         else
                         {
                             FinishProgress(_tgProgress, _tgStatusLine, Loc.T("tg.dlFail"), false);
                             _win.ShowToast(Loc.T("tg.dlFail"), Sev.Warn);
-                        }
-                    });
-                }
-                catch { }
-            });
-        }
-
-        void CheckAppVersion()
-        {
-            _appStatusLine.Text = Loc.T("mw.checkVer");
-            _appStatusLine.Foreground = Theme.BrMuted;
-            _appUpdateBtn.Visibility = Visibility.Collapsed;
-            System.Threading.ThreadPool.QueueUserWorkItem(delegate
-            {
-                try
-                {
-                    string latest = Core.AppLatestVersion();
-                    Dispatcher.Invoke((Action)delegate
-                    {
-                        if (latest == null)
-                        {
-                            _appStatusLine.Text = Loc.T("mw.verFail");
-                            _appStatusLine.Foreground = Theme.BrWarn;
-                            return;
-                        }
-                        if (NormVer(latest) == NormVer(Core.AppVersion))
-                        {
-                            _appStatusLine.Text = string.Format(Loc.T("mw.verOk"), NormVer(latest));
-                            _appStatusLine.Foreground = Theme.BrOk;
-                            var greenBtn = Ctl.Button(Loc.T("settings.latestVer"), Icons.Check, 0);
-                            greenBtn.Click += (s2, e2) => { };
-                            var parent = _appCheckBtn.Parent as StackPanel;
-                            if (parent != null)
-                            {
-                                int idx = parent.Children.IndexOf(_appCheckBtn);
-                                if (idx >= 0) { parent.Children.RemoveAt(idx); parent.Children.Insert(idx, greenBtn); }
-                            }
-                            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
-                            timer.Tick += (s2, e2) =>
-                            {
-                                timer.Stop();
-                                if (parent != null)
-                                {
-                                    int idx2 = parent.Children.IndexOf(greenBtn);
-                                    if (idx2 >= 0) { parent.Children.RemoveAt(idx2); parent.Children.Insert(idx2, _appCheckBtn); }
-                                }
-                            };
-                            timer.Start();
-                        }
-                        else
-                        {
-                            _appStatusLine.Text = string.Format(Loc.T("mw.verNew"), NormVer(latest), Core.AppVersion);
-                            _appStatusLine.Foreground = Theme.BrWarn;
-                            _appUpdateUrl = Core.AppInstallerUrl();
-                            _appUpdateBtn.Visibility = Visibility.Visible;
                         }
                     });
                 }
@@ -744,45 +630,60 @@ namespace ZapretStudio
         static UIElement space() { return new Border { Height = 10 }; }
     }
 
-    // Компактный индикатор для карточек обновления. Ширина фиксирована, поэтому
-    // обновление прогресса не вызывает перерасчёт всей страницы.
+    // Компактный индикатор для карточек обновления (чистая анимированная полоса без дублирующего текста)
     sealed class UpdateProgressBar
     {
-        const double TrackWidth = 218;
+        const double TrackWidth = 240;
         readonly Border _root;
-        readonly TextBlock _caption;
         readonly Border _fill;
 
         public UIElement View { get { return _root; } }
 
         public UpdateProgressBar()
         {
-            var stack = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
-            _caption = new TextBlock { Foreground = Theme.BrMuted, FontSize = Theme.FsTiny,
-                FontFamily = Theme.UiFont, TextWrapping = TextWrapping.Wrap };
-            stack.Children.Add(_caption);
+            _fill = new Border
+            {
+                Width = 0,
+                Height = 4,
+                CornerRadius = Theme.Rpill,
+                Background = Theme.BrAccent,
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+            var track = new Border
+            {
+                Width = TrackWidth,
+                Height = 4,
+                CornerRadius = Theme.Rpill,
+                Background = Theme.BrSurfaceHi,
+                ClipToBounds = true,
+                Margin = new Thickness(0, 8, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Child = _fill
+            };
 
-            _fill = new Border { Width = 0, Height = 5, CornerRadius = Theme.Rpill,
-                Background = Theme.BrAccent, HorizontalAlignment = HorizontalAlignment.Left };
-            var track = new Border { Width = TrackWidth, Height = 5, CornerRadius = Theme.Rpill,
-                Background = Theme.BrSurfaceHi, ClipToBounds = true, Margin = new Thickness(0, 5, 0, 0), Child = _fill };
-            stack.Children.Add(track);
-
-            _root = new Border { Child = stack, Visibility = Visibility.Collapsed };
+            _root = new Border { Child = track, Visibility = Visibility.Collapsed, Opacity = 0 };
         }
 
         public void Show(string phase, int percent, Brush color)
         {
-            _root.Visibility = Visibility.Visible;
-            int safe = percent < 0 ? 16 : Math.Max(0, Math.Min(100, percent));
-            _caption.Text = percent < 0 ? phase : phase + " — " + safe + "%";
-            _caption.Foreground = color;
+            if (_root.Visibility != Visibility.Visible)
+            {
+                _root.Visibility = Visibility.Visible;
+                if (Theme.AnimationsEnabled)
+                {
+                    var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160));
+                    _root.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+                }
+                else _root.Opacity = 1;
+            }
+
+            int safe = percent < 0 ? 20 : Math.Max(0, Math.Min(100, percent));
             _fill.Background = color;
             double target = TrackWidth * safe / 100.0;
             if (Theme.AnimationsEnabled)
             {
-                var animation = new DoubleAnimation(target, TimeSpan.FromMilliseconds(140))
-                { EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut } };
+                var animation = new DoubleAnimation(target, TimeSpan.FromMilliseconds(160))
+                { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
                 _fill.BeginAnimation(FrameworkElement.WidthProperty, animation);
             }
             else
@@ -794,9 +695,25 @@ namespace ZapretStudio
 
         public void Hide()
         {
-            _fill.BeginAnimation(FrameworkElement.WidthProperty, null);
-            _fill.Width = 0;
-            _root.Visibility = Visibility.Collapsed;
+            if (_root.Visibility == Visibility.Collapsed) return;
+            if (Theme.AnimationsEnabled)
+            {
+                var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(180));
+                fadeOut.Completed += (s, e) =>
+                {
+                    _fill.BeginAnimation(FrameworkElement.WidthProperty, null);
+                    _fill.Width = 0;
+                    _root.Visibility = Visibility.Collapsed;
+                };
+                _root.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+            }
+            else
+            {
+                _fill.BeginAnimation(FrameworkElement.WidthProperty, null);
+                _fill.Width = 0;
+                _root.Opacity = 0;
+                _root.Visibility = Visibility.Collapsed;
+            }
         }
     }
 }

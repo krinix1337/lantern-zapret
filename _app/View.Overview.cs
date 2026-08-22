@@ -12,13 +12,14 @@ namespace ZapretStudio
         public override string Subtitle { get { return Loc.T("overview.sub"); } }
 
         readonly MainWindow _win;
-        Border _statusCard, _tgCard; TextBlock _statusTitle, _statusSub, _stratName, _modeVal, _uptimeVal;
+        Border _statusCard, _tgCard;
+        TextBlock _statusTitle, _statusSub, _stratName, _modeVal, _uptimeVal;
         TextBlock _tgStatusTitle, _tgStatusSub;
         Button _mainBtn, _restartBtn, _tgBtn, _tgFolderBtn;
         Border _cDiscord, _cYouTube, _cDivert, _cService;
         bool? _lastRunning;
         bool _zapBusy, _tgBusy;
-        DispatcherTimer _timer;
+        readonly DispatcherTimer _timer;
         TextBlock _trafficDown, _trafficUp, _trafficTotalDown, _trafficTotalUp;
 
         public OverviewPage(MainWindow win)
@@ -37,8 +38,6 @@ namespace ZapretStudio
         public override void OnShow() { Refresh(); _timer.Start(); }
         public override void OnHide() { _timer.Stop(); }
 
-        // Короткая живая индикация запуска. После операции Refresh читает реальное
-        // состояние процесса и заменяет этот промежуточный статус.
         public void SetZapretTransition(bool busy)
         {
             _zapBusy = busy;
@@ -51,7 +50,11 @@ namespace ZapretStudio
                 _restartBtn.IsEnabled = false;
                 PulseCard(_statusCard, true);
             }
-            else { PulseCard(_statusCard, false); Refresh(); }
+            else
+            {
+                PulseCard(_statusCard, false);
+                Refresh();
+            }
         }
 
         public void SetTgTransition(bool busy)
@@ -65,7 +68,11 @@ namespace ZapretStudio
                 _tgBtn.IsEnabled = false;
                 PulseCard(_tgCard, true);
             }
-            else { PulseCard(_tgCard, false); RefreshTg(); }
+            else
+            {
+                PulseCard(_tgCard, false);
+                RefreshTg();
+            }
         }
 
         static void PulseCard(Border card, bool active)
@@ -86,13 +93,15 @@ namespace ZapretStudio
                 return;
             }
             var pulse = new System.Windows.Media.Animation.DoubleAnimation(1, 1.018, TimeSpan.FromMilliseconds(520))
-            { AutoReverse = true, RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever,
-              EasingFunction = new System.Windows.Media.Animation.SineEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut } };
+            {
+                AutoReverse = true,
+                RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever,
+                EasingFunction = new System.Windows.Media.Animation.SineEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut }
+            };
             scale.BeginAnimation(ScaleTransform.ScaleXProperty, pulse);
             scale.BeginAnimation(ScaleTransform.ScaleYProperty, pulse);
         }
 
-        // Два главных блока-действия рядом: слева обход (zapret), справа Telegram-прокси.
         void BuildHero()
         {
             var g = new Grid { Margin = new Thickness(0, 0, 0, 14) };
@@ -109,7 +118,6 @@ namespace ZapretStudio
         Border BuildZapretCard()
         {
             var sp = new StackPanel();
-            // шапка: иконка + подпись раздела
             var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
             head.Children.Add(UI.Icon(Icons.Shield, 18, Theme.BrAccent, 1.8));
             var ht = UI.T(Loc.T("ov.zap.title"), Theme.FsSmall, Theme.BrFaint, FontWeights.SemiBold);
@@ -119,17 +127,27 @@ namespace ZapretStudio
 
             _statusTitle = UI.T("—", Theme.FsDisplay, Theme.BrText, FontWeights.Bold);
             sp.Children.Add(_statusTitle);
-            _statusSub = new TextBlock { Text = "", Foreground = Theme.BrMuted, FontSize = Theme.FsBody,
-                FontFamily = Theme.UiFont, Margin = new Thickness(0, 6, 0, 16), TextWrapping = TextWrapping.Wrap };
+            _statusSub = new TextBlock
+            {
+                Text = "",
+                Foreground = Theme.BrMuted,
+                FontSize = Theme.FsBody,
+                FontFamily = Theme.UiFont,
+                Margin = new Thickness(0, 6, 0, 16),
+                TextWrapping = TextWrapping.Wrap
+            };
             sp.Children.Add(_statusSub);
 
-            // кнопки: главная (пуск/стоп) во всю ширину + перезапуск
             var btnRow = new Grid();
             btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             _mainBtn = Ctl.Button(Loc.T("common.start"), Icons.Play, 0);
             _mainBtn.HorizontalAlignment = HorizontalAlignment.Stretch;
-            _mainBtn.Click += (s, e) => _win.ToggleRun();
+            _mainBtn.Click += (s, e) =>
+            {
+                if (!System.IO.File.Exists(Core.WinwsExe)) { ZapretDownload(); return; }
+                _win.ToggleRun();
+            };
             Grid.SetColumn(_mainBtn, 0); btnRow.Children.Add(_mainBtn);
             _restartBtn = Ctl.Button(Loc.T("ov.restart"), Icons.Restart, 3);
             _restartBtn.Margin = new Thickness(10, 0, 0, 0);
@@ -144,7 +162,6 @@ namespace ZapretStudio
         Border BuildTgCard()
         {
             var sp = new StackPanel();
-            // шапка: иконка + подпись раздела
             var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
             head.Children.Add(UI.Icon(Icons.Telegram, 18, Theme.BrAccent, 1.8));
             var ht = UI.T(Loc.T("ov.sec.tg"), Theme.FsSmall, Theme.BrFaint, FontWeights.SemiBold);
@@ -154,11 +171,17 @@ namespace ZapretStudio
 
             _tgStatusTitle = UI.T("—", Theme.FsDisplay, Theme.BrText, FontWeights.Bold);
             sp.Children.Add(_tgStatusTitle);
-            _tgStatusSub = new TextBlock { Text = Loc.T("ov.tg.desc"), Foreground = Theme.BrMuted,
-                FontSize = Theme.FsBody, FontFamily = Theme.UiFont, Margin = new Thickness(0, 6, 0, 16), TextWrapping = TextWrapping.Wrap };
+            _tgStatusSub = new TextBlock
+            {
+                Text = Loc.T("ov.tg.desc"),
+                Foreground = Theme.BrMuted,
+                FontSize = Theme.FsBody,
+                FontFamily = Theme.UiFont,
+                Margin = new Thickness(0, 6, 0, 16),
+                TextWrapping = TextWrapping.Wrap
+            };
             sp.Children.Add(_tgStatusSub);
 
-            // кнопки: главная (пуск/стоп) + открыть папку
             var btnRow = new Grid();
             btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -194,8 +217,14 @@ namespace ZapretStudio
         Border MetaCard(string label, out TextBlock val)
         {
             var sp = new StackPanel();
-            sp.Children.Add(new TextBlock { Text = label.ToUpperInvariant(), Foreground = Theme.BrFaint,
-                FontSize = Theme.FsTiny, FontFamily = Theme.UiFont, FontWeight = FontWeights.SemiBold });
+            sp.Children.Add(new TextBlock
+            {
+                Text = label.ToUpperInvariant(),
+                Foreground = Theme.BrFaint,
+                FontSize = Theme.FsTiny,
+                FontFamily = Theme.UiFont,
+                FontWeight = FontWeights.SemiBold
+            });
             val = UI.T("—", Theme.FsH2, Theme.BrText, FontWeights.SemiBold);
             val.Margin = new Thickness(0, 6, 0, 0);
             val.TextTrimming = TextTrimming.CharacterEllipsis;
@@ -228,11 +257,11 @@ namespace ZapretStudio
             for (int i = 0; i < 4; i++) g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             _cDiscord = MiniCard("Discord", Icons.Dot); Grid.SetColumn(_cDiscord, 0);
             _cYouTube = MiniCard("YouTube", Icons.Play); Grid.SetColumn(_cYouTube, 1);
-            _cDivert  = MiniCard("WinDivert", Icons.Shield); Grid.SetColumn(_cDivert, 2);
+            _cDivert = MiniCard("WinDivert", Icons.Shield); Grid.SetColumn(_cDivert, 2);
             _cService = MiniCard(Loc.T("ov.card.service"), Icons.Server); Grid.SetColumn(_cService, 3);
             _cDiscord.Margin = new Thickness(0, 0, 6, 0);
             _cYouTube.Margin = new Thickness(6, 0, 6, 0);
-            _cDivert.Margin  = new Thickness(6, 0, 6, 0);
+            _cDivert.Margin = new Thickness(6, 0, 6, 0);
             _cService.Margin = new Thickness(6, 0, 0, 0);
             g.Children.Add(_cDiscord); g.Children.Add(_cYouTube); g.Children.Add(_cDivert); g.Children.Add(_cService);
             Body.Children.Add(g);
@@ -255,7 +284,12 @@ namespace ZapretStudio
 
         void SetMini(Border card, Sev sev, string text)
         {
-            var sp = (StackPanel)card.Child;
+            if (card == null) return;
+            var sp = card.Child as StackPanel;
+            if (sp == null || sp.Children.Count < 2) return;
+            var currentPill = sp.Children[1] as Border;
+            if (currentPill != null && Pill.GetText(currentPill) == text) return;
+
             var newPill = Pill.Make(sev, text);
             newPill.Margin = new Thickness(0, 12, 0, 0);
             sp.Children.RemoveAt(1);
@@ -308,32 +342,43 @@ namespace ZapretStudio
             string dest = Core.TgProxyExe;
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
-              try {
-                try { System.IO.Directory.CreateDirectory(Core.TgToolsDir); } catch { }
-                bool ok = Core.DownloadFile(url, dest, null, null);
-                Dispatcher.Invoke((Action)delegate
+                try
                 {
-                    if (ok) Core.Good(Loc.T("tg.dlOk"));
-                    else Core.Fail(Loc.T("tg.dlFail"));
-                    RefreshTg();
-                });
-              } catch { }
+                    try { System.IO.Directory.CreateDirectory(Core.TgToolsDir); } catch { }
+                    bool ok = Core.DownloadFile(url, dest, null, null);
+                    Dispatcher.Invoke((Action)delegate
+                    {
+                        if (ok) Core.Good(Loc.T("tg.dlOk"));
+                        else Core.Fail(Loc.T("tg.dlFail"));
+                        RefreshTg();
+                    });
+                }
+                catch { }
             });
         }
 
+        bool? _lastTgRunning;
+        bool? _lastTgInstalled;
+
         void RefreshTg()
         {
-            if (_tgBtn == null) return;
-            if (_tgBusy) return;
+            if (_tgBtn == null || _tgBusy) return;
             bool installed = Core.TgProxyInstalled();
             bool running = Core.TgProxyRunning();
+
+            if (_lastTgRunning.HasValue && _lastTgRunning.Value == running &&
+                _lastTgInstalled.HasValue && _lastTgInstalled.Value == installed)
+                return;
+
+            _lastTgRunning = running;
+            _lastTgInstalled = installed;
 
             if (running)
             {
                 _tgStatusTitle.Text = Loc.T("ov.running");
                 _tgStatusTitle.Foreground = Theme.BrOk;
                 _tgStatusSub.Text = Loc.T("ov.tg.desc");
-                SetTgBtn(Loc.T("common.stop"), Icons.Stop, 2);
+                Ctl.SetButton(_tgBtn, Loc.T("common.stop"), Icons.Stop, 2);
                 _tgCard.BorderBrush = Theme.Alpha(Theme.Ok, 80);
                 _tgCard.Background = Theme.Alpha(Theme.Ok, 12);
             }
@@ -342,7 +387,7 @@ namespace ZapretStudio
                 _tgStatusTitle.Text = Loc.T("ov.stopped");
                 _tgStatusTitle.Foreground = Theme.BrText;
                 _tgStatusSub.Text = Loc.T("ov.tg.desc");
-                SetTgBtn(Loc.T("common.start"), Icons.Play, 0);
+                Ctl.SetButton(_tgBtn, Loc.T("common.start"), Icons.Play, 0);
                 _tgCard.BorderBrush = Theme.BrStroke;
                 _tgCard.Background = Theme.BrSurface;
             }
@@ -351,23 +396,10 @@ namespace ZapretStudio
                 _tgStatusTitle.Text = Loc.T("tg.notInstalled");
                 _tgStatusTitle.Foreground = Theme.BrWarn;
                 _tgStatusSub.Text = Loc.T("ov.tg.notInstalled");
-                SetTgBtn(Loc.T("tg.download"), Icons.Download, 0);
+                Ctl.SetButton(_tgBtn, Loc.T("tg.download"), Icons.Download, 0);
                 _tgCard.BorderBrush = Theme.BrStroke;
                 _tgCard.Background = Theme.BrSurface;
             }
-        }
-
-        void SetTgBtn(string text, string icon, int kind)
-        {
-            var nb = Ctl.Button(text, icon, kind);
-            nb.HorizontalAlignment = HorizontalAlignment.Stretch;
-            nb.Click += (s, e) => TgToggle();
-            var parent = _tgBtn.Parent as Grid;
-            if (parent == null) return;
-            int idx = parent.Children.IndexOf(_tgBtn);
-            Grid.SetColumn(nb, 0);
-            if (idx >= 0) { parent.Children.RemoveAt(idx); parent.Children.Insert(idx, nb); }
-            _tgBtn = nb;
         }
 
         void BuildQuickActions()
@@ -396,7 +428,6 @@ namespace ZapretStudio
             Body.Children.Add(card);
         }
 
-        // Плавный «пульс» карточки статуса при запуске/остановке обхода.
         void PulseStatus()
         {
             if (_statusCard == null) return;
@@ -410,14 +441,19 @@ namespace ZapretStudio
             var ease = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut };
             var a = new System.Windows.Media.Animation.DoubleAnimation
             {
-                From = 0.985, To = 1.0, Duration = TimeSpan.FromMilliseconds(280),
+                From = 0.985,
+                To = 1.0,
+                Duration = TimeSpan.FromMilliseconds(280),
                 EasingFunction = new System.Windows.Media.Animation.BackEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut, Amplitude = 0.5 }
             };
             st.BeginAnimation(ScaleTransform.ScaleXProperty, a);
             st.BeginAnimation(ScaleTransform.ScaleYProperty, a);
             var fade = new System.Windows.Media.Animation.DoubleAnimation
             {
-                From = 0.55, To = 1.0, Duration = TimeSpan.FromMilliseconds(320), EasingFunction = ease
+                From = 0.55,
+                To = 1.0,
+                Duration = TimeSpan.FromMilliseconds(320),
+                EasingFunction = ease
             };
             _statusTitle.BeginAnimation(UIElement.OpacityProperty, fade);
         }
@@ -425,13 +461,12 @@ namespace ZapretStudio
         public void Refresh()
         {
             if (_zapBusy) { RefreshTg(); return; }
-            // zapret не установлен — показываем состояние загрузки
             if (!System.IO.File.Exists(Core.WinwsExe))
             {
                 _statusTitle.Text = Loc.T("ov.zap.notInstalledTitle");
                 _statusTitle.Foreground = Theme.BrWarn;
                 _statusSub.Text = Loc.T("ov.zap.notInstalled");
-                SetMainBtn(Loc.T("ov.zap.download"), Icons.Download, 0);
+                Ctl.SetButton(_mainBtn, Loc.T("ov.zap.download"), Icons.Download, 0);
                 _statusCard.BorderBrush = Theme.BrStroke;
                 _statusCard.Background = Theme.BrSurface;
                 _restartBtn.IsEnabled = false;
@@ -439,34 +474,40 @@ namespace ZapretStudio
             }
 
             bool running = _win.IsActive2();
-            bool changed = _lastRunning.HasValue && _lastRunning.Value != running;
+            bool changed = !_lastRunning.HasValue || _lastRunning.Value != running;
             _lastRunning = running;
             string mode = _win.CurrentMode();
             string strat = _win.CurrentStrategyName();
-            if (running)
+
+            if (changed)
             {
-                _statusTitle.Text = Loc.T("ov.running");
-                _statusTitle.Foreground = Theme.BrOk;
-                _statusSub.Text = mode == Loc.T("mode.service") ? Loc.T("ov.sub.service") : Loc.T("ov.sub.manual");
-                SetMainBtn(Loc.T("common.stop"), Icons.Stop, 2);
-                _statusCard.BorderBrush = Theme.Alpha(Theme.Ok, 80);
-                _statusCard.Background = Theme.Alpha(Theme.Ok, 12);
-                _restartBtn.IsEnabled = true;
+                if (running)
+                {
+                    _statusTitle.Text = Loc.T("ov.running");
+                    _statusTitle.Foreground = Theme.BrOk;
+                    _statusSub.Text = mode == Loc.T("mode.service") ? Loc.T("ov.sub.service") : Loc.T("ov.sub.manual");
+                    Ctl.SetButton(_mainBtn, Loc.T("common.stop"), Icons.Stop, 2);
+                    _statusCard.BorderBrush = Theme.Alpha(Theme.Ok, 80);
+                    _statusCard.Background = Theme.Alpha(Theme.Ok, 12);
+                    _restartBtn.IsEnabled = true;
+                    PulseStatus();
+                }
+                else
+                {
+                    _statusTitle.Text = Loc.T("ov.stopped");
+                    _statusTitle.Foreground = Theme.BrText;
+                    _statusSub.Text = Loc.T("ov.sub.off");
+                    Ctl.SetButton(_mainBtn, Loc.T("common.start"), Icons.Play, 0);
+                    _statusCard.BorderBrush = Theme.BrStroke;
+                    _statusCard.Background = Theme.BrSurface;
+                    _restartBtn.IsEnabled = false;
+                }
             }
-            else
-            {
-                _statusTitle.Text = Loc.T("ov.stopped");
-                _statusTitle.Foreground = Theme.BrText;
-                _statusSub.Text = Loc.T("ov.sub.off");
-                SetMainBtn(Loc.T("common.start"), Icons.Play, 0);
-                _statusCard.BorderBrush = Theme.BrStroke;
-                _statusCard.Background = Theme.BrSurface;
-                _restartBtn.IsEnabled = false;
-            }
+
             if (_stratName != null) _stratName.Text = string.IsNullOrEmpty(strat) ? Loc.T("ov.stratNone") : strat;
             _modeVal.Text = running ? mode : "—";
             _uptimeVal.Text = _win.UptimeText();
-            if (changed) PulseStatus();
+
             SetMini(_cDiscord, running ? Sev.Ok : Sev.Neutral, running ? Loc.T("ov.comp.active") : Loc.T("ov.comp.off"));
             SetMini(_cYouTube, running ? Sev.Ok : Sev.Neutral, running ? Loc.T("ov.comp.active") : Loc.T("ov.comp.off"));
             bool wdFile = Core.WinDivertFilePresent();
@@ -487,23 +528,6 @@ namespace ZapretStudio
             _trafficTotalUp.Text = Core.HumanSize(tr.TotalSent);
 
             RefreshTg();
-        }
-
-        void SetMainBtn(string text, string icon, int kind)
-        {
-            var nb = Ctl.Button(text, icon, kind);
-            nb.HorizontalAlignment = HorizontalAlignment.Stretch;
-            nb.Click += (s, e) =>
-            {
-                if (!System.IO.File.Exists(Core.WinwsExe)) { ZapretDownload(); return; }
-                _win.ToggleRun();
-            };
-            var parent = _mainBtn.Parent as Grid;
-            if (parent == null) return;
-            int idx = parent.Children.IndexOf(_mainBtn);
-            Grid.SetColumn(nb, 0);
-            if (idx >= 0) { parent.Children.RemoveAt(idx); parent.Children.Insert(idx, nb); }
-            _mainBtn = nb;
         }
 
         void ZapretDownload()

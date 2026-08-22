@@ -27,8 +27,12 @@ namespace ZapretStudio
         // Адрес ZIP-ассета последнего релиза. GitHub меняет имя архива вместе с
         // версией, поэтому берём точную ссылку из API. Если API временно недоступен,
         // остаётся рабочий резервный вариант с main.zip.
-        public static string ZapretDownloadUrl()
+        public static string ZapretDownloadUrl(string version)
         {
+            string normalized = string.IsNullOrEmpty(version) ? null : version.Trim().TrimStart('v', 'V');
+            if (!string.IsNullOrEmpty(normalized))
+                return "https://github.com/Flowseal/zapret-discord-youtube/releases/download/" + normalized
+                    + "/zapret-discord-youtube-" + normalized + ".zip";
             try
             {
                 ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
@@ -47,6 +51,11 @@ namespace ZapretStudio
             }
             catch { }
             return ZapretZipUrl;
+        }
+
+        public static string ZapretDownloadUrl()
+        {
+            return ZapretDownloadUrl(null);
         }
 
         // Человекочитаемый размер.
@@ -154,13 +163,35 @@ namespace ZapretStudio
         public static bool ExtractZapretZip(string zipPath, string destDir, out string error, Action<string> onStage)
         {
             error = null;
+            string tmp = Path.Combine(Path.GetTempPath(), "zapret_unz_" + Guid.NewGuid().ToString("N"));
             try
             {
-                string tmp = destDir + "_unz_tmp";
-                if (Directory.Exists(tmp)) Directory.Delete(tmp, true);
+                DeleteDirSafe(tmp);
                 Directory.CreateDirectory(tmp);
                 if (onStage != null) onStage("extract");
-                System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, tmp);
+                using (var archive = System.IO.Compression.ZipFile.OpenRead(zipPath))
+                {
+                    foreach (var entry in archive.Entries)
+                    {
+                        if (SkipGitEntry(entry.FullName)) continue;
+                        string cleanName = entry.FullName.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+                        string destPath = Path.Combine(tmp, cleanName);
+                        if (entry.FullName.EndsWith("/") || entry.FullName.EndsWith("\\") || string.IsNullOrEmpty(entry.Name))
+                        {
+                            if (!Directory.Exists(destPath)) Directory.CreateDirectory(destPath);
+                        }
+                        else
+                        {
+                            string dir = Path.GetDirectoryName(destPath);
+                            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                            using (var srcStream = entry.Open())
+                            using (var dstStream = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                            {
+                                srcStream.CopyTo(dstStream);
+                            }
+                        }
+                    }
+                }
 
                 // Определяем корень: если одна папка верхнего уровня с bin внутри — используем её.
                 string src = tmp;
@@ -171,19 +202,62 @@ namespace ZapretStudio
                 if (!Directory.Exists(destDir)) Directory.CreateDirectory(destDir);
                 if (onStage != null) onStage("replace");
                 CopyDir(src, destDir);
-                try { Directory.Delete(tmp, true); } catch { }
+                DeleteDirSafe(tmp);
                 return true;
             }
-            catch (Exception ex) { error = Short(ex.Message); return false; }
+            catch (Exception ex)
+            {
+                DeleteDirSafe(tmp);
+                error = Short(ex.Message);
+                return false;
+            }
         }
 
-        static void CopyDir(string src, string dst)
+        public static void DeleteDirSafe(string dir)
         {
-            Directory.CreateDirectory(dst);
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
+            try
+            {
+                var di = new DirectoryInfo(dir);
+                foreach (var info in di.GetFileSystemInfos("*", SearchOption.AllDirectories))
+                {
+                    try { info.Attributes = FileAttributes.Normal; } catch { }
+                }
+                di.Attributes = FileAttributes.Normal;
+                Directory.Delete(dir, true);
+            }
+            catch
+            {
+                try { Directory.Delete(dir, true); } catch { }
+            }
+        }
+
+        static void CopyDir(string src, string dst, int depth = 0)
+        {
+            if (depth > 32 || !Directory.Exists(src)) return;
+            if (!Directory.Exists(dst)) Directory.CreateDirectory(dst);
             foreach (var f in Directory.GetFiles(src))
-                File.Copy(f, Path.Combine(dst, Path.GetFileName(f)), true);
+            {
+                try
+                {
+                    string targetFile = Path.Combine(dst, Path.GetFileName(f));
+                    if (File.Exists(targetFile))
+                    {
+                        try { File.SetAttributes(targetFile, FileAttributes.Normal); } catch { }
+                    }
+                    File.Copy(f, targetFile, true);
+                }
+                catch { }
+            }
             foreach (var d in Directory.GetDirectories(src))
-                CopyDir(d, Path.Combine(dst, Path.GetFileName(d)));
+            {
+                string dirName = Path.GetFileName(d);
+                if (dirName.Equals(".github", StringComparison.OrdinalIgnoreCase) ||
+                    dirName.Equals(".git", StringComparison.OrdinalIgnoreCase) ||
+                    dirName.Equals(".service", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                CopyDir(d, Path.Combine(dst, dirName), depth + 1);
+            }
         }
 
         // Пометить корень в локальном gui-config рядом с exe, чтобы найти после перезапуска.
@@ -195,6 +269,21 @@ namespace ZapretStudio
                 File.WriteAllText(cfgPath, "root=" + path + Environment.NewLine);
             }
             catch { }
+        }
+
+        static bool SkipGitEntry(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return false;
+            string[] parts = path.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var part in parts)
+            {
+                if (part.Equals(".git", StringComparison.OrdinalIgnoreCase) ||
+                    part.Equals(".github", StringComparison.OrdinalIgnoreCase) ||
+                    part.StartsWith(".git", StringComparison.OrdinalIgnoreCase) ||
+                    part.Equals(".service", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
         }
     }
 }

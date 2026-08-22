@@ -11,4 +11,5 @@
 -reference:"System.IO.Compression.dll"
 -reference:"System.IO.Compression.FileSystem.dll"
 -reference:"Microsoft.VisualBasic.dll"
+-reference:"System.ServiceProcess.dll"
 -win32icon:"app.ico"

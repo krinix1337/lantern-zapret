@@ -7,8 +7,8 @@ using System.Windows.Media.Effects;
 
 namespace ZapretStudio
 {
-    // Тема оформления: тёмная / светлая / AMOLED / северное сияние / Peter Griffin.
-    enum ThemeMode { Dark, Light, Amoled, Aurora, Peter }
+    // Тема оформления: тёмная / светлая / AMOLED / северное сияние / закат / Peter Griffin.
+    enum ThemeMode { Dark, Light, Amoled, Aurora, Sunset, Peter }
 
     // Централизованная дизайн-система. Кисти НЕ заморожены — при смене темы
     // мутируем их .Color, и все контролы, держащие ту же ссылку, перерисовываются.
@@ -124,6 +124,27 @@ namespace ZapretStudio
             Err = Rgb(0xF0, 0x76, 0x76); ErrDim = Rgb(0x43, 0x20, 0x22);
         }
 
+        // Тёплая вечерняя тема: глубокий сумеречный фон и закатный кораллово-персиковый неон.
+        static void SetSunsetPalette()
+        {
+            BgDeep     = Rgb(0x15, 0x12, 0x1B);
+            BgBase     = Rgb(0x1B, 0x16, 0x22);
+            Surface    = Rgb(0x24, 0x1E, 0x2D);
+            SurfaceAlt = Rgb(0x2C, 0x25, 0x37);
+            SurfaceHi  = Rgb(0x38, 0x2F, 0x45);
+            Stroke     = Rgb(0x4A, 0x3C, 0x5B);
+            StrokeSoft = Rgb(0x33, 0x2A, 0x3E);
+            Text       = Rgb(0xFF, 0xF3, 0xEB);
+            TextMuted  = Rgb(0xBF, 0xAA, 0xBF);
+            TextFaint  = Rgb(0x86, 0x73, 0x89);
+            AccentMain = Rgb(0xFF, 0x6B, 0x6B);
+            AccentHi   = Rgb(0xFF, 0x8E, 0x72);
+            AccentDim  = Rgb(0x61, 0x26, 0x2B);
+            Ok  = Rgb(0x4A, 0xDE, 0x80); OkDim  = Rgb(0x1E, 0x3B, 0x27);
+            Warn = Rgb(0xFB, 0xBF, 0x24); WarnDim = Rgb(0x45, 0x33, 0x15);
+            Err = Rgb(0xF4, 0x3F, 0x5E); ErrDim = Rgb(0x45, 0x1D, 0x24);
+        }
+
         // Мягкая семейная палитра: небесно-голубой фон, зелёные акценты и
         // тёплая жёлтая подсветка — под фоновую иллюстрацию Питера Гриффина.
         static void SetPeterPalette()
@@ -152,6 +173,7 @@ namespace ZapretStudio
             if (mode == ThemeMode.Light) SetLightPalette();
             else if (mode == ThemeMode.Amoled) SetAmoledPalette();
             else if (mode == ThemeMode.Aurora) SetAuroraPalette();
+            else if (mode == ThemeMode.Sunset) SetSunsetPalette();
             else if (mode == ThemeMode.Peter) SetPeterPalette();
             else SetDarkPalette();
             BrBgDeep.Color = BgDeep;   BrBgBase.Color = BgBase;
@@ -232,7 +254,8 @@ namespace ZapretStudio
             if (Mode == ThemeMode.Dark) return ThemeMode.Amoled;
             if (Mode == ThemeMode.Amoled) return ThemeMode.Light;
             if (Mode == ThemeMode.Light) return ThemeMode.Aurora;
-            if (Mode == ThemeMode.Aurora) return ThemeMode.Peter;
+            if (Mode == ThemeMode.Aurora) return ThemeMode.Sunset;
+            if (Mode == ThemeMode.Sunset) return ThemeMode.Peter;
             return ThemeMode.Dark;
         }
 
@@ -290,66 +313,200 @@ namespace ZapretStudio
         public static SolidColorBrush Alpha(Color c, byte a) { var b = new SolidColorBrush(Color.FromArgb(a, c.R, c.G, c.B)); b.Freeze(); return b; }
     }
 
-    // Material Design 3 icons (24x24 SVG path data). Контуры намеренно не
-    // используются: MD3-иконки — заливочные, с единым визуальным весом.
+    public enum IconAnimType
+    {
+        None,
+        ScaleBounce,
+        Rotate360,
+        Rotate90,
+        Pulse,
+        Wiggle,
+        Float
+    }
+
+    // Официальные иконки Lucide Icons (24x24 SVG) — чистый, ультрасовременный контурный дизайн
     static class Icons
     {
-        public const string Home = "M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z";
-        public const string Grid = "M3 3h8v8H3V3m10 0h8v8h-8V3M3 13h8v8H3v-8m10 0h8v8h-8v-8z";
-        public const string Pulse = "M3.55 19.09 7 15.64l4 4L22.45 8.18l-1.41-1.41L11 16.81l-4-4-4.86 4.87zM14 4l2.29 2.29-4.88 4.88 1.41 1.41 4.88-4.88L20 10V4z";
-        public const string Gear = "M3 17v2h6v-2H3M3 5v2h10V5H3m10 14v-2h8v-2h-8v-2h-2v6h2M7 9v2H3v2h4v2h2V9H7m14 4v-2H11v2h10M15 9h2V7h4V5h-4V3h-2v6z";
-        public const string Server = "M3 3h18v6H3V3m2 2v2h14V5H5m-2 6h18v6H3v-6m2 2v2h14v-2H5m-2 6h18v2H3v-2z";
-        public const string Filter = "M3 5h18l-7 8v5l-4 2v-7L3 5z";
-        public const string List = "M3 13h2v-2H3v2m0 4h2v-2H3v2m0-8h2V7H3v2m4 4h14v-2H7v2m0 4h14v-2H7v2m0-8v2h14V7H7z";
-        public const string Info = "M11 17h2v-6h-2v6m1-15a10 10 0 1 0 0 20 10 10 0 0 0 0-20m0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16m-1-11h2V7h-2v2z";
-        public const string Play = "M8 5v14l11-7z";
-        public const string Stop = "M6 6h12v12H6z";
-        public const string Restart = "M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z";
+        // F: префикс для заливочных элементов, стандартные строки — для контурных (stroke)
+        public const string Home = "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 22V12h6v10";
+        public const string Grid = "M3 3h7v7H3z M14 3h7v7h-7z M14 14h7v7h-7z M3 14h7v7H3z";
+        public const string Pulse = "M22 12h-4l-3 9L9 3l-3 9H2";
+        public const string Gear = "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6";
+        public const string Server = "M2 4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4zm0 12a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-4z M6 6h.01 M6 18h.01";
+        public const string Filter = "M22 3H2l8 9.46V19l4 2v-8.54L22 3z";
+        public const string List = "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8";
+        public const string Info = "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 16v-4 M12 8h.01";
+        public const string Play = "F:M5 3l14 9-14 9V3z";
+        public const string Pause = "F:M6 4h4v16H6z M14 4h4v16h-4z";
+        public const string Stop = "F:M6 6h12v12H6z";
+        public const string SkipNext = "F:M5 4l10 8-10 8V4z M19 5v14";
+        public const string SkipPrev = "F:M19 20L9 12l10-8v16z M5 19V5";
+        public const string Music = "M9 18V5l12-2v13 M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0z M21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z";
+        public const string Shuffle = "M16 3h5v5 M4 20L21 3 M21 16v5h-5 M15 15l6 6 M4 4l5 5";
+        public const string VolumeUp = "M11 5L6 9H2v6h4l5 4V5z M19.07 4.93a10 10 0 0 1 0 14.14 M15.54 8.46a5 5 0 0 1 0 7.07";
+        public const string VolumeDown = "M11 5L6 9H2v6h4l5 4V5z M15.54 8.46a5 5 0 0 1 0 7.07";
+        public const string VolumeOff = "M11 5L6 9H2v6h4l5 4V5z M23 9l-6 6 M17 9l6 6";
+        public const string Restart = "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8 M21 3v5h-5";
         public const string Refresh = Restart;
-        public const string Folder = "M10 4H2v16h20V6H12l-2-2m10 14H4V8h16v10z";
-        public const string Github   = "M12 2 A10 10 0 0 0 9 21.5 C9 20 9 18.5 9 18 C6.5 18.5 6 16.5 6 16.5 C5.5 15 4.5 14.5 4.5 14.5 C3.5 14 4.5 14 4.5 14 C6 14 6.5 15.5 6.5 15.5 C7.5 17 9 16.5 9.5 16.5 C9.5 15.5 10 15 10.5 14.5 C7.5 14 5.5 13 5.5 9.5 C5.5 8 6 7 6.5 6.5 C6.5 6 6 5 6.5 3.5 C6.5 3.5 8 3.5 9.5 5 C10.5 4.5 13.5 4.5 14.5 5 C16 3.5 17.5 3.5 17.5 3.5 C18 5 17.5 6 17.5 6.5 C18 7 18.5 8 18.5 9.5 C18.5 13 16.5 14 13.5 14.5 C14 15 14.5 16 14.5 17.5 C14.5 18.5 14.5 20 14.5 21.5 A10 10 0 0 0 12 2";
-        public const string Check = "m9 16.17-4.17-4.18L3.41 13.4 9 19 21 7l-1.41-1.41z";
-        public const string Cross = "M18.3 5.71 16.89 4.29 12 9.17 7.11 4.29 5.7 5.71 10.59 10.59 5.7 15.48l1.41 1.41L12 12l4.89 4.89 1.41-1.41-4.89-4.89z";
-        public const string Warn = "M1 21h22L12 2 1 21m12-3h-2v-2h2v2m0-4h-2v-4h2v4z";
-        public const string Search = "M9.5 3a6.5 6.5 0 0 1 5.2 10.4L21 19.7 19.7 21l-6.3-6.3A6.5 6.5 0 1 1 9.5 3m0 2a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z";
-        // Material Symbols Rounded SVG paths, imported from Google's public icon set.
-        public const string Star = "M19.65 9.04l-4.84-.42-1.89-4.45c-.34-.81-1.5-.81-1.84 0L9.19 8.63l-4.83.41c-.88.07-1.24 1.17-.57 1.75l3.67 3.18-1.1 4.72c-.2.86.73 1.54 1.49 1.08l4.15-2.5 4.15 2.51c.76.46 1.69-.22 1.49-1.08l-1.1-4.73 3.67-3.18c.67-.58.32-1.68-.56-1.75zM12 15.4l-3.76 2.27 1-4.28-3.32-2.88 4.38-.38L12 6.1l1.71 4.04 4.38.38-3.32 2.88 1 4.28L12 15.4z";
-        public const string StarFilled = "M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z";
-        public const string Copy = "M19 21H8c-1.1 0-2-.9-2-2V8c0-1.1.9-2 2-2h11c1.1 0 2 .9 2 2v11c0 1.1-.9 2-2 2M8 8v11h11V8H8M16 3H4c-1.1 0-2 .9-2 2v12h2V5h12V3z";
-        public const string Save = "M17 3H5c-1.1 0-1.99.9-1.99 2L3 19c0 1.1.89 2 1.99 2H19c1.1 0 2-.9 2-2V7l-4-4m-5 16a3 3 0 1 1 0-6 3 3 0 0 1 0 6M6 8V5h9v3H6z";
-        public const string External = "M14 3v2h3.59L7.76 14.83l1.41 1.41L19 6.41V10h2V3h-7M5 5h7V3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7H5V5z";
-        public const string Shield = "M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4m0 4.18 5 2.22v3.36c0 3.54-2.29 6.86-5 7.93-2.71-1.07-5-4.39-5-7.93V7.4l5-2.22z";
-        public const string Dot = "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z";
-        public const string Down = "M7 10l5 5 5-5z";
-        public const string Menu = "M3 18h18v-2H3v2m0-5h18v-2H3v2m0-7v2h18V6H3z";
-        public const string MenuOpen = "M4 18h11c.55 0 1-.45 1-1s-.45-1-1-1H4c-.55 0-1 .45-1 1s.45 1 1 1m0-5h8c.55 0 1-.45 1-1s-.45-1-1-1H4c-.55 0-1 .45-1 1s.45 1 1 1M4 8h11c.55 0 1-.45 1-1s-.45-1-1-1H4c-.55 0-1 .45-1 1s.45 1 1 1m16.3 6.88L17.42 12l2.88-2.88c.39-.39.39-1.02 0-1.41s-1.02-.39-1.41 0l-3.59 3.59c-.39.39-.39 1.02 0 1.41l3.59 3.59c.39.39 1.02.39 1.41 0s.39-1.02 0-1.41z";
-        public const string Sun = "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6m0-7 1.25 2.75L16 5l-2.75 1.25L12 9l-1.25-2.75L8 5l2.75-.25L12 2m-7 8 2.75 1.25L8 14l-1.25-2.75L4 10l2.75-1.25L8 6l1.25 2.75L12 10l-2.75 1.25L8 14l-1.25-2.75L4 10m14-2 1.25 2.75L22 12l-2.75 1.25L18 16l-1.25-2.75L14 12l2.75-1.25L18 8z";
-        public const string Moon = "M9.37 5.51A7 7 0 0 0 18.49 14 7 7 0 1 1 9.37 5.51z";
-        public const string Globe = "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m6.9 6h-2.95c-.32-1.25-.84-2.45-1.55-3.35A8.03 8.03 0 0 1 18.9 8M12 4.04c.83 1.2 1.48 2.5 1.89 3.96h-3.78A14.1 14.1 0 0 1 12 4.04M4.26 14a8.2 8.2 0 0 1 0-4h3.13a16.6 16.6 0 0 0 0 4H4.26m.84 2h2.95c.32 1.25.84 2.45 1.55 3.35A8.03 8.03 0 0 1 5.1 16m2.95-8H5.1a8.03 8.03 0 0 1 4.5-3.35A13.7 13.7 0 0 0 8.05 8m1.84 8h4.22A14.1 14.1 0 0 1 12 19.96 14.1 14.1 0 0 1 9.89 16m-1-2a14.5 14.5 0 0 1 0-4h6.22a14.5 14.5 0 0 1 0 4H8.89m5.51 5.35c.71-.9 1.23-2.1 1.55-3.35h2.95a8.03 8.03 0 0 1-4.5 3.35M16.61 14a16.6 16.6 0 0 0 0-4h3.13a8.2 8.2 0 0 1 0 4h-3.13z";
-        public const string Game = "M7.97 16 5.5 18.35C4.9 18.92 3.87 18.5 3.87 17.67V9.5c0-3.04 2.46-5.5 5.5-5.5h5.26c3.04 0 5.5 2.46 5.5 5.5v8.17c0 .83-1.03 1.25-1.63.68L16.03 16h-2.05l-1.25 1.25c-.4.4-1.04.4-1.44 0L10.05 16H7.97m2.03-7H8v2H6v2h2v2h2v-2h2v-2h-2V9m5.5.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3m2.5 2a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z";
-        public const string Plug = "M7 2v6H5v2h2v3a5 5 0 0 0 4 4.9V22h2v-4.1a5 5 0 0 0 4-4.9v-3h2V8h-2V2h-2v6H9V2H7m2 8h6v3a3 3 0 0 1-6 0v-3z";
-        public const string Download = "M19 9h-4V3H9v6H5l7 7 7-7M5 18v2h14v-2H5z";
-        public const string Telegram = "M21 5 2 12l7 2 2 6 3-4 4 3 3-14M9.5 13.5 17.5 8l-6.3 7.1-.2 2.1-1-3.7z";
-        public const string Link = "M3.9 12c0-1.71 1.39-3.1 3.1-3.1H10V7H7a5 5 0 0 0 0 10h3v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1m4.1 1h8v-2H8v2m9-6h-3v1.9h3a3.1 3.1 0 0 1 0 6.2h-3V17h3a5 5 0 0 0 0-10z";
-        public const string Bolt = "M11 21h-1l1-7H7.5c-.88 0-.33-.75-.31-.78C8.48 10.94 10.42 7.54 13 3h1l-1 7h3.5c.4 0 .62.19.4.66C12.97 17.55 11 21 11 21z";
-        public const string Lantern = "M9 21h6v-1H9v1m3-19a7 7 0 0 0-4 12.74V17h8v-2.26A7 7 0 0 0 12 2m2 11.73V15h-4v-1.27l-.48-.3A5 5 0 1 1 14.48 13l-.48.3z";
+        public const string Folder = "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z";
+        public const string Github   = "F:M12 2 A10 10 0 0 0 9 21.5 C9 20 9 18.5 9 18 C6.5 18.5 6 16.5 6 16.5 C5.5 15 4.5 14.5 4.5 14.5 C3.5 14 4.5 14 4.5 14 C6 14 6.5 15.5 6.5 15.5 C7.5 17 9 16.5 9.5 16.5 C9.5 15.5 10 15 10.5 14.5 C7.5 14 5.5 13 5.5 9.5 C5.5 8 6 7 6.5 6.5 C6.5 6 6 5 6.5 3.5 C6.5 3.5 8 3.5 9.5 5 C10.5 4.5 13.5 4.5 14.5 5 C16 3.5 17.5 3.5 17.5 3.5 C18 5 17.5 6 17.5 6.5 C18 7 18.5 8 18.5 9.5 C18.5 13 16.5 14 13.5 14.5 C14 15 14.5 16 14.5 17.5 C14.5 18.5 14.5 20 14.5 21.5 A10 10 0 0 0 12 2";
+        public const string Check = "M20 6L9 17l-5-5";
+        public const string Cross = "M18 6L6 18 M6 6l12 12";
+        public const string Warn = "M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z M12 9v4 M12 17h.01";
+        public const string Search = "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35";
+        public const string Star = "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z";
+        public const string StarFilled = "F:M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z";
+        public const string Copy = "M8 8H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4 M16 4H8a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z";
+        public const string Save = "M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z M17 21v-8H7v8 M7 3v5h8";
+        public const string External = "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6 M15 3h6v6 M10 14L21 3";
+        public const string Shield = "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z";
+        public const string Dot = "F:M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z";
+        public const string Down = "M6 9l6 6 6-6";
+        public const string Menu = "M3 12h18 M3 6h18 M3 18h18";
+        public const string MenuOpen = "M3 12h12 M3 6h18 M3 18h18 M19 9l3 3-3 3";
+        public const string Sun = "M12 1v2 M12 21v2 M4.22 4.22l1.42 1.42 M18.36 18.36l1.42 1.42 M1 12h2 M21 12h2 M4.22 19.78l1.42-1.42 M18.36 5.64l1.42-1.42 M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z";
+        public const string Moon = "M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z";
+        public const string Globe = "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M2 12h20 M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z";
+        public const string Game = "M6 11h4 M8 9v4 M15 12h.01 M18 10h.01 M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z";
+        public const string Plug = "M12 22v-5 M9 8V2 M15 8V2 M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z";
+        public const string Download = "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3";
+        public const string Telegram = "M22 2L11 13 M22 2l-7 20-4-9-9-4 20-7z";
+        public const string Link = "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71";
+        public const string Bolt = "M13 2L3 14h9l-1 8 10-12h-9l1-8z";
+        public const string Lantern = "M12 2a5 5 0 0 0-5 5v3a5 5 0 0 0 10 0V7a5 5 0 0 0-5-5z M9 18h6 M10 22h4 M12 7v5";
     }
 
     static class UI
     {
-        public static System.Windows.Shapes.Path Icon(string data, double size, Brush stroke, double thickness)
+        public static System.Windows.Shapes.Path Icon(string data, double size, Brush stroke, double thickness = 1.8)
         {
-            return new System.Windows.Shapes.Path
+            if (string.IsNullOrEmpty(data)) return new System.Windows.Shapes.Path();
+
+            bool isFill = data.StartsWith("F:");
+            string pathData = isFill ? data.Substring(2) : data;
+
+            var p = new System.Windows.Shapes.Path
             {
-                Data = Geometry.Parse(data),
-                Fill = stroke,
+                Data = Geometry.Parse(pathData),
                 Stretch = Stretch.Uniform,
-                Width = size, Height = size,
-                SnapsToDevicePixels = false
+                Width = size,
+                Height = size,
+                SnapsToDevicePixels = true
+            };
+
+            if (isFill)
+            {
+                p.Fill = stroke;
+                p.Stroke = null;
+            }
+            else
+            {
+                p.Fill = Brushes.Transparent;
+                p.Stroke = stroke;
+                p.StrokeThickness = thickness;
+                p.StrokeStartLineCap = PenLineCap.Round;
+                p.StrokeEndLineCap = PenLineCap.Round;
+                p.StrokeLineJoin = PenLineJoin.Round;
+            }
+            return p;
+        }
+
+        public static System.Windows.Shapes.Path Icon(string data, double size, Brush stroke)
+        { return Icon(data, size, stroke, 1.8); }
+
+        public static void AttachIconHoverAnimation(FrameworkElement trigger, FrameworkElement icon, IconAnimType type)
+        {
+            if (trigger == null || icon == null || type == IconAnimType.None) return;
+
+            var transformGroup = new TransformGroup();
+            var scale = new ScaleTransform(1, 1);
+            var rotate = new RotateTransform(0);
+            var translate = new TranslateTransform(0, 0);
+            transformGroup.Children.Add(scale);
+            transformGroup.Children.Add(rotate);
+            transformGroup.Children.Add(translate);
+
+            icon.RenderTransform = transformGroup;
+            icon.RenderTransformOrigin = new Point(0.5, 0.5);
+
+            trigger.MouseEnter += (s, e) =>
+            {
+                if (!Theme.AnimationsEnabled) return;
+                switch (type)
+                {
+                    case IconAnimType.ScaleBounce:
+                    {
+                        var anim = new DoubleAnimation(1.0, 1.22, TimeSpan.FromMilliseconds(160))
+                        {
+                            AutoReverse = true,
+                            EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.7 }
+                        };
+                        scale.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
+                        scale.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
+                        break;
+                    }
+                    case IconAnimType.Rotate360:
+                    {
+                        var anim = new DoubleAnimation(0, 360, TimeSpan.FromMilliseconds(420))
+                        {
+                            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                        };
+                        rotate.BeginAnimation(RotateTransform.AngleProperty, anim);
+                        break;
+                    }
+                    case IconAnimType.Rotate90:
+                    {
+                        var anim = new DoubleAnimation(0, 90, TimeSpan.FromMilliseconds(240))
+                        {
+                            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                        };
+                        rotate.BeginAnimation(RotateTransform.AngleProperty, anim);
+                        break;
+                    }
+                    case IconAnimType.Pulse:
+                    {
+                        var anim = new DoubleAnimation(1.0, 1.28, TimeSpan.FromMilliseconds(180))
+                        {
+                            AutoReverse = true,
+                            EasingFunction = new ElasticEase { EasingMode = EasingMode.EaseOut, Oscillations = 1, Springiness = 4 }
+                        };
+                        scale.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
+                        scale.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
+                        break;
+                    }
+                    case IconAnimType.Wiggle:
+                    {
+                        var anim = new DoubleAnimation(-14, 14, TimeSpan.FromMilliseconds(85))
+                        {
+                            AutoReverse = true,
+                            RepeatBehavior = new RepeatBehavior(2),
+                            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+                        };
+                        rotate.BeginAnimation(RotateTransform.AngleProperty, anim);
+                        break;
+                    }
+                    case IconAnimType.Float:
+                    {
+                        var anim = new DoubleAnimation(0, -3, TimeSpan.FromMilliseconds(160))
+                        {
+                            AutoReverse = true,
+                            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                        };
+                        translate.BeginAnimation(TranslateTransform.YProperty, anim);
+                        break;
+                    }
+                }
+            };
+
+            trigger.MouseLeave += (s, e) =>
+            {
+                if (!Theme.AnimationsEnabled) return;
+                scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(1.0, TimeSpan.FromMilliseconds(120)));
+                scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(1.0, TimeSpan.FromMilliseconds(120)));
+                rotate.BeginAnimation(RotateTransform.AngleProperty, new DoubleAnimation(0, TimeSpan.FromMilliseconds(140)));
+                translate.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(0, TimeSpan.FromMilliseconds(120)));
             };
         }
-        public static System.Windows.Shapes.Path Icon(string data, double size, Brush stroke)
-        { return Icon(data, size, stroke, 1.7); }
 
         public static TextBlock T(string text, double size, Brush fg, FontWeight? weight = null)
         {
@@ -439,17 +596,6 @@ namespace ZapretStudio
 
             var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Center };
-            if (iconData != null)
-            {
-                var ic = UI.Icon(iconData, 16, fg, 1.8);
-                ic.VerticalAlignment = VerticalAlignment.Center;
-                ic.Margin = new Thickness(0, 0, text != null ? 8 : 0, 0);
-                sp.Children.Add(ic);
-            }
-            if (text != null)
-                sp.Children.Add(new TextBlock { Text = text, Foreground = fg, FontSize = Theme.FsBody,
-                    FontFamily = Theme.UiFont, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
-
             var border = new Border
             {
                 Background = bg, BorderBrush = brd, BorderThickness = new Thickness(1),
@@ -457,12 +603,97 @@ namespace ZapretStudio
             };
 
             var b = new Button { Content = border, Cursor = System.Windows.Input.Cursors.Hand, Focusable = true };
+
+            if (iconData != null)
+            {
+                var ic = UI.Icon(iconData, 16, fg, 1.8);
+                ic.VerticalAlignment = VerticalAlignment.Center;
+                ic.Margin = new Thickness(0, 0, text != null ? 8 : 0, 0);
+                sp.Children.Add(ic);
+                var animType = (iconData == Icons.Restart || iconData == Icons.Refresh) ? IconAnimType.Rotate360 :
+                               (iconData == Icons.Pulse) ? IconAnimType.Pulse :
+                               (iconData == Icons.Gear) ? IconAnimType.Rotate90 :
+                               (iconData == Icons.Music) ? IconAnimType.Wiggle : IconAnimType.ScaleBounce;
+                UI.AttachIconHoverAnimation(b, ic, animType);
+            }
+            if (text != null)
+                sp.Children.Add(new TextBlock { Text = text, Foreground = fg, FontSize = Theme.FsBody,
+                    FontFamily = Theme.UiFont, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+
             StripChrome(b);
             b.Tag = new object[] { border, bg, kind };
             b.MouseEnter += (s, e) => { border.Background = Hover(bg, kind); };
             b.MouseLeave += (s, e) => { border.Background = bg; };
             AutomationSetName(b, text ?? Loc.T("common.button"));
             return b;
+        }
+
+        public static void SetButtonText(Button b, string text)
+        {
+            try
+            {
+                var border = b.Content as Border;
+                if (border != null)
+                {
+                    var sp = border.Child as StackPanel;
+                    if (sp != null)
+                    {
+                        foreach (var child in sp.Children)
+                        {
+                            var tb = child as TextBlock;
+                            if (tb != null) { tb.Text = text; return; }
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public static void SetButton(Button b, string text, string iconData, int kind)
+        {
+            try
+            {
+                Brush bg, fg, brd;
+                switch (kind)
+                {
+                    case 0: bg = Theme.BrAccent; fg = Theme.BrOnAccent; brd = Theme.BrAccent; break;
+                    case 2: bg = Theme.Alpha(Theme.Err, 30); fg = Theme.BrErr; brd = Theme.Alpha(Theme.Err, 110); break;
+                    case 3: bg = Theme.BrSurfaceAlt; fg = Theme.BrText; brd = Theme.BrStroke; break;
+                    default: bg = Theme.Alpha(Theme.Text, 8); fg = Theme.BrText; brd = Theme.BrStroke; break;
+                }
+
+                var border = b.Content as Border;
+                if (border != null)
+                {
+                    border.Background = bg;
+                    border.BorderBrush = brd;
+                    var sp = border.Child as StackPanel;
+                    if (sp != null)
+                    {
+                        sp.Children.Clear();
+                        if (iconData != null)
+                        {
+                            var ic = UI.Icon(iconData, 16, fg, 1.8);
+                            ic.VerticalAlignment = VerticalAlignment.Center;
+                            ic.Margin = new Thickness(0, 0, text != null ? 8 : 0, 0);
+                            sp.Children.Add(ic);
+                            var animType = (iconData == Icons.Restart || iconData == Icons.Refresh) ? IconAnimType.Rotate360 :
+                                           (iconData == Icons.Pulse) ? IconAnimType.Pulse :
+                                           (iconData == Icons.Gear) ? IconAnimType.Rotate90 :
+                                           (iconData == Icons.Music) ? IconAnimType.Wiggle : IconAnimType.ScaleBounce;
+                            UI.AttachIconHoverAnimation(b, ic, animType);
+                        }
+                        if (text != null)
+                        {
+                            sp.Children.Add(new TextBlock { Text = text, Foreground = fg, FontSize = Theme.FsBody,
+                                FontFamily = Theme.UiFont, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+                        }
+                    }
+                    b.Tag = new object[] { border, bg, kind };
+                }
+                AutomationSetName(b, text ?? Loc.T("common.button"));
+            }
+            catch { }
         }
 
         static Brush Hover(Brush baseBg, int kind)
@@ -645,6 +876,12 @@ namespace ZapretStudio
             };
             Ctl.AutomationSetName(bd, text);
             return bd;
+        }
+
+        public static string GetText(Border pill)
+        {
+            try { return ((TextBlock)((StackPanel)pill.Child).Children[1]).Text; }
+            catch { return ""; }
         }
     }
 

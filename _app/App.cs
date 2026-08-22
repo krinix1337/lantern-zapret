@@ -1,14 +1,63 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 
 namespace ZapretStudio
 {
     class App : Application
     {
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+        struct DEVMODE
+        {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string dmDeviceName;
+            public short dmSpecVersion;
+            public short dmDriverVersion;
+            public short dmSize;
+            public short dmDriverExtra;
+            public int dmFields;
+            public int dmPositionX;
+            public int dmPositionY;
+            public int dmDisplayOrientation;
+            public int dmDisplayFixedOutput;
+            public short dmColor;
+            public short dmDuplex;
+            public short dmYResolution;
+            public short dmTTOption;
+            public short dmCollate;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string dmFormName;
+            public short dmLogPixels;
+            public int dmBitsPerPel;
+            public int dmPelsWidth;
+            public int dmPelsHeight;
+            public int dmDisplayFlags;
+            public int dmNup;
+            public int dmDisplayFrequency;
+        }
+
+        [DllImport("user32.dll")]
+        static extern bool EnumDisplaySettings(string deviceName, int modeNum, ref DEVMODE devMode);
+
+        static void OptimizeRendering()
+        {
+            try
+            {
+                // Включаем прямое аппаратное ускорение WPF через DirectX
+                RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.Default;
+                TextOptions.TextFormattingModeProperty.OverrideMetadata(typeof(Window), new FrameworkPropertyMetadata(TextFormattingMode.Display));
+                RenderOptions.ClearTypeHintProperty.OverrideMetadata(typeof(Window), new FrameworkPropertyMetadata(ClearTypeHint.Enabled));
+            }
+            catch { }
+        }
+
         [STAThread]
         static void Main()
         {
+            OptimizeRendering();
 #if SELFTEST
             SelfTest.Run();
             return;
@@ -18,7 +67,8 @@ namespace ZapretStudio
             Theme.InstallScrollBarStyle();
             app.DispatcherUnhandledException += (s, e) =>
             {
-                try { Core.Fail(string.Format(Loc.T("app.errToast"), e.Exception.Message)); } catch { }
+                try { Core.Fail(string.Format(Loc.T("app.errToast"), e.Exception.Message)); }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("Fail in DispatcherUnhandledException: " + ex); }
                 MessageBox.Show(string.Format(Loc.T("app.errDlg"), e.Exception.Message), "zapret",
                     MessageBoxButton.OK, MessageBoxImage.Error);
                 e.Handled = true;
@@ -56,7 +106,7 @@ namespace ZapretStudio
         static void ApplySavedTheme()
         {
             string t = Core.Get("theme", "dark");
-            Theme.Apply(t == "light" ? ThemeMode.Light : t == "amoled" ? ThemeMode.Amoled : t == "aurora" ? ThemeMode.Aurora : t == "peter" ? ThemeMode.Peter : ThemeMode.Dark);
+            Theme.Apply(t == "light" ? ThemeMode.Light : t == "amoled" ? ThemeMode.Amoled : t == "aurora" ? ThemeMode.Aurora : t == "sunset" ? ThemeMode.Sunset : t == "peter" ? ThemeMode.Peter : ThemeMode.Dark);
         }
     }
 }

@@ -63,7 +63,7 @@ namespace ZapretStudio
 
             var pause = Ctl.Button(Loc.T("log.pause"), Icons.Stop, 3);
             pause.Margin = new Thickness(0, 0, 10, 10);
-            pause.Click += (s, e) => { _paused = !_paused; ((TextBlock)((StackPanel)((Border)pause.Content).Child).Children[1]).Text = _paused ? Loc.T("log.resume") : Loc.T("log.pause"); };
+            pause.Click += (s, e) => { _paused = !_paused; Ctl.SetButtonText(pause, _paused ? Loc.T("log.resume") : Loc.T("log.pause")); };
             wrap.Children.Add(pause);
 
             var scroll = Ctl.Button(Loc.T("log.autoscroll"), Icons.Down, 3);

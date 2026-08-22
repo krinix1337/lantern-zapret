@@ -43,7 +43,7 @@ namespace ZapretStudio
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
                 try { EnsureUiFonts(); }
-                catch { }
+                catch (Exception ex) { Fail("EnsureUiFontsInBackground: " + ex.Message); }
             });
         }
 
@@ -69,13 +69,13 @@ namespace ZapretStudio
                 {
                     try { if (File.Exists(destination)) File.Delete(destination); }
                     catch { }
-                    Warn("Не удалось безопасно скачать шрифт интерфейса: " + asset.Name);
+                    Warn(string.Format(Loc.T("fonts.dlFail"), asset.Name));
                     return false;
                 }
             }
 
             bool configured = Theme.ConfigureDownloadedFonts(FontsDir);
-            if (configured && !allReady) Info("Шрифты Google Sans загружены и проверены.");
+            if (configured && !allReady) Info(Loc.T("fonts.downloaded"));
             return configured;
         }
 

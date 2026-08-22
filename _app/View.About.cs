@@ -15,6 +15,17 @@ namespace ZapretStudio
         public AboutPage(MainWindow win)
         {
             _win = win;
+            Rebuild();
+        }
+
+        public override void OnShow()
+        {
+            Rebuild();
+        }
+
+        void Rebuild()
+        {
+            Body.Children.Clear();
             BuildHeader();
             BuildVersions();
             BuildLinks();
@@ -28,21 +39,23 @@ namespace ZapretStudio
             Body.Children.Add(SectionLabel(Loc.T("about.sec.versions")));
 
             // Версия приложения
+            string appVer = SettingsPage.NormVer(Core.AppVersion);
             Body.Children.Add(Row(Loc.T("about.ver.app"), Loc.T("about.ver.app.desc"),
-                Pill.Make(Sev.Info, Core.AppVersion)));
+                Pill.Make(Sev.Info, appVer)));
             Body.Children.Add(space());
 
             // Версия zapret
             string zv = Core.ZapretVersion();
+            string zapVer = string.IsNullOrEmpty(zv) ? "—" : SettingsPage.NormVer(zv);
             Body.Children.Add(Row(Loc.T("about.ver.zapret"), Loc.T("about.ver.zapret.desc"),
-                Pill.Make(Sev.Neutral, string.IsNullOrEmpty(zv) ? "—" : zv)));
+                Pill.Make(Sev.Neutral, zapVer)));
             Body.Children.Add(space());
 
             // Версия Telegram-прокси
             string tv = Core.TgProxyInstalled() ? Core.TgProxyLocalVersion() : null;
+            string tgVer = Core.TgProxyInstalled() ? (string.IsNullOrEmpty(tv) ? "?" : SettingsPage.NormVer(tv)) : Loc.T("settings.tg.notInstalled");
             Body.Children.Add(Row(Loc.T("about.ver.tg"), Loc.T("about.ver.tg.desc"),
-                Pill.Make(Core.TgProxyInstalled() ? Sev.Neutral : Sev.Warn,
-                    Core.TgProxyInstalled() ? (string.IsNullOrEmpty(tv) ? "?" : SettingsPage.NormVer(tv)) : Loc.T("settings.tg.notInstalled"))));
+                Pill.Make(Core.TgProxyInstalled() ? Sev.Neutral : Sev.Warn, tgVer)));
             Body.Children.Add(space());
 
             // Репозиторий приложения
@@ -55,7 +68,9 @@ namespace ZapretStudio
         {
             var sp = new StackPanel();
             sp.Children.Add(UI.T(string.Format(Loc.T("about.appName"), Core.AppName), Theme.FsH1, Theme.BrText, FontWeights.SemiBold));
-            sp.Children.Add(new TextBlock { Text = string.Format(Loc.T("about.versionLine"), Core.AppVersion, Core.ZapretVersion()),
+            string appVer = SettingsPage.NormVer(Core.AppVersion);
+            string zapVer = SettingsPage.NormVer(Core.ZapretVersion());
+            sp.Children.Add(new TextBlock { Text = string.Format(Loc.T("about.versionLine"), appVer, zapVer),
                 Foreground = Theme.BrMuted, FontSize = Theme.FsBody, FontFamily = Theme.UiFont, Margin = new Thickness(0, 6, 0, 0) });
             sp.Children.Add(new TextBlock
             {

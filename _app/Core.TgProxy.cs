@@ -27,7 +27,14 @@ namespace ZapretStudio
                 if (!File.Exists(TgProxyExe)) return null;
                 var fvi = FileVersionInfo.GetVersionInfo(TgProxyExe);
                 string v = fvi.ProductVersion ?? fvi.FileVersion;
-                if (!string.IsNullOrEmpty(v)) return v.Trim();
+                if (!string.IsNullOrEmpty(v))
+                {
+                    v = v.Trim().TrimStart('v', 'V');
+                    string[] p = v.Split('.');
+                    if (p.Length == 4 && p[3] == "0")
+                        v = p[0] + "." + p[1] + "." + p[2];
+                    return v;
+                }
             }
             catch { }
             return null;
@@ -62,7 +69,11 @@ namespace ZapretStudio
                 lock (_tgLock) { if (_tgProc != null && !_tgProc.HasExited) return true; }
             }
             catch { }
-            // Также ищем по имени процесса (мог быть запущен ранее).
+            return TgProxyRunningByName();
+        }
+
+        static bool TgProxyRunningByName()
+        {
             try
             {
                 var procs = Process.GetProcessesByName("TgWsProxy_windows");
@@ -97,20 +108,24 @@ namespace ZapretStudio
         public static bool TgProxyStart(out string error)
         {
             error = null;
-            try
+            lock (_tgLock)
             {
-                if (!TgProxyInstalled()) { error = Loc.T("tg.notInstalledErr"); return false; }
-                if (TgProxyRunning()) return true;
-                var psi = new ProcessStartInfo
+                try
                 {
-                    FileName = TgProxyExe,
-                    WorkingDirectory = TgToolsDir,
-                    UseShellExecute = true
-                };
-                lock (_tgLock) { _tgProc = Process.Start(psi); }
-                return true;
+                    if (!TgProxyInstalled()) { error = Loc.T("tg.notInstalledErr"); return false; }
+                    if (_tgProc != null && !_tgProc.HasExited) return true;
+                    if (TgProxyRunningByName()) return true;
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = TgProxyExe,
+                        WorkingDirectory = TgToolsDir,
+                        UseShellExecute = true
+                    };
+                    _tgProc = Process.Start(psi);
+                    return true;
+                }
+                catch (Exception ex) { error = Short(ex.Message); return false; }
             }
-            catch (Exception ex) { error = Short(ex.Message); return false; }
         }
 
         public static void TgProxyStop()
