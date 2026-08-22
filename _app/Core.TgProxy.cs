@@ -43,20 +43,7 @@ namespace ZapretStudio
         // Последняя версия из GitHub Releases (tag_name). Вызывать из фонового потока.
         public static string TgProxyLatestVersion()
         {
-            try
-            {
-                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
-                using (var wc = new WebClient())
-                {
-                    wc.Encoding = System.Text.Encoding.UTF8;
-                    wc.Headers.Add("User-Agent", "ZapretStudio");
-                    string json = wc.DownloadString(TgProxyReleaseApi);
-                    var m = System.Text.RegularExpressions.Regex.Match(json, "\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
-                    if (m.Success) return m.Groups[1].Value.Trim();
-                }
-            }
-            catch { }
-            return null;
+            return FetchLatestTag(TgProxyReleaseApi, TgProxyReleasePage);
         }
 
         static Process _tgProc;

@@ -292,10 +292,10 @@ namespace ZapretStudio
             var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             right.Children.Add(TopIcon(Theme.Mode == ThemeMode.Light ? Icons.Moon : Icons.Sun,
                 Loc.T("settings.theme"), delegate { ToggleTheme(); }));
-            right.Children.Add(TopIcon(Icons.Refresh, Loc.T("common.checkUpdates"), delegate { CheckUpdates(); }));
+            right.Children.Add(TopIcon(Icons.Restart, Loc.T("ov.restart"), delegate { RestartCurrent(); }));
             right.Children.Add(TopIcon(Icons.Gear, Loc.T("common.settings"), delegate { Navigate("settings"); }));
-            right.Children.Add(WinBtn(Icons.Menu, Loc.T("common.minimize"), delegate { WindowState = WindowState.Minimized; }, false));
-            right.Children.Add(WinBtn(Icons.Grid, Loc.T("common.maximize"), delegate { ToggleMax(); }, false));
+            right.Children.Add(WinBtn(Icons.Minimize, Loc.T("common.minimize"), delegate { WindowState = WindowState.Minimized; }, false));
+            right.Children.Add(WinBtn(Icons.Maximize, Loc.T("common.maximize"), delegate { ToggleMax(); }, false));
             right.Children.Add(WinBtn(Icons.Cross, Loc.T("common.close"), delegate { Close(); }, true));
             Grid.SetColumn(right, 3); g.Children.Add(right);
 
@@ -307,12 +307,16 @@ namespace ZapretStudio
             var b = new Button { Cursor = Cursors.Hand, Width = 38, Height = 38, Margin = new Thickness(2, 0, 2, 0) };
             Ctl.StripChrome(b);
             var bd = new Border { CornerRadius = Theme.R10, Background = Brushes.Transparent };
-            bd.Child = UI.Icon(icon, 17, Theme.BrMuted, 1.8);
+            var ic = UI.Icon(icon, 17, Theme.BrMuted, 1.8);
+            bd.Child = ic;
             b.Content = bd;
+            var animType = (icon == Icons.Restart || icon == Icons.Refresh) ? IconAnimType.Rotate360 : (icon == Icons.Gear ? IconAnimType.Rotate90 : IconAnimType.ScaleBounce);
+            UI.AttachIconHoverAnimation(b, ic, animType);
             b.MouseEnter += (s, e) => bd.Background = Theme.BrSurfaceHi;
             b.MouseLeave += (s, e) => bd.Background = Brushes.Transparent;
             b.Click += (s, e) => act();
             Ctl.AutomationSetName(b, name);
+            b.ToolTip = name;
             System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(b, true);
             return b;
         }
@@ -322,12 +326,27 @@ namespace ZapretStudio
             var b = new Button { Cursor = Cursors.Hand, Width = 44, Height = 48 };
             Ctl.StripChrome(b);
             var bd = new Border { Background = Brushes.Transparent };
-            bd.Child = UI.Icon(icon, 15, Theme.BrMuted, 1.6);
+            var ic = UI.Icon(icon, 14, Theme.BrMuted, 1.6);
+            bd.Child = ic;
             b.Content = bd;
-            b.MouseEnter += (s, e) => bd.Background = danger ? Theme.Frozen(Theme.Err) : Theme.BrSurfaceHi;
-            b.MouseLeave += (s, e) => bd.Background = Brushes.Transparent;
+            b.MouseEnter += (s, e) =>
+            {
+                bd.Background = danger ? Theme.Frozen(Theme.Err) : Theme.BrSurfaceHi;
+                if (danger)
+                {
+                    if (ic.Stroke != null) ic.Stroke = Brushes.White;
+                    if (ic.Fill != null && ic.Fill != Brushes.Transparent) ic.Fill = Brushes.White;
+                }
+            };
+            b.MouseLeave += (s, e) =>
+            {
+                bd.Background = Brushes.Transparent;
+                if (ic.Stroke != null) ic.Stroke = Theme.BrMuted;
+                if (ic.Fill != null && ic.Fill != Brushes.Transparent) ic.Fill = Theme.BrMuted;
+            };
             b.Click += (s, e) => act();
             Ctl.AutomationSetName(b, name);
+            b.ToolTip = name;
             System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(b, true);
             return b;
         }
@@ -878,8 +897,14 @@ namespace ZapretStudio
 
         public void RestartCurrent()
         {
+            if (string.IsNullOrEmpty(_currentStrategyFile))
+            {
+                var files = Core.GetStrategyFiles();
+                if (files.Count > 0) _currentStrategyFile = files[0];
+            }
             if (string.IsNullOrEmpty(_currentStrategyFile)) { Warn(Loc.T("mw.noStratSel")); return; }
             Core.Info(Loc.T("mw.restarting"));
+            ShowToast(Loc.T("mw.restarting"), Sev.Info);
             StopAll();
             RunStrategy(_currentStrategyFile);
         }

@@ -141,57 +141,86 @@ namespace ZapretStudio
             return false;
         }
 
-        // ---- Обновления zapret: берём актуальный tag_name из официального GitHub Releases API ----
-        public static string CheckLatestVersion()
+        public static string FetchLatestTag(string releaseApi, string fallbackReleasePage, string fallbackRawUrl = null)
         {
+            // 1. Попытка через официальный GitHub API
             try
             {
-                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
-                using (var wc = new WebClient())
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | (SecurityProtocolType)3072;
+                var req = (HttpWebRequest)WebRequest.Create(releaseApi);
+                req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+                req.Timeout = 8000;
+                using (var resp = (HttpWebResponse)req.GetResponse())
+                using (var reader = new StreamReader(resp.GetResponseStream(), System.Text.Encoding.UTF8))
                 {
-                    wc.Encoding = System.Text.Encoding.UTF8;
-                    wc.Headers.Add("User-Agent", "Lantern");
-                    string json = wc.DownloadString(ZapretReleaseApi);
+                    string json = reader.ReadToEnd();
                     var m = System.Text.RegularExpressions.Regex.Match(json, "\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
                     if (m.Success)
                     {
                         string tag = m.Groups[1].Value.Trim().TrimStart('v', 'V');
-                        return tag;
+                        if (!string.IsNullOrEmpty(tag)) return tag;
                     }
                 }
             }
             catch { }
-            // Резервный опрос через version.txt при недоступности API
+
+            // 2. Резервная попытка через HTTP 302 Location страницы latest-релиза (без лимитов GitHub API)
             try
             {
-                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
-                using (var wc = new WebClient())
+                if (!string.IsNullOrEmpty(fallbackReleasePage))
                 {
-                    wc.Headers.Add("User-Agent", "Lantern");
-                    string v = wc.DownloadString(VersionUrl).Trim().TrimStart('v', 'V');
-                    return v;
+                    var req = (HttpWebRequest)WebRequest.Create(fallbackReleasePage);
+                    req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+                    req.AllowAutoRedirect = false;
+                    req.Timeout = 8000;
+                    using (var resp = (HttpWebResponse)req.GetResponse())
+                    {
+                        string loc = resp.Headers["Location"];
+                        if (!string.IsNullOrEmpty(loc))
+                        {
+                            int idx = loc.LastIndexOf('/');
+                            if (idx >= 0 && idx < loc.Length - 1)
+                            {
+                                string tag = loc.Substring(idx + 1).Trim().TrimStart('v', 'V');
+                                if (!string.IsNullOrEmpty(tag)) return tag;
+                            }
+                        }
+                    }
                 }
             }
-            catch { return null; }
+            catch { }
+
+            // 3. Резервный опрос через version.txt (если задан)
+            if (!string.IsNullOrEmpty(fallbackRawUrl))
+            {
+                try
+                {
+                    var req = (HttpWebRequest)WebRequest.Create(fallbackRawUrl);
+                    req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)";
+                    req.Timeout = 8000;
+                    using (var resp = (HttpWebResponse)req.GetResponse())
+                    using (var reader = new StreamReader(resp.GetResponseStream(), System.Text.Encoding.UTF8))
+                    {
+                        string v = reader.ReadToEnd().Trim().TrimStart('v', 'V');
+                        if (!string.IsNullOrEmpty(v)) return v;
+                    }
+                }
+                catch { }
+            }
+
+            return null;
+        }
+
+        // ---- Обновления zapret: надёжный опрос через API + 302 + version.txt ----
+        public static string CheckLatestVersion()
+        {
+            return FetchLatestTag(ZapretReleaseApi, "https://github.com/Flowseal/zapret-discord-youtube/releases/latest", VersionUrl);
         }
 
         // ---- Самообновление приложения (Lantern) ----
         public static string AppLatestVersion()
         {
-            try
-            {
-                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
-                using (var wc = new WebClient())
-                {
-                    wc.Encoding = System.Text.Encoding.UTF8;
-                    wc.Headers.Add("User-Agent", "Lantern");
-                    string json = wc.DownloadString(AppReleaseApi);
-                    var m = System.Text.RegularExpressions.Regex.Match(json, "\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
-                    if (m.Success) return m.Groups[1].Value.Trim();
-                }
-            }
-            catch { }
-            return null;
+            return FetchLatestTag(AppReleaseApi, Core.AppReleaseUrl);
         }
 
         public static string AppInstallerUrl()

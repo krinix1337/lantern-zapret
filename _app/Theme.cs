@@ -373,11 +373,73 @@ namespace ZapretStudio
         public const string Telegram = "M22 2L11 13 M22 2l-7 20-4-9-9-4 20-7z";
         public const string Link = "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71";
         public const string Bolt = "M13 2L3 14h9l-1 8 10-12h-9l1-8z";
+        public const string Minimize = "M5 12h14";
+        public const string Maximize = "M4 4h16v16H4z";
+        public const string Restore = "M4 4h11v11H4z M8 8h12v12H8z";
         public const string Lantern = "M12 2a5 5 0 0 0-5 5v3a5 5 0 0 0 10 0V7a5 5 0 0 0-5-5z M9 18h6 M10 22h4 M12 7v5";
     }
 
     static class UI
     {
+        public static Geometry ParseGeometry(string data)
+        {
+            if (string.IsNullOrEmpty(data)) return null;
+            string pathData = data.StartsWith("F:") ? data.Substring(2) : data;
+            try { return Geometry.Parse(pathData); } catch { return null; }
+        }
+
+        public static void UpdateIcon(System.Windows.Shapes.Path p, string data, Brush stroke = null, double thickness = 1.8)
+        {
+            if (p == null || string.IsNullOrEmpty(data)) return;
+            bool isFill = data.StartsWith("F:");
+            string pathData = isFill ? data.Substring(2) : data;
+            try
+            {
+                p.Data = Geometry.Parse(pathData);
+                if (stroke != null)
+                {
+                    if (isFill)
+                    {
+                        p.Fill = stroke;
+                        p.Stroke = null;
+                    }
+                    else
+                    {
+                        p.Fill = Brushes.Transparent;
+                        p.Stroke = stroke;
+                        p.StrokeThickness = thickness;
+                        p.StrokeStartLineCap = PenLineCap.Round;
+                        p.StrokeEndLineCap = PenLineCap.Round;
+                        p.StrokeLineJoin = PenLineJoin.Round;
+                    }
+                }
+                else
+                {
+                    if (isFill)
+                    {
+                        if (p.Fill == null || p.Fill == Brushes.Transparent)
+                        {
+                            p.Fill = p.Stroke ?? Theme.BrText;
+                            p.Stroke = null;
+                        }
+                    }
+                    else
+                    {
+                        if (p.Stroke == null)
+                        {
+                            p.Stroke = p.Fill ?? Theme.BrText;
+                            p.Fill = Brushes.Transparent;
+                            p.StrokeThickness = thickness;
+                            p.StrokeStartLineCap = PenLineCap.Round;
+                            p.StrokeEndLineCap = PenLineCap.Round;
+                            p.StrokeLineJoin = PenLineJoin.Round;
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
         public static System.Windows.Shapes.Path Icon(string data, double size, Brush stroke, double thickness = 1.8)
         {
             if (string.IsNullOrEmpty(data)) return new System.Windows.Shapes.Path();
@@ -387,7 +449,7 @@ namespace ZapretStudio
 
             var p = new System.Windows.Shapes.Path
             {
-                Data = Geometry.Parse(pathData),
+                Data = ParseGeometry(pathData),
                 Stretch = Stretch.Uniform,
                 Width = size,
                 Height = size,

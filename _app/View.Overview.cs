@@ -189,7 +189,7 @@ namespace ZapretStudio
             _tgBtn.HorizontalAlignment = HorizontalAlignment.Stretch;
             _tgBtn.Click += (s, e) => TgToggle();
             Grid.SetColumn(_tgBtn, 0); btnRow.Children.Add(_tgBtn);
-            _tgFolderBtn = Ctl.Button(Loc.T("ov.qa.folder"), Icons.Folder, 3);
+            _tgFolderBtn = Ctl.Button(Loc.T("ov.qa.tgFolder"), Icons.Folder, 3);
             _tgFolderBtn.Margin = new Thickness(10, 0, 0, 0);
             _tgFolderBtn.Click += (s, e) => { try { System.IO.Directory.CreateDirectory(Core.TgToolsDir); Core.OpenFolder(Core.TgToolsDir); } catch { } };
             Grid.SetColumn(_tgFolderBtn, 1); btnRow.Children.Add(_tgFolderBtn);

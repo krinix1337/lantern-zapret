@@ -295,8 +295,9 @@ namespace ZapretStudio
             A("ov.zap.notInstalledTitle","Не установлен", "Not installed");
             A("ov.tg.openTools",  "Инструменты",       "Tools");
             A("ov.qa.check",      "Проверить соединение", "Check connection");
-            A("ov.qa.strat",      "Выбрать стратегию",    "Choose strategy");
             A("ov.qa.folder",     "Открыть папку zapret", "Open zapret folder");
+            A("ov.qa.tgFolder",   "Папка TG-Proxy",       "Open TG-Proxy folder");
+            A("ov.qa.zapretFolder","Папка zapret",        "Open zapret folder");
             A("ov.qa.log",        "Журнал",               "Log");
             A("ov.risk", "zapret — не VPN и не шифрование трафика. Это обход DPI-блокировок. Драйвер WinDivert некоторые антивирусы помечают как RiskTool — это ожидаемо для сетевых утилит.", "zapret is not a VPN and does not encrypt traffic. It bypasses DPI blocking. Some antiviruses flag the WinDivert driver as RiskTool - this is expected for network utilities.");
             A("tg.title",     "Telegram-прокси (tg-ws-proxy)", "Telegram proxy (tg-ws-proxy)");

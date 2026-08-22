@@ -374,29 +374,41 @@ namespace ZapretStudio
 
             _player.MediaOpened += (s, e) =>
             {
-                if (_isPlaying)
+                try
                 {
-                    // Когда файл готов к воспроизведению, плавно нарастает громкость
-                    AnimateVolume(0, _volume, 240, null);
+                    if (_isPlaying)
+                    {
+                        // Когда файл готов к воспроизведению, плавно нарастает громкость
+                        AnimateVolume(0, _volume, 240, null);
+                    }
                 }
+                catch { }
             };
 
-            _player.MediaEnded += (s, e) => PlayNext();
+            _player.MediaEnded += (s, e) => { try { PlayNext(); } catch { } };
             _player.MediaFailed += (s, e) =>
             {
-                if (_playlist.Count > 1) PlayNext();
-                else Stop();
+                try
+                {
+                    if (_playlist.Count > 1) PlayNext();
+                    else Stop();
+                }
+                catch { }
             };
-            _player.Volume = _volume;
+            try { _player.Volume = _volume; } catch { }
 
             _progressTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
             _progressTimer.Tick += (s, e) =>
             {
-                if (_isPlaying && _player.NaturalDuration.HasTimeSpan)
+                try
                 {
-                    if (ProgressTick != null)
-                        ProgressTick(_player.Position, _player.NaturalDuration.TimeSpan);
+                    if (_isPlaying && _player.NaturalDuration.HasTimeSpan)
+                    {
+                        if (ProgressTick != null)
+                            ProgressTick(_player.Position, _player.NaturalDuration.TimeSpan);
+                    }
                 }
+                catch { }
             };
         }
 
@@ -1081,9 +1093,9 @@ namespace ZapretStudio
         {
             if (_volIcon != null)
             {
-                if (vol <= 0.001) _volIcon.Data = Geometry.Parse(Icons.VolumeOff);
-                else if (vol < 0.5) _volIcon.Data = Geometry.Parse(Icons.VolumeDown);
-                else _volIcon.Data = Geometry.Parse(Icons.VolumeUp);
+                if (vol <= 0.001) UI.UpdateIcon(_volIcon, Icons.VolumeOff, Theme.BrMuted);
+                else if (vol < 0.5) UI.UpdateIcon(_volIcon, Icons.VolumeDown, Theme.BrMuted);
+                else UI.UpdateIcon(_volIcon, Icons.VolumeUp, Theme.BrMuted);
             }
             if (_volSliderContainer != null && _volFill != null && _volKnobTrans != null)
             {
@@ -1241,18 +1253,22 @@ namespace ZapretStudio
 
             _controller.StateChanged += () =>
             {
-                if (_controller.IsActive)
+                try
                 {
-                    ShowWidget();
-                    string icData = _controller.IsPlaying ? Icons.Pause : Icons.Play;
-                    _playPauseIcon.Data = Geometry.Parse(icData);
-                    _compactPlayIcon.Data = Geometry.Parse(icData);
-                    UpdateShuffleVisual();
+                    if (_controller.IsActive)
+                    {
+                        ShowWidget();
+                        string icData = _controller.IsPlaying ? Icons.Pause : Icons.Play;
+                        UI.UpdateIcon(_playPauseIcon, icData, Theme.BrOnAccent);
+                        UI.UpdateIcon(_compactPlayIcon, icData, Theme.BrOnAccent);
+                        UpdateShuffleVisual();
+                    }
+                    else
+                    {
+                        HideWidget();
+                    }
                 }
-                else
-                {
-                    HideWidget();
-                }
+                catch { }
             };
 
             _controller.ProgressTick += (current, total) =>

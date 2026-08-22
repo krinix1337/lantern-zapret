@@ -91,6 +91,10 @@ namespace ZapretStudio
                 Width = 260, VerticalContentAlignment = VerticalAlignment.Center, Height = 38, Margin = new Thickness(8, 0, 0, 0) };
             Ctl.AutomationSetName(_search, Loc.T("strat.search"));
             _search.TextChanged += (s, e) => Rebuild();
+            _search.GotFocus += (s, e) => sb.BorderBrush = Theme.BrAccent;
+            _search.LostFocus += (s, e) => sb.BorderBrush = Theme.BrStroke;
+            sb.MouseEnter += (s, e) => { if (!_search.IsFocused) sb.BorderBrush = Theme.BrSurfaceHi; };
+            sb.MouseLeave += (s, e) => { if (!_search.IsFocused) sb.BorderBrush = Theme.BrStroke; };
             sg.Children.Add(_search);
             sb.Child = sg;
             Grid.SetColumn(sb, 0);
@@ -172,16 +176,12 @@ namespace ZapretStudio
             Relayout();
         }
 
-        // Пересчитать ширину карточек так, чтобы аккуратно заполнить сетку (адаптивно).
-        // У каждой карточки правый отступ = Gap, поэтому «след» карточки = cardW + Gap.
-        // Влезает cols карточек, когда cols*(cardW+Gap) <= avail. Считаем от минимума
-        // и раздаём остаток по ширине, оставляя место под правый отступ каждой карточки.
         void Relayout()
         {
             double avail = _list.ActualWidth;
             if (avail <= 1) return;
             int cols = Math.Max(1, (int)((avail) / (MinCardW + Gap)));
-            double cardW = (avail - Gap * cols) / cols - 1; // -1px запас от переполнения при округлении
+            double cardW = (avail - Gap * cols) / cols - 1; 
             if (cardW < 40) cardW = 40;
             foreach (var child in _list.Children)
             {
@@ -193,7 +193,7 @@ namespace ZapretStudio
 
         Border StrategyCard(string file, string name, string cat, bool isCurrent)
         {
-var outer = new StackPanel();
+            var outer = new StackPanel();
 
             var titleRow = new Grid();
             titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -284,31 +284,27 @@ var outer = new StackPanel();
             var cardScale = new ScaleTransform(1, 1);
             card.RenderTransform = cardScale;
 
-            Brush normalBackground = card.Background;
-            Brush normalBorder = card.BorderBrush;
-            if (isCurrent)
-            {
-                normalBorder = Theme.Alpha(Theme.Ok, 90);
-                normalBackground = Theme.Alpha(Theme.Ok, 12);
-                card.BorderBrush = normalBorder;
-                card.Background = normalBackground;
-            }
+            Brush normalBackground = isCurrent ? Theme.Alpha(Theme.Ok, 14) : Theme.BrSurface;
+            Brush normalBorder = isCurrent ? Theme.Alpha(Theme.Ok, 90) : Theme.BrStroke;
+            card.BorderBrush = normalBorder;
+            card.Background = normalBackground;
+
             bool selecting = false;
             card.MouseEnter += (s, e) =>
             {
                 if (selecting) return;
-                card.Background = isCurrent ? Theme.Alpha(Theme.Ok, 22) : Theme.BrSurfaceHi;
+                card.Background = isCurrent ? Theme.Alpha(Theme.Ok, 24) : Theme.BrSurfaceHi;
                 card.BorderBrush = isCurrent ? Theme.BrOk : Theme.BrAccent;
                 AnimateCardScale(cardScale, 1.018, 120);
             };
             card.MouseLeave += (s, e) =>
             {
                 if (selecting) return;
-                card.Background = normalBackground;
-                card.BorderBrush = normalBorder;
+                card.Background = isCurrent ? Theme.Alpha(Theme.Ok, 14) : Theme.BrSurface;
+                card.BorderBrush = isCurrent ? Theme.Alpha(Theme.Ok, 90) : Theme.BrStroke;
                 AnimateCardScale(cardScale, 1, 140);
             };
-card.MouseLeftButtonDown += (s, e) =>
+            card.MouseLeftButtonDown += (s, e) =>
             {
                 if (!IsInStar(e.OriginalSource as DependencyObject, star) &&
                     !IsInStar(e.OriginalSource as DependencyObject, gear)) AnimateCardScale(cardScale, 0.988, 70);

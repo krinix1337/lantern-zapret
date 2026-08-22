@@ -30,15 +30,20 @@ namespace ZapretStudio
         public static string ZapretDownloadUrl(string version)
         {
             string normalized = string.IsNullOrEmpty(version) ? null : version.Trim().TrimStart('v', 'V');
+            if (string.IsNullOrEmpty(normalized))
+            {
+                string detected = CheckLatestVersion();
+                if (!string.IsNullOrEmpty(detected)) normalized = detected.Trim().TrimStart('v', 'V');
+            }
             if (!string.IsNullOrEmpty(normalized))
                 return "https://github.com/Flowseal/zapret-discord-youtube/releases/download/" + normalized
                     + "/zapret-discord-youtube-" + normalized + ".zip";
             try
             {
-                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | (SecurityProtocolType)3072;
                 using (var wc = new WebClient())
                 {
-                    wc.Headers.Add("User-Agent", "Lantern");
+                    wc.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
                     string json = wc.DownloadString(ZapretReleaseApi);
                     var matches = System.Text.RegularExpressions.Regex.Matches(
                         json, "\\\"browser_download_url\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
@@ -85,9 +90,9 @@ namespace ZapretStudio
                 string dir = Path.GetDirectoryName(destPath);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
                 if (File.Exists(tempPath)) File.Delete(tempPath);
-                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | (SecurityProtocolType)3072;
                 var req = (HttpWebRequest)WebRequest.Create(url);
-                req.UserAgent = "ZapretStudio";
+                req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
                 req.AllowAutoRedirect = true;
                 req.Timeout = 30000;
                 req.ReadWriteTimeout = 60000;
