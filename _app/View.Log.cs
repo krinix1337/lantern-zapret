@@ -27,16 +27,18 @@ namespace ZapretStudio
         TextBlock _count;
 
         // Строка журнала: готовые к биндингу значения (VM).
+        // ВАЖНО: только свойства — WPF Binding не привязывается к полям
+        // (тихо даёт пустые значения, строки схлопываются в нулевую высоту).
         class LogRow
         {
-            public DateTime Time;
-            public Sev Level;
-            public string Text;
-            public string TimeText;
-            public string LevelText;
-            public Brush LevelBrush;   // замороженная кисть уровня
-            public Brush RowBg;        // замороженный фон полосы слева
-            public Brush RowBorder;    // замороженная обводка полосы слева
+            public DateTime Time { get; set; }
+            public Sev Level { get; set; }
+            public string Text { get; set; }
+            public string TimeText { get; set; }
+            public string LevelText { get; set; }
+            public Brush LevelBrush { get; set; }   // замороженная кисть уровня
+            public Brush RowBg { get; set; }        // замороженный фон полосы слева
+            public Brush RowBorder { get; set; }    // замороженная обводка полосы слева
         }
 
         public LogPage(MainWindow win)

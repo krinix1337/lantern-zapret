@@ -676,6 +676,10 @@ namespace ZapretStudio
             A("appupd.hashMismatch",  "Установка отменена: хеш скачанного установщика НЕ совпал с опубликованным.", "Update aborted: downloaded installer hash does NOT match the published one.");
             A("appupd.hashUnreadable","Установка отменена: не удалось прочитать .sha256 из релиза.", "Update aborted: could not read the .sha256 from the release.");
             A("appupd.hashMissing",   "Релиз без .sha256 — проверка целостности недоступна.", "Release without .sha256 - integrity check is not available.");
+
+            // Версии в сайдбаре без данных проверки (честно, без «актуально»)
+            A("mw.tgVerPlain",   "Версия TG-Proxy: {0}", "TG-Proxy version: {0}");
+            A("mw.appShellPlain","Версия оболочки: v{0}", "Shell version: v{0}");
         }
 
         static void A(string key, string ru, string en) { M[key] = new[] { ru, en }; }

@@ -128,6 +128,25 @@ namespace ZapretStudio
             NavCheck(win, "log"); ForceLayout(win); Shot(win, "section-log");
             NavCheck(win, "about"); ForceLayout(win); Shot(win, "section-about");
 
+            // 7) Журнал: строки реально отрисовываются (биндинги VM на свойствах,
+            //    а не полях — иначе строки схлопываются в нулевую высоту).
+            NavCheck(win, "log");
+            Try("log rows render", delegate
+            {
+                Core.Info("selftest-log-row-check");
+                Core.Good("selftest-log-row-ok");
+                Pump(); ForceLayout(win);
+                ListBox lb = null;
+                foreach (var l in Descendants<ListBox>(win)) { lb = l; break; }
+                Assert(lb != null && lb.Items.Count > 0);
+                lb.ScrollIntoView(lb.Items[lb.Items.Count - 1]);
+                Pump(); ForceLayout(win);
+                double maxH = 0;
+                foreach (var it in Descendants<System.Windows.Controls.ListBoxItem>(lb))
+                    maxH = Math.Max(maxH, it.ActualHeight);
+                Assert(maxH > 8);
+            });
+
             // 6) Разные ширины окна (проверка сетки/раскладки)
             foreach (var w in new double[] { 1120, 1000, 1300, 1600 })            {
                 Try("resize " + w, delegate { win.Width = w; Pump(); NavCheck(win, "strategies"); ForceLayout(win); MeasureGrid(win, w); });

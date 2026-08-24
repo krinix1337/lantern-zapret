@@ -471,6 +471,8 @@ namespace ZapretStudio
                             SetTgUpdateProgress(Loc.T("settings.update.replacing"), 96);
                             string nv = Core.TgProxyLocalVersion();
                             string nvNorm = string.IsNullOrEmpty(nv) ? "—" : NormVer(nv);
+                            if (!string.IsNullOrEmpty(nv)) { Core.Set("latest_tg", nv); Core.SaveConfig(); }
+                            if (_win != null) _win.RefreshSidebarVersions();
                             FinishProgress(_tgProgress, _tgStatusLine,
                                 Loc.T("settings.update.done") + ": " + nvNorm, true);
                             if (_tgLocalVersion != null)

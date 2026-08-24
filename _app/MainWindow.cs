@@ -38,6 +38,14 @@ namespace ZapretStudio
 
             _currentStrategyFile = Core.Get("last_strategy", null);
             _collapsed = Core.GetBool("sidebar_collapsed", false);
+            // Последние известные версии с GitHub: кэш позволяет сайдбару сразу
+            // показывать «— актуально» после перезапуска, даже если стартовая
+            // проверка ещё идёт или временно не удалась (лимиты GitHub API).
+            _lastZapretLatest = Core.Get("latest_zapret", null);
+            _lastTgLatest = Core.Get("latest_tg", null);
+            _lastAppLatest = Core.Get("latest_app", null);
+            if (_lastZapretLatest != null || _lastTgLatest != null || _lastAppLatest != null)
+                _haveUpdateResults = true;
 
             AllowsTransparency = false;
             BuildChrome();
@@ -651,9 +659,12 @@ namespace ZapretStudio
         {
             if (_appVerSidebar == null) return;
             string appNorm = SettingsPage.NormVer(Core.AppVersion);
-            bool hasUpdate = !string.IsNullOrEmpty(_lastAppLatest)
-                && SettingsPage.CompareVersions(_lastAppLatest, Core.AppVersion) > 0;
-            _appVerSidebar.Text = string.Format(Loc.T(hasUpdate ? "mw.appShell.update" : "mw.appShell"), appNorm);
+            bool hasData = !string.IsNullOrEmpty(_lastAppLatest);
+            bool hasUpdate = hasData && SettingsPage.CompareVersions(_lastAppLatest, Core.AppVersion) > 0;
+            // Единая честная логика с zapret/TG: «актуально» — только когда
+            // последняя версия подтверждена проверкой; без данных — просто версия.
+            string key = hasUpdate ? "mw.appShell.update" : hasData ? "mw.appShell" : "mw.appShellPlain";
+            _appVerSidebar.Text = string.Format(Loc.T(key), appNorm);
             _appVerSidebar.Foreground = hasUpdate ? Theme.BrWarn : Theme.BrFaint;
         }
 
@@ -668,7 +679,26 @@ namespace ZapretStudio
                     _updateLine.Text = string.Format(Loc.T("mw.verLine"), local);
             }
             if (_tgVerSidebar != null)
-                _tgVerSidebar.Text = TgSidebarText();
+            {
+                string tgLocal = Core.TgProxyInstalled() ? Core.TgProxyLocalVersion() : null;
+                if (!string.IsNullOrEmpty(tgLocal))
+                {
+                    string tgLv = SettingsPage.NormVer(tgLocal);
+                    bool tgHasData = !string.IsNullOrEmpty(_lastTgLatest);
+                    bool tgUpdate = tgHasData && SettingsPage.CompareVersions(_lastTgLatest, tgLocal) > 0;
+                    _tgVerSidebar.Text = tgUpdate
+                        ? string.Format(Loc.T("mw.tgVer.update"), tgLv)
+                        : tgHasData
+                            ? string.Format(Loc.T("mw.tgVer"), tgLv)
+                            : string.Format(Loc.T("mw.tgVerPlain"), tgLv);
+                    _tgVerSidebar.Foreground = tgUpdate ? Theme.BrWarn : Theme.BrFaint;
+                }
+                else
+                {
+                    _tgVerSidebar.Text = TgSidebarText();
+                    _tgVerSidebar.Foreground = Theme.BrFaint;
+                }
+            }
             UpdateAppSidebarVersion();
             Page settingsPage;
             if (_pages.TryGetValue("settings", out settingsPage))
@@ -1000,6 +1030,12 @@ namespace ZapretStudio
                         _lastZapretLatest = latest; _lastZapretLocal = local;
                         _lastTgLatest = tgLatest; _lastTgLocal = tgLocal;
                         _lastAppLatest = appLatest; _haveUpdateResults = true;
+                        // Сохраняем успешный результат: следующий запуск покажет
+                        // статус версий даже без сети.
+                        if (latest != null) Core.Set("latest_zapret", latest);
+                        if (tgLatest != null) Core.Set("latest_tg", tgLatest);
+                        if (appLatest != null) Core.Set("latest_app", appLatest);
+                        if (latest != null || tgLatest != null || appLatest != null) Core.SaveConfig();
                         string zapLatestNorm = SettingsPage.NormVer(latest);
                         string zapLocalNorm = SettingsPage.NormVer(local);
 
@@ -1137,6 +1173,7 @@ namespace ZapretStudio
                             string newVer = Core.ZapretVersion();
                             _lastZapretLatest = newVer;
                             _lastZapretLocal = newVer;
+                            Core.Set("latest_zapret", newVer); Core.SaveConfig();
                             _updateLine.Text = string.Format(Loc.T("mw.verCurrent"), newVer);
                             FinishZapretUpdate(Loc.T("settings.update.done") + ": " + newVer, true);
                             Core.Good(string.Format(Loc.T("mw.updDone"), newVer));
