@@ -61,6 +61,13 @@ namespace ZapretStudio
                 _navButtons.Clear();
                 _activeNavKey = null;
                 _overview = null;
+                // Старый виджет плеера подписан на события живущего контроллера —
+                // отписываем, иначе обработчики накапливаются при каждой смене темы.
+                if (_peterSidebarWidget != null)
+                {
+                    try { _peterSidebarWidget.Detach(); } catch { }
+                    _peterSidebarWidget = null;
+                }
                 BuildChrome();
                 RebuildTray();
                 Navigate(string.IsNullOrEmpty(_current) ? "overview" : _current);
@@ -356,7 +363,12 @@ namespace ZapretStudio
         void ToggleTheme()
         {
             var next = Theme.NextMode();
-            Core.Set("theme", next == ThemeMode.Light ? "light" : next == ThemeMode.Amoled ? "amoled" : next == ThemeMode.Aurora ? "aurora" : next == ThemeMode.Peter ? "peter" : "dark");
+            Core.Set("theme",
+                next == ThemeMode.Light ? "light" :
+                next == ThemeMode.Amoled ? "amoled" :
+                next == ThemeMode.Aurora ? "aurora" :
+                next == ThemeMode.Sunset ? "sunset" :
+                next == ThemeMode.Peter ? "peter" : "dark");
             Core.SaveConfig();
             Theme.Apply(next);
         }
@@ -1179,6 +1191,7 @@ namespace ZapretStudio
         // ---------- Автопереключение (watchdog) ----------
         DispatcherTimer _watchdogTimer;
         volatile bool _watchdogBusy;
+        int _watchdogCooldown; // тики паузы после автопереключения (анти-флаппинг)
 
         void StartWatchdog()
         {
@@ -1205,6 +1218,9 @@ namespace ZapretStudio
             _bypassMonitor = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
             _bypassMonitor.Tick += (s, e) =>
             {
+                // Во время бенчмарка стратегий или обновления winws убивается
+                // намеренно — такие переходы не считаем падением обхода.
+                if (Core.WinwsOperationActive()) return;
                 bool now = Core.IsWinwsRunning();
                 if (_wasRunning && !now)
                     Notify(Loc.T("mw.bypassDown.title"), Loc.T("mw.bypassDown.body"));
@@ -1216,6 +1232,10 @@ namespace ZapretStudio
         void WatchdogTick()
         {
             if (_watchdogBusy) return;
+            // Кулдаун: после автопереключения даём сети/стратегии 2 интервала
+            // на стабилизацию, иначе при нестабильном провайдере будет «моргание»
+            // между стратегиями.
+            if (_watchdogCooldown > 0) { _watchdogCooldown--; return; }
             if (!IsActive2() || string.IsNullOrEmpty(_currentStrategyFile)) return;
             _watchdogBusy = true;
             Core.Info(Loc.T("mw.watchdogCheck"));
@@ -1241,7 +1261,13 @@ namespace ZapretStudio
                         {
                             Core.Fail(Loc.T("mw.watchdogNone"));
                             Notify(Loc.T("mw.watchdogNoneTitle"), Loc.T("mw.watchdogNone"));
+                            // Ничего не нашли: возвращаем прежнюю стратегию, чтобы
+                            // не оставлять обход выключенным до ручного запуска.
+                            if (!string.IsNullOrEmpty(_currentStrategyFile))
+                                RunStrategy(_currentStrategyFile);
                         }
+                        // Переключение выполнено — пауза перед следующей проверкой.
+                        _watchdogCooldown = 2;
                     });
                 }
                 catch { }

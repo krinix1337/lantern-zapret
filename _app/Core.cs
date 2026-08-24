@@ -34,15 +34,20 @@ namespace ZapretStudio
             }
         }
         public const string AppName = "Lantern";   // отображаемое имя приложения
-        public const string AppRepo = "https://github.com/krinix1337/lantern-zapret";
-        public const string AppReleaseApi = "https://api.github.com/repos/krinix1337/lantern-zapret/releases/latest";
+        // Ссылки приложения — единый источник в Endpoints (Core.Endpoints.cs).
+        public static string AppRepo { get { return Endpoints.AppRepo; } }
+        public static string AppReleaseApi { get { return Endpoints.AppReleaseApi; } }
 
-public static string Bin        { get { if (_bin == null) _bin = Path.Combine(Root, "bin") + sep; return _bin; } }
-        public static string Lists      { get { if (_lists == null) _lists = Path.Combine(Root, "lists") + sep; return _lists; } }
-        public static string UtilsDir   { get { if (_utilsDir == null) _utilsDir = Path.Combine(Root, "utils"); return _utilsDir; } }
-        public static string WinwsExe   { get { if (_winwsExe == null) _winwsExe = Path.Combine(Root, "bin", "winws.exe"); return _winwsExe; } }
-        public static string WinDivertSys { get { if (_wdSys == null) _wdSys = Path.Combine(Root, "bin", "WinDivert64.sys"); return _wdSys; } }
-        public static string GameFlag   { get { if (_gameFlag == null) _gameFlag = Path.Combine(Root, "utils", "game_filter.enabled"); return _gameFlag; } }
+// Корень может быть не найден до первичной загрузки zapret: все пути в этом
+// случае откатываются к каталогу exe вместо NRE из Path.Combine(null,...).
+static string SafeRoot { get { return string.IsNullOrEmpty(Root) ? AppDomain.CurrentDomain.BaseDirectory : Root; } }
+
+public static string Bin        { get { if (_bin == null) _bin = Path.Combine(SafeRoot, "bin") + sep; return _bin; } }
+        public static string Lists      { get { if (_lists == null) _lists = Path.Combine(SafeRoot, "lists") + sep; return _lists; } }
+        public static string UtilsDir   { get { if (_utilsDir == null) _utilsDir = Path.Combine(SafeRoot, "utils"); return _utilsDir; } }
+        public static string WinwsExe   { get { if (_winwsExe == null) _winwsExe = Path.Combine(SafeRoot, "bin", "winws.exe"); return _winwsExe; } }
+        public static string WinDivertSys { get { if (_wdSys == null) _wdSys = Path.Combine(SafeRoot, "bin", "WinDivert64.sys"); return _wdSys; } }
+        public static string GameFlag   { get { if (_gameFlag == null) _gameFlag = Path.Combine(SafeRoot, "utils", "game_filter.enabled"); return _gameFlag; } }
         public static string ConfigFile
         {
             get
@@ -57,9 +62,9 @@ public static string Bin        { get { if (_bin == null) _bin = Path.Combine(Ro
                 return _configFile;
             }
         }
-        public static string TargetsFile{ get { if (_targetsFile == null) _targetsFile = Path.Combine(Root, "utils", "targets.txt"); return _targetsFile; } }
-        public static string IpsetFile  { get { if (_ipsetFile == null) _ipsetFile = Path.Combine(Root, "lists", "ipset-all.txt"); return _ipsetFile; } }
-        public static string LocalVersionFile { get { if (_localVerFile == null) _localVerFile = Path.Combine(Root, "service.bat"); return _localVerFile; } }
+        public static string TargetsFile{ get { if (_targetsFile == null) _targetsFile = Path.Combine(SafeRoot, "utils", "targets.txt"); return _targetsFile; } }
+        public static string IpsetFile  { get { if (_ipsetFile == null) _ipsetFile = Path.Combine(SafeRoot, "lists", "ipset-all.txt"); return _ipsetFile; } }
+        public static string LocalVersionFile { get { if (_localVerFile == null) _localVerFile = Path.Combine(SafeRoot, "service.bat"); return _localVerFile; } }
         public const string ServiceName = "zapret";
 
         static string sep { get { return Path.DirectorySeparatorChar.ToString(); } }

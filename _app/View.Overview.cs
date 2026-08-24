@@ -541,7 +541,7 @@ namespace ZapretStudio
             SetMini(_cDiscord, running ? Sev.Ok : Sev.Neutral, running ? Loc.T("ov.comp.active") : Loc.T("ov.comp.off"));
             SetMini(_cYouTube, running ? Sev.Ok : Sev.Neutral, running ? Loc.T("ov.comp.active") : Loc.T("ov.comp.off"));
             bool wdFile = Core.WinDivertFilePresent();
-            bool wdLoaded = Core.WinDivertLoaded();
+            bool wdLoaded = Core.WinDivertLoadedCached(); // кэш: sc query не запускается каждую секунду
             if (!wdFile) SetMini(_cDivert, Sev.Err, Loc.T("ov.wd.absent"));
             else if (wdLoaded) SetMini(_cDivert, Sev.Ok, Loc.T("ov.wd.loaded"));
             else SetMini(_cDivert, Sev.Info, Loc.T("ov.wd.ready"));

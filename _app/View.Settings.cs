@@ -162,9 +162,23 @@ namespace ZapretStudio
                     isAct ? Icons.Stop : Icons.Play,
                     isAct ? 3 : 0);
             };
+            // Страницы пересоздаются при каждой смене темы/языка, а контроллер
+            // один на окно: без отписки обработчики накапливаются.
             _win.PeterMusic.StateChanged += updateMusicBtn;
+            _musicBtnHandler = updateMusicBtn;
 
             Body.Children.Add(Row(Loc.T("settings.peter.song"), Loc.T("settings.peter.song.desc"), musicBtn));
+        }
+
+        Action _musicBtnHandler;
+
+        public override void OnHide()
+        {
+            if (_musicBtnHandler != null)
+            {
+                try { _win.PeterMusic.StateChanged -= _musicBtnHandler; } catch { }
+                _musicBtnHandler = null;
+            }
         }
 
         void BuildUpdates()
@@ -407,12 +421,24 @@ namespace ZapretStudio
             if (string.IsNullOrEmpty(left) && string.IsNullOrEmpty(right)) return 0;
             if (string.IsNullOrEmpty(left)) return -1;
             if (string.IsNullOrEmpty(right)) return 1;
-            string l = NormVer(left);
-            string r = NormVer(right);
+            // Срезаем хвостовые ".0" у обеих версий: иначе «5.2» сравнивалась с
+            // «5.2.0» как меньше (у короткой отсутствующий компонент трактуется
+            // как -1 при покомпонентном сравнении Version).
+            string l = TrimZeroComponents(NormVer(left));
+            string r = TrimZeroComponents(NormVer(right));
             if (string.Equals(l, r, StringComparison.OrdinalIgnoreCase)) return 0;
             Version a, b;
             if (Version.TryParse(l, out a) && Version.TryParse(r, out b)) return a.CompareTo(b);
             return string.Compare(l, r, StringComparison.OrdinalIgnoreCase);
+        }
+
+        static string TrimZeroComponents(string v)
+        {
+            if (string.IsNullOrEmpty(v)) return v;
+            var parts = new System.Collections.Generic.List<string>(v.Split('.'));
+            while (parts.Count > 2 && parts[parts.Count - 1] == "0")
+                parts.RemoveAt(parts.Count - 1);
+            return string.Join(".", parts.ToArray());
         }
 
         void UpdateTgProxy()
@@ -472,9 +498,10 @@ namespace ZapretStudio
             {
                 try
                 {
-                    string url = Core.AppInstallerUrl();
+                    string url, sha256Url;
+                    Core.AppUpdateAssets(out url, out sha256Url);
                     string err;
-                    bool ok = Core.SelfUpdate(url, delegate (DlProgress p)
+                    bool ok = Core.SelfUpdate(url, sha256Url, delegate (DlProgress p)
                     {
                         try
                         {

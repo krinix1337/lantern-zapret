@@ -20,6 +20,23 @@ namespace ZapretStudio
             public Border StatePill;
             public TextBlock Latency, Detail, When;
             public CheckBox Sel;
+            public Canvas Spark;
+        }
+
+        // История задержек за сессию (мс) по ключу цели — для спарклайна.
+        static readonly Dictionary<string, List<long>> _latencyHistory = new Dictionary<string, List<long>>();
+        const int SparkPoints = 24;
+
+        static void PushLatency(Target t, long ms)
+        {
+            if (ms < 0) return;
+            lock (_latencyHistory)
+            {
+                List<long> h;
+                if (!_latencyHistory.TryGetValue(t.Key, out h)) { h = new List<long>(); _latencyHistory[t.Key] = h; }
+                h.Add(ms);
+                while (h.Count > SparkPoints) h.RemoveAt(0);
+            }
         }
 
         readonly MainWindow _win;
@@ -166,6 +183,7 @@ namespace ZapretStudio
             var g = new Grid();
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -200,18 +218,88 @@ namespace ZapretStudio
                 FontFamily = Theme.UiFont, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 2, 0, 0) };
             metric.Children.Add(r.Latency);
             metric.Children.Add(r.When);
-            Grid.SetColumn(metric, 2);
+            Grid.SetColumn(metric, 3);
             g.Children.Add(metric);
+
+            // Спарклайн последних замеров задержки
+            r.Spark = MakeSparkCanvas();
+            Grid.SetColumn(r.Spark, 2);
+            g.Children.Add(r.Spark);
 
             r.StatePill = Pill.Make(Sev.Neutral, Loc.T("common.waiting"));
             r.StatePill.VerticalAlignment = VerticalAlignment.Center;
             r.StatePill.Margin = new Thickness(14, 0, 0, 0);
-            Grid.SetColumn(r.StatePill, 3);
+            Grid.SetColumn(r.StatePill, 4);
             g.Children.Add(r.StatePill);
 
             r.Card = UI.Card(g, new Thickness(14, 12, 14, 12));
             r.Card.Margin = new Thickness(0, 0, 0, 8);
             return r;
+        }
+
+        const double SparkW = 120, SparkH = 30;
+
+        static Canvas MakeSparkCanvas()
+        {
+            var c = new Canvas { Width = SparkW, Height = SparkH, VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(10, 0, 6, 0), Opacity = 0.85 };
+            var baseLine = new System.Windows.Shapes.Line
+            {
+                X1 = 0, X2 = SparkW, Y1 = SparkH - 1, Y2 = SparkH - 1,
+                Stroke = Theme.Alpha(Theme.TextMuted, 60), StrokeThickness = 1,
+                StrokeDashArray = new DoubleCollection { 2, 2 }
+            };
+            c.Children.Add(baseLine);
+            return c;
+        }
+
+        // Перерисовать спарклайн строки по накопленной истории (мс).
+        void DrawSpark(Endpoint r)
+        {
+            List<long> h;
+            lock (_latencyHistory)
+            {
+                List<long> src;
+                if (!_latencyHistory.TryGetValue(r.T.Key, out src) || src.Count < 2) return;
+                h = new List<long>(src);
+            }
+            var c = r.Spark;
+            // точки — отдельные дети после базовой линии
+            for (int i = c.Children.Count - 1; i >= 1; i--) c.Children.RemoveAt(i);
+
+            long min = long.MaxValue, max = long.MinValue;
+            foreach (var v in h) { if (v < min) min = v; if (v > max) max = v; }
+            if (max == min) max = min + 1;
+
+            var pts = new PointCollection();
+            double stepX = SparkW / (SparkPoints - 1);
+            double offset = SparkPoints - h.Count;
+            for (int i = 0; i < h.Count; i++)
+            {
+                double x = (offset + i) * stepX;
+                double y = (SparkH - 3) - ((h[i] - min) / (double)(max - min)) * (SparkH - 6);
+                pts.Add(new Point(x, y));
+            }
+
+            var line = new System.Windows.Shapes.Polyline
+            {
+                Points = pts,
+                Stroke = Theme.Frozen(Theme.AccentHi),
+                StrokeThickness = 1.6,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                StrokeLineJoin = PenLineJoin.Round
+            };
+            c.Children.Add(line);
+
+            var last = pts[pts.Count - 1];
+            var dot = new System.Windows.Shapes.Ellipse
+            {
+                Width = 5, Height = 5, Fill = Theme.Frozen(Theme.AccentMain)
+            };
+            Canvas.SetLeft(dot, last.X - 2.5);
+            Canvas.SetTop(dot, last.Y - 2.5);
+            c.Children.Add(dot);
         }
 
         static Sev SevOf(string state)
@@ -249,7 +337,7 @@ namespace ZapretStudio
             np.Margin = new Thickness(14, 0, 0, 0);
             var g = (Grid)r.Card.Child;
             int idx = g.Children.IndexOf(r.StatePill);
-            Grid.SetColumn(np, 3);
+            Grid.SetColumn(np, 4);
             if (idx >= 0) { g.Children.RemoveAt(idx); g.Children.Insert(idx, np); }
             r.StatePill = np;
             if (latency != null) r.Latency.Text = latency;
@@ -277,24 +365,36 @@ namespace ZapretStudio
             foreach (var r in todo)
             {
                 var row = r;
-                ThreadPool.QueueUserWorkItem(delegate
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                CheckResult res = null;
+                try
                 {
-                  try {
-                    if (_stop) { Done(row, null); return; }
-                    Dispatcher.Invoke((Action)delegate { SetRow(row, "checking", "...", "", ""); });
-                    CheckResult res = Core.TestTarget(row.T, timeout);
+                    if (_stop) return;
+                    try { Dispatcher.Invoke((Action)delegate { SetRow(row, "checking", "...", "", ""); }); } catch { }
+                    res = Core.TestTarget(row.T, timeout);
                     long pingMs = Core.PingHost(row.T.Host, 3000);
+                    // История для спарклайна: HTTP-задержка, иначе пинг
+                    long sample = res.Ms >= 0 ? res.Ms : pingMs;
+                    if (sample >= 0) PushLatency(row.T, sample);
                     Dispatcher.Invoke((Action)delegate
                     {
+                        DrawSpark(row);
                         string lat = "";
-                        if (pingMs >= 0) lat += "ping " + pingMs + Loc.T("net.ms");
-                        if (res.Ms >= 0) lat += (lat.Length > 0 ? " · " : "") + "http " + res.Ms + Loc.T("net.ms");
+                        if (pingMs >= 0) lat += Loc.T("net.ping") + " " + pingMs + Loc.T("net.ms");
+                        if (res.Ms >= 0) lat += (lat.Length > 0 ? " · " : "") + Loc.T("net.http") + " " + res.Ms + Loc.T("net.ms");
                         if (lat.Length == 0) lat = "-";
                         SetRow(row, res.State, lat, res.Detail, res.When.HasValue ? res.When.Value.ToString("HH:mm:ss") : "");
                     });
-                    Done(row, res);
-                  } catch { }
-                });
+                }
+                catch { }
+                finally
+                {
+                    // Счётчик должен уменьшаться при любом исходе, иначе кнопки
+                    // проверки останутся заблокированными до пересборки вкладки.
+                    try { Done(row, res); } catch { }
+                }
+            });
             }
         }
 
@@ -695,6 +795,14 @@ namespace ZapretStudio
 
             ThreadPool.QueueUserWorkItem(delegate
             {
+              // Держим глобальную операцию на весь прогон, как RunQueue: иначе
+              // между стратегиями пользователь мог бы запустить обход, а занятый
+              // лок молча помечал бы стратегии как «не пройдено».
+              if (!Core.TryBeginWinwsOperation())
+              {
+                Dispatcher.Invoke((Action)delegate { EndBusy(); Core.Warn(Loc.T("mw.busy")); });
+                return;
+              }
               try {
                 var scores = new List<Core.StratScore>();
                 foreach (var f in files)
@@ -706,7 +814,8 @@ namespace ZapretStudio
                         foreach (var rr in _stratRows)
                             if (rr.File == file) { SetStratPill(rr, Sev.Progress, Loc.T("net.checking")); break; }
                     });
-                    var sc = Core.TestStrategy(file, probes, () => _stratCancel);
+                    var sc = new Core.StratScore { File = file, Total = probes.Count };
+                    Core.RunStrategyProbe(file, probes, () => _stratCancel, sc);
                     scores.Add(sc);
                     Dispatcher.Invoke((Action)delegate
                     {
@@ -750,6 +859,7 @@ namespace ZapretStudio
                     }
                 });
               } catch { }
+              finally { Core.EndWinwsOperation(); }
             });
         }
     }

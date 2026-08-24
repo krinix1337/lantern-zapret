@@ -22,6 +22,12 @@ namespace ZapretStudio
         readonly SolidColorBrush _zapretTint = new SolidColorBrush();
         readonly SolidColorBrush _tgTint = new SolidColorBrush();
 
+        // Кнопки создаются один раз в конструкторе; Refresh обновляет только
+        // подпись/иконку/активность и цель действия. Раньше на каждый Refresh
+        // строился новый Button (пересоздание визуала и обработчиков).
+        System.Windows.Controls.Button _zapretBtn, _tgBtn;
+        Action _zapretAction2, _tgAction2;
+
         public TrayStatusWidget(MainWindow owner)
         {
             _owner = owner;
@@ -66,14 +72,18 @@ namespace ZapretStudio
             // а не овальная капсула. У самой карточки остаются мягкие углы.
             var live = new Border { Background = Theme.BrSurfaceAlt, CornerRadius = new CornerRadius(4), Padding = new Thickness(8, 4, 8, 4), VerticalAlignment = VerticalAlignment.Center };
             var liveSp = new StackPanel { Orientation = Orientation.Horizontal };
-            liveSp.Children.Add(new Border { Width = 6, Height = 6, CornerRadius = Theme.Rpill, Background = Theme.BrAccent, VerticalAlignment = VerticalAlignment.Center });
-            liveSp.Children.Add(new TextBlock { Text = "LIVE", Foreground = Theme.BrAccent, FontFamily = Theme.UiFont, FontSize = 10, FontWeight = FontWeights.SemiBold, Margin = new Thickness(5, 0, 0, 0) });
+                        liveSp.Children.Add(new Border { Width = 6, Height = 6, CornerRadius = Theme.Rpill, Background = Theme.BrAccent, VerticalAlignment = VerticalAlignment.Center });
+            liveSp.Children.Add(new TextBlock { Text = Loc.T("tray.widget.live"), Foreground = Theme.BrAccent, FontFamily = Theme.UiFont, FontSize = 10, FontWeight = FontWeights.SemiBold, Margin = new Thickness(5, 0, 0, 0) });
             live.Child = liveSp;
             Grid.SetColumn(live, 2); header.Children.Add(live);
             root.Children.Add(header);
 
             _zapretState = AddServiceRow(root, Icons.Shield, "zapret", _zapretDot, _zapretTint, out _zapretAction);
             _tgState = AddServiceRow(root, Icons.Telegram, "TG Proxy", _tgDot, _tgTint, out _tgAction);
+            _zapretBtn = MakeActionButton(() => { if (_zapretAction2 != null) _zapretAction2(); });
+            _tgBtn = MakeActionButton(() => { if (_tgAction2 != null) _tgAction2(); });
+            _zapretAction.Content = _zapretBtn;
+            _tgAction.Content = _tgBtn;
 
             var strategyCard = new Border { Background = Theme.BrSurfaceAlt, BorderBrush = Theme.BrStrokeSoft, BorderThickness = new Thickness(1),
                 CornerRadius = Theme.R10, Padding = new Thickness(12, 10, 12, 10), Margin = new Thickness(0, 10, 0, 0) };
@@ -127,16 +137,32 @@ namespace ZapretStudio
             bool zapretOn = _owner.IsActive2();
             SetState(_zapretState, _zapretDot, _zapretTint, zapretOn ? Theme.Ok : Theme.TextFaint,
                 zapretOn ? Loc.T("state.running") : Loc.T("state.stopped"));
-            SetAction(_zapretAction, zapretOn, true, delegate { _owner.ToggleRun(); }, zapretOn ? Loc.T("common.stop") : Loc.T("common.start"));
+            _zapretAction2 = delegate { _owner.ToggleRun(); };
+            UpdateActionButton(_zapretBtn, zapretOn, true, zapretOn ? Loc.T("common.stop") : Loc.T("common.start"));
 
             bool tgInstalled = Core.TgProxyInstalled();
             bool tgOn = tgInstalled && Core.TgProxyRunning();
             SetState(_tgState, _tgDot, _tgTint, tgOn ? Theme.Ok : (tgInstalled ? Theme.TextFaint : Theme.Warn),
                 !tgInstalled ? Loc.T("settings.tg.notInstalled") : (tgOn ? Loc.T("state.running") : Loc.T("state.stopped")));
-            SetAction(_tgAction, tgOn, tgInstalled, delegate { _owner.ToggleTgProxyFromTray(); }, tgOn ? Loc.T("common.stop") : Loc.T("common.start"));
+            _tgAction2 = delegate { _owner.ToggleTgProxyFromTray(); };
+            UpdateActionButton(_tgBtn, tgOn, tgInstalled, tgOn ? Loc.T("common.stop") : Loc.T("common.start"));
 
             string name = _owner.CurrentStrategyName();
             _strategy.Text = string.IsNullOrEmpty(name) ? Loc.T("tray.widget.strategyNone") : name;
+        }
+
+        static System.Windows.Controls.Button MakeActionButton(Action action)
+        {
+            var b = Ctl.Button("", null, 0);
+            b.Click += (s, e) => action();
+            return b;
+        }
+
+        static void UpdateActionButton(System.Windows.Controls.Button button, bool running, bool enabled, string text)
+        {
+            if (button == null) return;
+            Ctl.SetButton(button, text, running ? Icons.Stop : Icons.Play, running ? 2 : 0);
+            button.IsEnabled = enabled;
         }
 
         static void SetState(TextBlock label, SolidColorBrush dot, SolidColorBrush tint, Color color, string text)
@@ -145,15 +171,6 @@ namespace ZapretStudio
             tint.Color = color;
             label.Foreground = tint;
             label.Text = text;
-        }
-
-        static void SetAction(ContentControl host, bool running, bool enabled, Action action, string text)
-        {
-            if (host == null) return;
-            var button = Ctl.Button(text, running ? Icons.Stop : Icons.Play, running ? 2 : 0);
-            button.IsEnabled = enabled;
-            button.Click += (s, e) => action();
-            host.Content = button;
         }
 
         public void ShowAtCursor()

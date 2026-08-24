@@ -223,7 +223,10 @@ namespace ZapretStudio
 "</Track></Grid>" +
 "<ControlTemplate.Triggers>" +
 "<Trigger Property='Orientation' Value='Horizontal'>" +
-"<Setter Property='Width' Value='Auto'/><Setter Property='Height' Value='11'/></Trigger>" +
+"<Setter Property='Width' Value='Auto'/><Setter Property='Height' Value='11'/>" +
+// Для горизонтальной ориентации направление трека инвертировать нельзя.
+"<Setter TargetName='PART_Track' Property='Track.IsDirectionReversed' Value='False'/>" +
+"</Trigger>" +
 "</ControlTemplate.Triggers>" +
 "</ControlTemplate>" +
 "</Setter.Value></Setter></Style>" +
@@ -377,6 +380,7 @@ namespace ZapretStudio
         public const string Maximize = "M4 4h16v16H4z";
         public const string Restore = "M4 4h11v11H4z M8 8h12v12H8z";
         public const string Lantern = "M12 2a5 5 0 0 0-5 5v3a5 5 0 0 0 10 0V7a5 5 0 0 0-5-5z M9 18h6 M10 22h4 M12 7v5";
+        public const string Terminal = "M4 17l6-6-6-6 M12 19h8";
     }
 
     static class UI

@@ -68,6 +68,9 @@ namespace ZapretStudio
                 if (_syncing) return;
                 Core.SetIpsetMode(_ipsetMode.SelectedIndex == 1 ? "none" : _ipsetMode.SelectedIndex == 2 ? "any" : "loaded");
                 MarkDirty();
+                // Фактическое состояние могло не измениться (например, «Загруженный»
+                // без резервной копии) — показываем реальное значение, а не выбранное.
+                ResyncCombos();
             };
             Body.Children.Add(Row(Loc.T("filters.ipset"), Loc.T("filters.ipset.on"), _ipsetMode));
 
@@ -104,8 +107,8 @@ namespace ZapretStudio
         {
             Body.Children.Add(SectionLabel(Loc.T("filters.sec.doh")));
             _doh = new Toggle(Loc.T("filters.doh"));
-            _doh.Checked += (s, e) => { Core.DohMode = 1; Core.Info(Loc.T("doh.enabled")); };
-            _doh.Unchecked += (s, e) => { Core.DohMode = 0; Core.Info(Loc.T("doh.disabled")); };
+            _doh.Checked += (s, e) => { if (_syncing) return; Core.DohMode = 1; Core.Info(Loc.T("doh.enabled")); };
+            _doh.Unchecked += (s, e) => { if (_syncing) return; Core.DohMode = 0; Core.Info(Loc.T("doh.disabled")); };
             Body.Children.Add(Row(Loc.T("filters.doh"),
                 Loc.T("filters.doh.desc"),
                 _doh));
@@ -269,13 +272,30 @@ namespace ZapretStudio
         void Sync()
         {
             _syncing = true;
-            _gameMode.SelectedIndex = Core.GameMode == "all" ? 1 : Core.GameMode == "tcp" ? 2 : Core.GameMode == "udp" ? 3 : 0;
-            string ipset = Core.IpsetStatus();
-            _ipsetMode.SelectedIndex = ipset == "none" ? 1 : ipset == "any" ? 2 : 0;
-            _syncing = false;
-            _doh.IsChecked = Core.DohMode > 0;
+            try
+            {
+                _gameMode.SelectedIndex = Core.GameMode == "all" ? 1 : Core.GameMode == "tcp" ? 2 : Core.GameMode == "udp" ? 3 : 0;
+                string ipset = Core.IpsetStatus();
+                _ipsetMode.SelectedIndex = ipset == "none" ? 1 : ipset == "any" ? 2 : 0;
+                // Тумблер DoH выставляем ТОЛЬКО под _syncing: программная установка
+                // IsChecked поднимает Checked/Unchecked, а те пишут реестр и дёргают
+                // flushdns — побочный эффект при простом открытии страницы.
+                _doh.IsChecked = Core.DohMode > 0;
+            }
+            finally { _syncing = false; }
             ReloadList();
             ClearDirty();
+        }
+
+        void ResyncCombos()
+        {
+            _syncing = true;
+            try
+            {
+                string ipset = Core.IpsetStatus();
+                _ipsetMode.SelectedIndex = ipset == "none" ? 1 : ipset == "any" ? 2 : 0;
+            }
+            finally { _syncing = false; }
         }
 
         void MarkDirty()

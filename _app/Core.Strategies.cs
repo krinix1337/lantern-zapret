@@ -23,7 +23,8 @@ namespace ZapretStudio
         }
 
         static readonly Regex _naturalKeyRegex = new Regex("[0-9]+", RegexOptions.Compiled);
-        static string NaturalKey(string s)
+        // public: покрывается юнит-тестом SelfTest.
+        public static string NaturalKey(string s)
         { return _naturalKeyRegex.Replace(s, m => m.Value.PadLeft(8, '0')); }
 
         // Категория по имени файла (General / ALT / FAKE / SIMPLE / Другая)
@@ -154,7 +155,7 @@ namespace ZapretStudio
                 }
                 IpsetEnabled = true;
             }
-            catch { }
+            catch (Exception ex) { Warn("SetIpsetMode: " + ex.Message); }
         }
 
         // IPSet — отдельная пользовательская настройка. Наличие файла не означает,

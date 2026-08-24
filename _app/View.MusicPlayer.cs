@@ -109,7 +109,7 @@ namespace ZapretStudio
             if (tagSize <= 0 || tagSize > 12 * 1024 * 1024) return;
 
             byte[] tagData = new byte[tagSize];
-            int readTotal = stream.Read(tagData, 0, tagSize);
+            int readTotal = ReadFull(stream, tagData, 0, tagSize);
 
             // Поиск текстовых тегов TIT2, TPE1
             int pos = 0;
@@ -234,19 +234,91 @@ namespace ZapretStudio
             catch { }
         }
 
-        static string DecodeId3Text(byte[] data)
+        static int ReadFull(Stream stream, byte[] buffer, int offset, int count)
+        {
+            int total = 0;
+            while (total < count)
+            {
+                int n = stream.Read(buffer, offset + total, count - total);
+                if (n <= 0) break;
+                total += n;
+            }
+            return total;
+        }
+
+        // public: покрывается юнит-тестами SelfTest (кодировки ID3).
+        public static string DecodeId3Text(byte[] data)
         {
             if (data == null || data.Length <= 1) return null;
             byte enc = data[0];
             try
             {
-                if (enc == 0) return Encoding.GetEncoding(1251).GetString(data, 1, data.Length - 1).Trim('\0', ' ');
+                if (enc == 0)
+                {
+                    // Частая ошибка тегеров: помечают тег как ANSI (0), а байты —
+                    // сырой UTF-8. Строгий декодер UTF-8 кидает исключение на
+                    // настоящей cp1251, поэтому путаница исключена.
+                    try
+                    {
+                        var strict = new UTF8Encoding(false, true);
+                        return strict.GetString(data, 1, data.Length - 1).Trim('\0', ' ');
+                    }
+                    catch (DecoderFallbackException) { }
+                    catch (ArgumentException) { }
+
+                    // Настоящая ANSI: обычно это cp1251 у русскоязычных файлов;
+                    // чиним возможное двойное кодирование (UTF-8→1252).
+                    return RepairDoubleEncodedUtf8(Encoding.GetEncoding(1251).GetString(data, 1, data.Length - 1)).Trim('\0', ' ');
+                }
                 if (enc == 1) return Encoding.Unicode.GetString(data, 1, data.Length - 1).Trim('\0', ' ');
                 if (enc == 2) return Encoding.BigEndianUnicode.GetString(data, 1, data.Length - 1).Trim('\0', ' ');
                 if (enc == 3) return Encoding.UTF8.GetString(data, 1, data.Length - 1).Trim('\0', ' ');
             }
             catch { }
             return Encoding.UTF8.GetString(data, 1, data.Length - 1).Trim('\0', ' ');
+        }
+
+        static string RepairDoubleEncodedUtf8(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+
+            // Случай A: сырой UTF-8 был прочитан как cp1252 → маркеры "Ð"/"Ñ".
+            if (text.IndexOf('Ð') >= 0 || text.IndexOf('Ñ') >= 0)
+            {
+                try
+                {
+                    string fixedText = Encoding.UTF8.GetString(Encoding.GetEncoding(1252).GetBytes(text));
+                    foreach (char c in fixedText)
+                        if ((c >= 'А' && c <= 'я') || c == 'Ё' || c == 'ё' || char.IsSurrogate(c)) return fixedText;
+                }
+                catch { }
+            }
+
+            // Случай B: сырой UTF-8 прочитан как cp1251 → мусор вида «РџСЂРё…»
+            // (характерные заглавные Р/С перед кириллическим символом).
+            int pairs = 0;
+            for (int i = 0; i + 1 < text.Length; i++)
+                if ((text[i] == 'Р' || text[i] == 'С') && IsCyrillic(text[i + 1])) pairs++;
+            if (pairs >= 2)
+            {
+                try
+                {
+                    string alt = Encoding.UTF8.GetString(Encoding.GetEncoding(1251).GetBytes(text));
+                    if (alt.IndexOf('\uFFFD') < 0 && alt != text)
+                    {
+                        int cyr = 0;
+                        foreach (char c in alt) if (IsCyrillic(c)) cyr++;
+                        if (cyr >= 2) return alt;
+                    }
+                }
+                catch { }
+            }
+            return text;
+        }
+
+        static bool IsCyrillic(char c)
+        {
+            return (c >= 'А' && c <= 'я') || c == 'Ё' || c == 'ё';
         }
 
         // Поиск бинарных сигнатур JPEG (FF D8 FF) и PNG (89 50 4E 47) внутри массива байт
@@ -325,6 +397,8 @@ namespace ZapretStudio
         double _volume = 0.35;
         AudioTrackInfo _currentTrack;
 
+        // .ogg намеренно отсутствует: системный MediaPlayer нестабильно
+        // декодирует OGG в Windows (см. заметки к v5.2).
         public static readonly string[] SupportedExtensions = {
             ".mp3", ".wav", ".m4a", ".aac", ".flac", ".wma", ".mp4"
         };
@@ -349,14 +423,32 @@ namespace ZapretStudio
             {
                 _volume = Math.Max(0.0, Math.Min(1.0, value));
                 if (_fadeTimer == null) _player.Volume = _volume;
-                try
-                {
-                    Core.Set("peter_volume", _volume.ToString("0.00", CultureInfo.InvariantCulture));
-                    Core.SaveConfig();
-                }
-                catch { }
+                // Ползунок дёргает Volume десятки раз в секунду: сохранение конфига
+                // откладываем (debounce), чтобы не писать файл на каждый шаг.
+                ScheduleVolumeSave();
                 if (VolumeChanged != null) VolumeChanged(_volume);
             }
+        }
+
+        DispatcherTimer _volumeSaveTimer;
+        void ScheduleVolumeSave()
+        {
+            try
+            {
+                Core.Set("peter_volume", _volume.ToString("0.00", CultureInfo.InvariantCulture));
+                if (_volumeSaveTimer == null)
+                {
+                    _volumeSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+                    _volumeSaveTimer.Tick += (s, e) =>
+                    {
+                        _volumeSaveTimer.Stop();
+                        try { Core.SaveConfig(); } catch { }
+                    };
+                }
+                _volumeSaveTimer.Stop(); // перезапуск: пишем только после паузы в изменениях
+                _volumeSaveTimer.Start();
+            }
+            catch { }
         }
         public AudioTrackInfo CurrentTrack { get { return _currentTrack; } }
         public int TrackCount { get { return _playlist.Count; } }
@@ -862,7 +954,7 @@ namespace ZapretStudio
                 {
                     _controller.Volume = _prevUnmuteVolume > 0 ? _prevUnmuteVolume : 0.35;
                 }
-            }, "Volume");
+            }, Loc.T("player.volume"));
             _volIcon = GetIconFromButton(_btnVolume);
             volWrap.Children.Add(_btnVolume);
 
@@ -1207,9 +1299,26 @@ namespace ZapretStudio
             _controller.SeekFraction(fraction);
         }
 
+        Action<AudioTrackInfo> _onTrackChanged;
+        Action<double> _onVolumeChanged;
+        Action _onStateChanged;
+        Action<TimeSpan, TimeSpan> _onProgressTick;
+
+        // Виджет пересоздаётся при каждой смене темы/языка, а контроллер живёт
+        // столько же, сколько окно: без Detach обработчики накапливаются.
+        public void Detach()
+        {
+            if (_onTrackChanged != null) _controller.TrackChanged -= _onTrackChanged;
+            if (_onVolumeChanged != null) _controller.VolumeChanged -= _onVolumeChanged;
+            if (_onStateChanged != null) _controller.StateChanged -= _onStateChanged;
+            if (_onProgressTick != null) _controller.ProgressTick -= _onProgressTick;
+            _onTrackChanged = null; _onVolumeChanged = null;
+            _onStateChanged = null; _onProgressTick = null;
+        }
+
         void HookEvents()
         {
-            _controller.TrackChanged += info =>
+            _onTrackChanged = info =>
             {
                 if (info == null) return;
                 var cover = info.Cover ?? MainWindow.PeterBackdrop();
@@ -1245,13 +1354,15 @@ namespace ZapretStudio
                     _compactCoverImg.Source = cover;
                 }
             };
+            _controller.TrackChanged += _onTrackChanged;
 
-            _controller.VolumeChanged += vol =>
+            _onVolumeChanged = vol =>
             {
                 UpdateVolumeVisual(vol);
             };
+            _controller.VolumeChanged += _onVolumeChanged;
 
-            _controller.StateChanged += () =>
+            _onStateChanged = () =>
             {
                 try
                 {
@@ -1270,8 +1381,9 @@ namespace ZapretStudio
                 }
                 catch { }
             };
+            _controller.StateChanged += _onStateChanged;
 
-            _controller.ProgressTick += (current, total) =>
+            _onProgressTick = (current, total) =>
             {
                 if (!_isUserDraggingSeek)
                 {
@@ -1291,6 +1403,7 @@ namespace ZapretStudio
                     _timeTotalTb.Text = FmtTime(total);
                 }
             };
+            _controller.ProgressTick += _onProgressTick;
         }
 
         static string FmtTime(TimeSpan t)

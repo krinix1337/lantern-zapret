@@ -518,6 +518,9 @@ namespace ZapretStudio
             A("log.copyBtn", "Копировать", "Copy");
             A("log.save",    "Сохранить",  "Save");
             A("log.diag",    "Копировать диагностику", "Copy diagnostics");
+            A("log.events",  "{0} событий", "{0} events");
+            A("log.live",    "в реальном времени", "live");
+            A("log.paused",  "пауза",      "paused");
             // О проекте
             A("about.appName",   "{0} · графическая оболочка zapret", "{0} · zapret graphical shell");
             A("about.versionLine","Версия оболочки {0} · zapret {1}", "Shell version {0} · zapret {1}");
@@ -630,6 +633,49 @@ namespace ZapretStudio
             // Шрифты
             A("fonts.dlFail", "Не удалось безопасно скачать шрифт интерфейса: {0}", "Could not safely download interface font: {0}");
             A("fonts.downloaded", "Шрифты Google Sans загружены и проверены.", "Google Sans fonts downloaded and verified.");
+
+            // Вывод winws (журнал)
+            A("log.winwsOut",    "Вывод winws", "winws output");
+            A("log.winwsCopied", "Вывод winws скопирован в буфер обмена", "winws output copied to clipboard");
+            A("log.winwsEmpty",  "Вывод winws пуст — обход ещё не запускался из Lantern.", "winws output is empty - the bypass has not been started from Lantern yet.");
+            A("diag.winwsOutput", "Последние строки вывода winws:", "Last lines of winws output:");
+
+            // Диагностика окружения (перенесено из service.bat)
+            A("diag.n.bfe",   "Служба BFE (Base Filtering Engine)", "BFE (Base Filtering Engine) service");
+            A("diag.v.bfeOk", "Работает", "Running");
+            A("diag.v.bfeOff","Не работает — требуется для zapret", "Not running - required for zapret");
+            A("diag.n.proxy", "Системный прокси", "System proxy");
+            A("diag.v.proxyOn",  "Включен: {0}. Убедитесь, что он рабочий, или отключите.", "Enabled: {0}. Make sure it works, or disable it.");
+            A("diag.v.proxyOff", "Не используется", "Not used");
+            A("diag.n.tcpTs", "TCP timestamps", "TCP timestamps");
+            A("diag.v.on",  "Включены", "Enabled");
+            A("diag.v.off", "Отключены — часть стратегий требует их включения", "Disabled - some strategies require them");
+            A("diag.n.adguard", "Adguard", "Adguard");
+            A("diag.v.found", "Найден конфликт", "Conflict found");
+            A("diag.v.clean", "Конфликтов не найдено", "No conflicts");
+            A("diag.n.killer",     "Killer Network Service", "Killer Network Service");
+            A("diag.n.intel",      "Intel Connectivity Network Service", "Intel Connectivity Network Service");
+            A("diag.n.checkpoint", "Check Point", "Check Point");
+            A("diag.n.smartbyte",  "SmartByte", "SmartByte");
+            A("diag.n.vpn", "VPN-службы", "VPN services");
+            A("diag.v.vpnFound", "Найдены: {0}. Некоторые VPN конфликтуют с zapret.", "Found: {0}. Some VPNs conflict with zapret.");
+            A("diag.n.bypassConflict", "Другие обходы (конфликт за WinDivert)", "Other bypass tools (WinDivert conflict)");
+            A("diag.v.foundList", "Установлены: {0}", "Installed: {0}");
+            A("diag.n.wdOrphan", "WinDivert без winws", "WinDivert without winws");
+            A("diag.v.wdOrphan", "Драйвер загружен, но winws не запущен — возможно, его удерживает другой обход.", "Driver is loaded but winws is not running - another bypass may be holding it.");
+            A("diag.n.dohIface", "Зашифрованный DNS на интерфейсах", "Encrypted DNS on interfaces");
+
+            // Прочее
+            A("tray.widget.live", "РАБОТАЕТ", "LIVE");
+            A("player.volume", "Громкость", "Volume");
+            A("net.ping", "ping", "ping");
+            A("net.http", "http", "http");
+
+            // Самообновление: проверка SHA-256 установщика
+            A("appupd.hashOk",        "Хеш установщика совпадает с опубликованным.", "Installer hash matches the published one.");
+            A("appupd.hashMismatch",  "Установка отменена: хеш скачанного установщика НЕ совпал с опубликованным.", "Update aborted: downloaded installer hash does NOT match the published one.");
+            A("appupd.hashUnreadable","Установка отменена: не удалось прочитать .sha256 из релиза.", "Update aborted: could not read the .sha256 from the release.");
+            A("appupd.hashMissing",   "Релиз без .sha256 — проверка целостности недоступна.", "Release without .sha256 - integrity check is not available.");
         }
 
         static void A(string key, string ru, string en) { M[key] = new[] { ru, en }; }

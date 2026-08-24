@@ -208,24 +208,47 @@ namespace ZapretStudio
             public long Ms;
         }
 
-        // Проверка URL через curl.exe с тремя протоколами: HTTP/1.1, TLS1.2, TLS1.3
+        // Проверка URL через curl.exe с тремя протоколами: HTTP/1.1, TLS1.2, TLS1.3.
+        // Протоколы запускаются параллельно — последовательный прогон растягивал
+        // бенчмарк стратегий до минут (20 стратегий × N целей × 3 запроса).
         public static CurlResult CurlCheck(string url, int timeoutSec)
         {
             var r = new CurlResult { Url = url, Verdict = "error", Ms = -1 };
-            string[] protoFlags = { "--http1.1", "--tlsv1.2 --tls-max 1.2", "--tlsv1.3 --tls-max 1.3" };
+            string[] protoFlags = { "--http1.1 --ssl-no-revoke", "--tlsv1.2 --tls-max 1.2 --ssl-no-revoke", "--tlsv1.3 --tls-max 1.3 --ssl-no-revoke" };
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            foreach (var flags in protoFlags)
+            int[] exits = new int[protoFlags.Length];
+            string[] outs = new string[protoFlags.Length];
+            using (var done = new System.Threading.ManualResetEvent(false))
             {
-                string args = "-I -s -m " + timeoutSec + " -o NUL -w \"%{http_code}\" --show-error " + flags + " \"" + url + "\"";
-                string output;
-                int exit = RunCurl(args, out output);
-                if (exit == 0)
+                int remaining = protoFlags.Length;
+                for (int i = 0; i < protoFlags.Length; i++)
+                {
+                    int idx = i;
+                    string args = "-I -s -m " + timeoutSec + " -o NUL -w \"%{http_code}\" --show-error " + protoFlags[idx] + " \"" + url + "\"";
+                    System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                    {
+                        try
+                        {
+                            string output;
+                            exits[idx] = RunCurl(args, out output);
+                            outs[idx] = output;
+                        }
+                        catch { exits[idx] = -1; }
+                        if (System.Threading.Interlocked.Decrement(ref remaining) == 0) done.Set();
+                    });
+                }
+                done.WaitOne(timeoutSec * 3000 + 5000);
+            }
+            for (int i = 0; i < protoFlags.Length; i++)
+            {
+                string output = outs[i] ?? "";
+                if (exits[i] == 0)
                 {
                     r.OkCount++;
                     if (r.BestCode == null) r.BestCode = output.Trim();
                 }
-                else if (exit == 35 || exit == 60 || (output != null && (output.IndexOf("certificate", StringComparison.OrdinalIgnoreCase) >= 0
-                    || output.IndexOf("SSL", StringComparison.OrdinalIgnoreCase) >= 0)))
+                else if (exits[i] == 35 || exits[i] == 60 || (output.IndexOf("certificate", StringComparison.OrdinalIgnoreCase) >= 0
+                    || output.IndexOf("SSL", StringComparison.OrdinalIgnoreCase) >= 0))
                 {
                     if (r.Verdict == "error") r.Verdict = "ssl";
                 }

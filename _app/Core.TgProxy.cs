@@ -9,12 +9,16 @@ namespace ZapretStudio
     // Ничего не скачивается и не запускается без явного действия пользователя.
     static partial class Core
     {
-        public const string TgProxyReleaseApi = "https://api.github.com/repos/Flowseal/tg-ws-proxy/releases/latest";
-        public const string TgProxyReleasePage = "https://github.com/Flowseal/tg-ws-proxy/releases/latest";
-        public const string TgProxyRepo = "https://github.com/Flowseal/tg-ws-proxy";
+        public static string TgProxyReleaseApi { get { return Endpoints.TgProxyReleaseApi; } }
+        public static string TgProxyReleasePage { get { return Endpoints.TgProxyReleasePage; } }
+        public static string TgProxyRepo { get { return Endpoints.TgProxyRepo; } }
 
         // Кладём рядом с папкой zapret, в utils/tools, чтобы не мешать самому zapret.
-        public static string TgToolsDir { get { return Path.Combine(Root, "utils", "tools"); } }
+        // Root может быть пуст до первичной настройки — не роняем Path.Combine(null,...).
+        public static string TgToolsDir
+        {
+            get { return Path.Combine(string.IsNullOrEmpty(Root) ? AppDomain.CurrentDomain.BaseDirectory : Root, "utils", "tools"); }
+        }
         public static string TgProxyExe { get { return Path.Combine(TgToolsDir, "TgWsProxy_windows.exe"); } }
 
         public static bool TgProxyInstalled() { return File.Exists(TgProxyExe); }

@@ -23,6 +23,19 @@ namespace ZapretStudio
             Theme.InstallScrollBarStyle();
             string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "_selftest.log");
 
+            // В SELFTEST-режиме глобальный обработчик из App.Main не подключается
+            // (Main выходит раньше) — любое исключение в колбэке диспатчера убивает
+            // процесс без лога. Ловим сами.
+            app.DispatcherUnhandledException += delegate(object s, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
+            {
+                Line("DISPATCHER", e.Exception.ToString());
+                e.Handled = true;
+            };
+            AppDomain.CurrentDomain.UnhandledException += delegate(object s, UnhandledExceptionEventArgs e)
+            {
+                try { File.WriteAllText(logPath + ".crash", e.ExceptionObject.ToString()); } catch { }
+            };
+
             app.Startup += delegate
             {
                 try { Execute(); }
@@ -42,6 +55,9 @@ namespace ZapretStudio
             Theme.Apply(ThemeMode.Dark);
             if (!Core.LocateRoot()) { Line("WARN", "root not found; using best-effort"); }
             try { Core.LoadConfig(); } catch (Exception ex) { Line("WARN", "LoadConfig: " + ex.Message); }
+
+            // 0) Чистая логика без UI — версии, парсеры, кодировки, буферы.
+            PureTests();
 
             var win = new MainWindow();
             win.Width = 1200; win.Height = 800;
@@ -366,6 +382,184 @@ namespace ZapretStudio
                 if (c is T) yield return (T)c;
                 foreach (var d in Descendants<T>(c)) yield return d;
             }
+        }
+
+        // ================= Юнит-тесты чистой логики =================
+        // Никакого UI и сети: версии, парсеры, кодировки, кольцевой буфер.
+        static void PureTests()
+        {
+            // --- Версии ---
+            Try("normver v5.2", delegate { Assert(SettingsPage.NormVer("v5.2") == "5.2"); });
+            Try("normver 4comp", delegate { Assert(SettingsPage.NormVer("1.10.1.0") == "1.10.1"); });
+            Try("cmp 5.10>5.9", delegate { Assert(SettingsPage.CompareVersions("5.10", "5.9") > 0); });
+            Try("cmp eq short", delegate { Assert(SettingsPage.CompareVersions("5.2", "5.2.0") == 0); });
+            Try("cmp eq exact", delegate { Assert(SettingsPage.CompareVersions("1.10.1", "1.10.1") == 0); });
+            Try("cmp 10>9", delegate { Assert(SettingsPage.CompareVersions("10.0", "9.9") > 0); });
+            Try("cmp empty<", delegate { Assert(SettingsPage.CompareVersions("", "1.0") < 0); });
+
+            // --- Естественная сортировка стратегий ---
+            Try("natkey pad", delegate { Assert(Core.NaturalKey("a2bat") == "a00000002bat"); });
+
+            // --- Сборка аргументов winws из .bat ---
+            BuildArgsTests();
+
+            // --- JSON / release notes ---
+            string json = "{\"tag_name\":\"v1.2.3\",\"body\":\"line1\\n- item\"}";
+            Try("jsonfield tag", delegate { Assert(Endpoints.JsonField(json, "tag_name") == "v1.2.3"); });
+            Try("jsonfield body nl", delegate { Assert(Endpoints.JsonField(json, "body").Contains("\n- item")); });
+            Try("release notes bullet", delegate
+            {
+                string notes = Endpoints.ReleaseNotes(json);
+                Assert(notes != null && notes.Contains("• item"));
+            });
+
+            // --- Починка двойного кодирования UTF-8 → cp1252 ---
+            Try("mojibake repair", delegate
+            {
+                string orig = "Привет Ёё";
+                string moji = Encoding.GetEncoding(1252).GetString(Encoding.UTF8.GetBytes(orig));
+                Assert(Endpoints.RepairUtf8Mojibake(moji) == orig);
+            });
+            Try("mojibake passthrough", delegate
+            {
+                string plain = "Café normal text";
+                Assert(Endpoints.RepairUtf8Mojibake(plain) == plain);
+            });
+
+            // --- Маскирование диагностики ---
+            Try("mask username/ip", delegate
+            {
+                string m = Core.Mask("path " + Environment.UserName + " ip 192.168.1.55 pub 8.8.8.8");
+                Assert(m.Contains("USER") && !m.Contains(Environment.UserName));
+                Assert(m.Contains("x.x.x.x") && m.Contains("8.8.8.8"));
+            });
+
+            // --- Кольцевой буфер вывода winws ---
+            Try("winws ring buffer", delegate
+            {
+                Core.WinwsLogClear();
+                for (int i = 0; i < 450; i++) Core.WinwsLogAppend("line" + i);
+                string tail = Core.WinwsLogTail(400);
+                Assert(tail.StartsWith("...") && tail.Contains("line449") && !tail.Contains("line49\n"));
+                Core.WinwsLogClear();
+                Assert(Core.WinwsLogAll().Length == 0);
+            });
+
+            // --- Разбор .sha256 файла установщика ---
+            Try("parse sha256 file", delegate
+            {
+                const string hex = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+                Assert(Core.ParseSha256File(hex + "  Lantern-Setup.exe\r\n") == hex);
+                Assert(Core.ParseSha256File("no hash here") == null);
+            });
+
+            // --- ID3-кодировки ---
+            Try("id3 utf8", delegate
+            {
+                var data = new List<byte> { 3 };
+                data.AddRange(Encoding.UTF8.GetBytes("Тест"));
+                Assert(AudioTagReader.DecodeId3Text(data.ToArray()) == "Тест");
+            });
+            Try("id3 cp1251", delegate
+            {
+                var data = new List<byte> { 0 };
+                data.AddRange(Encoding.GetEncoding(1251).GetBytes("Тест"));
+                Assert(AudioTagReader.DecodeId3Text(data.ToArray()) == "Тест");
+            });
+            Try("id3 double-encoded", delegate
+            {
+                // Реальный случай: файл помечен enc=0 (ANSI), но байты — сырой UTF-8.
+                var data = new List<byte> { 0 };
+                data.AddRange(Encoding.UTF8.GetBytes("Привет"));
+                Assert(AudioTagReader.DecodeId3Text(data.ToArray()) == "Привет");
+            });
+
+            // --- Режимы ipset на изолированном корне (каталог exe selftest) ---
+            IpsetModeTests();
+
+            // --- Пробы watchdog: ровно ключевые эндпоинты ---
+            Try("quick probes count", delegate { Assert(Core.QuickProbes().Count == 3); });
+
+            // --- Человекочитаемые размеры ---
+            Try("humansize smoke", delegate
+            {
+                Assert(Core.HumanSize(0).Length > 0 && Core.HumanSize(2048).Length > 0);
+                Assert(Core.HumanSpeed(1024).Length > 0);
+            });
+        }
+
+        static void BuildArgsTests()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "lantern_ut_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            try
+            {
+                Directory.CreateDirectory(Path.Combine(root, "bin"));
+                string bat =
+                    "@echo off\r\n" +
+                    "start \"z\" /min \"%BIN%winws.exe\" --wf-tcp=443,%GameFilterTCP% ^\r\n" +
+                    "--filter-udp=443 --hostlist=\"%LISTS%list.txt\" --dpi-desync-fake-tls=^! --dpi-desync=fake --new ^\r\n" +
+                    "--filter-tcp=%GameFilterUDP% --ipset=\"%LISTS%ipset-all.txt\" --dpi-desync=multisplit\r\n";
+                File.WriteAllText(Path.Combine(root, "t.bat"), bat);
+
+                Core.SetRoot(root);
+                bool ipsetWas = Core.IpsetEnabled;
+
+                Core.SetBool("ipset_enabled", true); // без записи конфига на диск — только словарь
+                string args = Core.BuildArgs("t.bat");
+                Try("buildargs no caret", delegate { Assert(args.IndexOf('^') < 0); });
+                // Путь к winws в аргументы не попадает (префикс строки до winws.exe
+                // отбрасывается), но плейсхолдеры %LISTS% обязаны подставиться.
+                Try("buildargs lists subst", delegate { Assert(args.Contains(Path.Combine(root, "lists")) && !args.Contains("%LISTS%") && !args.Contains("%BIN%")); });
+                Try("buildargs gamefilter off", delegate { Assert(args.Contains("--wf-tcp=443,12")); });
+                Try("buildargs unescape bang", delegate { Assert(args.Contains("fake-tls=!")); });
+                Try("buildargs keeps ipset group", delegate { Assert(args.Contains("--ipset=")); });
+
+                Core.SetBool("ipset_enabled", false);
+                string argsNoIpset = Core.BuildArgs("t.bat");
+                Try("buildargs drops ipset groups", delegate
+                {
+                    Assert(!argsNoIpset.Contains("--ipset=") && argsNoIpset.Contains("--dpi-desync=fake"));
+                });
+                Core.SetBool("ipset_enabled", ipsetWas);
+            }
+            finally
+            {
+                try { Directory.Delete(root, true); } catch { }
+            }
+        }
+
+        static void IpsetModeTests()
+        {
+            // Работаем в корне selftest-процесса: списки реального zapret не трогаем.
+            string listsDir = Core.Lists;
+            Directory.CreateDirectory(listsDir);
+            string file = Path.Combine(listsDir, "ipset-all.txt");
+            File.WriteAllText(file, "203.0.113.7/32\r\n198.51.100.9/32\r\n");
+
+            Try("ipset loaded detect", delegate { Assert(Core.IpsetStatus() == "loaded"); });
+
+            Core.SetIpsetMode("none");
+            Try("ipset none sentinel", delegate
+            {
+                Assert(Core.IpsetStatus() == "none" && File.Exists(file + ".backup"));
+            });
+
+            Core.SetIpsetMode("loaded");
+            Try("ipset restore from backup", delegate
+            {
+                string content = File.ReadAllText(file);
+                Assert(Core.IpsetStatus() == "loaded" && content.Contains("198.51.100.9/32") && !File.Exists(file + ".backup"));
+            });
+
+            Core.SetIpsetMode("any");
+            Try("ipset any empty", delegate { Assert(Core.IpsetStatus() == "any"); });
+            Core.SetIpsetMode("loaded"); // вернём загруженный список как исходное состояние
+        }
+
+        static void Assert(bool cond)
+        {
+            if (!cond) throw new Exception("assertion failed");
         }
     }
 }

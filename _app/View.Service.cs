@@ -162,7 +162,7 @@ namespace ZapretStudio
             _stratVal.Text = string.IsNullOrEmpty(strat) ? Loc.T("service.strat.none") : Loc.T("service.strat.prefix") + strat;
 
             bool wf = Core.WinDivertFilePresent();
-            bool wl = Core.WinDivertLoaded();
+            bool wl = Core.WinDivertLoadedCached(); // кэш: sc query не запускается каждые 2 секунды
             if (!wf) ReplacePill(ref _wdPill, Sev.Err, Loc.T("service.driver.absent"));
             else if (wl) ReplacePill(ref _wdPill, Sev.Ok, Loc.T("service.driver.loaded"));
             else ReplacePill(ref _wdPill, Sev.Info, Loc.T("service.driver.ready"));

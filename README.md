@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
 
 <img src="https://raw.githubusercontent.com/krinix1337/lantern-zapret/master/_app/app.ico" width="100" height="100" alt="Lantern Logo">
 
@@ -19,7 +19,7 @@
 
 <br>
 
-<img src="docs/screenshot.png" width="920" alt="Главный интерфейс Lantern 5.2">
+<img src="docs/screenshot.png" width="920" alt="Главный интерфейс Lantern 6.0">
 
 </div>
 

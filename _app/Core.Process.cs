@@ -13,6 +13,52 @@ namespace ZapretStudio
         static int _winwsOperation;
         static int _lastKnownWinwsPid = -1;
 
+        // ---- Кольцевой буфер вывода winws (stdout/stderr) ----
+        // Окно winws скрыто и его логи раньше терялись: буфер хранит последние
+        // строки для диагностики «почему обход не работает».
+        const int WinwsLogCap = 400;
+        static readonly object _winwsLogLock = new object();
+        static readonly List<string> _winwsLog = new List<string>(WinwsLogCap);
+        static bool _winwsLogTruncated;
+
+        public static void WinwsLogAppend(string line)
+        {
+            if (string.IsNullOrEmpty(line)) return;
+            lock (_winwsLogLock)
+            {
+                if (_winwsLog.Count >= WinwsLogCap)
+                {
+                    _winwsLog.RemoveAt(0);
+                    _winwsLogTruncated = true;
+                }
+                _winwsLog.Add(line);
+            }
+        }
+
+        public static void WinwsLogClear()
+        {
+            lock (_winwsLogLock) { _winwsLog.Clear(); _winwsLogTruncated = false; }
+        }
+
+        public static string WinwsLogTail(int maxLines)
+        {
+            lock (_winwsLogLock)
+            {
+                var sb = new System.Text.StringBuilder();
+                if (_winwsLogTruncated && _winwsLog.Count > 0)
+                    sb.AppendLine("...");
+                int start = Math.Max(0, _winwsLog.Count - maxLines);
+                for (int i = start; i < _winwsLog.Count; i++)
+                    sb.AppendLine(_winwsLog[i]);
+                return sb.ToString();
+            }
+        }
+
+        public static string WinwsLogAll()
+        {
+            return WinwsLogTail(WinwsLogCap);
+        }
+
         // Один экземпляр winws нельзя безопасно одновременно перезапускать,
         // тестировать и переключать watchdog-ом.
         public static bool TryBeginWinwsOperation()
@@ -22,6 +68,12 @@ namespace ZapretStudio
         public static void EndWinwsOperation()
         {
             System.Threading.Interlocked.Exchange(ref _winwsOperation, 0);
+        }
+        // Идёт бенчмарк/тест/переключение winws? Монитору падений такие
+        // переходы не считаются падением. Чтение int атомарно само по себе.
+        public static bool WinwsOperationActive()
+        {
+            return _winwsOperation != 0;
         }
 
         static string RegKey { get { return @"HKLM\System\CurrentControlSet\Services\zapret"; } }
@@ -99,13 +151,20 @@ namespace ZapretStudio
                 FileName = WinwsExe, Arguments = args,
                 WorkingDirectory = Bin.TrimEnd(Path.DirectorySeparatorChar),
                 UseShellExecute = false, CreateNoWindow = true,
-                WindowStyle = ProcessWindowStyle.Hidden
+                WindowStyle = ProcessWindowStyle.Hidden,
+                RedirectStandardOutput = true, RedirectStandardError = true,
+                StandardOutputEncoding = System.Text.Encoding.UTF8, StandardErrorEncoding = System.Text.Encoding.UTF8
             };
             try
             {
                 using (var p = Process.Start(psi))
                 {
                     if (p == null) { Say(Sev.Err, "StartWinws: process was not created"); return false; }
+                    // Логи winws — в кольцевой буфер (см. журнал → «Вывод winws»).
+                    p.OutputDataReceived += delegate(object s, DataReceivedEventArgs e) { WinwsLogAppend(e.Data); };
+                    p.ErrorDataReceived += delegate(object s, DataReceivedEventArgs e) { WinwsLogAppend(e.Data); };
+                    p.BeginOutputReadLine();
+                    p.BeginErrorReadLine();
                     // Process.Start успешен даже если winws немедленно завершился
                     // из-за неверных аргументов или отсутствующего драйвера.
                     System.Threading.Thread.Sleep(150);
@@ -153,7 +212,8 @@ namespace ZapretStudio
             {
                 using (var sc = new System.ServiceProcess.ServiceController(ServiceName))
                 {
-                    var s = sc.Status;
+                    // Чтение Status бросает InvalidOperationException, если служба не установлена.
+                    var status = sc.Status;
                     return true;
                 }
             }
@@ -179,17 +239,34 @@ namespace ZapretStudio
             catch { return "stopped"; }
         }
 
-        // Стратегия, с которой установлена служба (из реестра, как делает service.bat)
+        // Стратегия, с которой установлена служба (из реестра, как делает service.bat).
+        // reg query — дорогой запуск процесса: кэшируем на несколько секунд,
+        // страницы статуса опрашивают это значение каждую секунду.
+        static string _serviceStrategyCache;
+        static DateTime _serviceStrategyAt;
+        static readonly object _serviceStrategyLock = new object();
+        public static void InvalidateServiceStrategyCache() { lock (_serviceStrategyLock) _serviceStrategyCache = null; }
         public static string ServiceStrategy()
         {
+            lock (_serviceStrategyLock)
+            {
+                if (_serviceStrategyCache != null && (DateTime.Now - _serviceStrategyAt).TotalSeconds < 4)
+                    return _serviceStrategyCache;
+            }
+            string result = null;
             string o = Capture("reg", "query " + Q(RegKey) + " /v zapret-discord-youtube", 15000);
             foreach (var line in o.Split('\n'))
             {
                 var t = line.Trim();
                 int k = t.IndexOf("REG_SZ", StringComparison.OrdinalIgnoreCase);
-                if (k >= 0) return t.Substring(k + 6).Trim();
+                if (k >= 0) { result = t.Substring(k + 6).Trim(); break; }
             }
-            return null;
+            lock (_serviceStrategyLock)
+            {
+                _serviceStrategyCache = result;
+                _serviceStrategyAt = DateTime.Now;
+            }
+            return result;
         }
 
         public static bool InstallService(string batFileName)
@@ -209,12 +286,13 @@ string binPath = Q(WinwsExe) + " " + args;
             // отметим стратегию в реестре (как в service.bat)
             string name = PrettyName(batFileName);
             if (!Run("reg", "add " + Q(RegKey) + " /v zapret-discord-youtube /t REG_SZ /d " + Q(name) + " /f", 15000, out err)) return false;
+            InvalidateServiceStrategyCache();
             StartedAt = DateTime.Now;
             return true;
         }
 
-public static bool StartService() { string err; bool ok = Run("sc", "start " + ServiceName, 20000, out err); if (ok) StartedAt = DateTime.Now; return ok; }
-        public static bool StopService()  { string err; bool ok = Run("sc", "stop " + ServiceName, 20000, out err); if (ok) StartedAt = null; return ok; }
+public static bool StartService() { string err; bool ok = Run("sc", "start " + ServiceName, 20000, out err); if (ok) StartedAt = DateTime.Now; InvalidateServiceStrategyCache(); return ok; }
+        public static bool StopService()  { string err; bool ok = Run("sc", "stop " + ServiceName, 20000, out err); if (ok) StartedAt = null; InvalidateServiceStrategyCache(); return ok; }
 
 public static bool RemoveService()
         {
@@ -223,11 +301,28 @@ public static bool RemoveService()
             bool existed = ServiceExists();
             bool ok = !existed || Run("sc", "delete " + ServiceName, 15000, out err);
             KillWinws();
+            InvalidateServiceStrategyCache();
+            InvalidateWinDivertCache();
             StartedAt = null;
             return ok;
         }
 
         // ---- Проверка: работает ли WinDivert-сервис (значит драйвер загружен) ----
+        // sc query — запуск процесса; страницы статуса опрашивают это каждую
+        // секунду, поэтому короткое кэширование убирает постоянные спавны.
+        static bool? _wdLoadedCache;
+        static DateTime _wdLoadedAt;
+        static readonly object _wdLock = new object();
+        public static void InvalidateWinDivertCache() { lock (_wdLock) _wdLoadedCache = null; }
+        public static bool WinDivertLoadedCached()
+        {
+            lock (_wdLock)
+                if (_wdLoadedCache.HasValue && (DateTime.Now - _wdLoadedAt).TotalSeconds < 4)
+                    return _wdLoadedCache.Value;
+            bool v = WinDivertLoaded();
+            lock (_wdLock) { _wdLoadedCache = v; _wdLoadedAt = DateTime.Now; }
+            return v;
+        }
         public static bool WinDivertLoaded()
         {
             string o = Capture("sc", "query WinDivert", 15000);
@@ -256,7 +351,7 @@ public static bool RemoveService()
             {
                 using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunRegistryPath, true))
                 {
-                    if (key == null) return;
+                    if (key == null) { Warn("SetAppAutostart: registry key not found"); return; }
                     if (enable)
                     {
                         string exe = System.Reflection.Assembly.GetEntryAssembly().Location;
@@ -265,7 +360,7 @@ public static bool RemoveService()
                     else key.DeleteValue(AppRunKey, false);
                 }
             }
-            catch { }
+            catch (Exception ex) { Warn("SetAppAutostart: " + ex.Message); }
         }
 
         public static bool TgAutostartEnabled()
@@ -284,14 +379,14 @@ public static bool RemoveService()
             {
                 using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunRegistryPath, true))
                 {
-                    if (key == null) return;
+                    if (key == null) { Warn("SetTgAutostart: registry key not found"); return; }
                     if (enable)
                         key.SetValue(TgRunKey, "\"" + TgProxyExe + "\"");
                     else
                         key.DeleteValue(TgRunKey, false);
                 }
             }
-            catch { }
+            catch (Exception ex) { Warn("SetTgAutostart: " + ex.Message); }
         }
 
         // ---- Открыть папку в проводнике ----

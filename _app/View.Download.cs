@@ -157,46 +157,59 @@ namespace ZapretStudio
 
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
-                string url = Core.ZapretDownloadUrl();
-                bool ok = Core.DownloadFile(url, zip, delegate (DlProgress p)
+                try
                 {
-                    Dispatcher.Invoke((Action)delegate { Render(p); });
-                }, null);
-
-                if (!ok)
-                {
-                    Dispatcher.Invoke((Action)delegate
+                    string url = Core.ZapretDownloadUrl();
+                    bool ok = Core.DownloadFile(url, zip, delegate (DlProgress p)
                     {
-                        _status.Text = Loc.T("dl.failZip");
-                        _busy = false; SetButtons(true);
-                    });
-                    return;
+                        // Окно могло закрыться: Invoke в никуда бросит исключение.
+                        try { Dispatcher.Invoke((Action)delegate { Render(p); }); } catch { }
+                    }, null);
+
+                    if (!ok)
+                    {
+                        try
+                        {
+                            Dispatcher.Invoke((Action)delegate
+                            {
+                                _status.Text = Loc.T("dl.failZip");
+                                _busy = false; SetButtons(true);
+                            });
+                        }
+                        catch { }
+                        return;
+                    }
+
+                    try { Dispatcher.Invoke((Action)delegate { _status.Text = Loc.T("dl.extracting"); }); } catch { }
+                    string err;
+                    bool ex = Core.ExtractZapretZip(zip, target, out err);
+                    try { File.Delete(zip); } catch { }
+
+                    try
+                    {
+                        Dispatcher.Invoke((Action)delegate
+                        {
+                            _busy = false;
+                            if (ex && File.Exists(Path.Combine(target, "bin", "winws.exe")))
+                            {
+                                Core.SetRoot(target);
+                                Core.RememberRoot(target);
+                                _status.Text = Loc.T("dl.done");
+                                Core.Good(string.Format(Loc.T("dl.installed"), target));
+                                Succeeded = true; ResultRoot = target;
+                                var mr = MessageBox.Show(Loc.T("dl.done"), "zapret", MessageBoxButton.OK, MessageBoxImage.Information);
+                                Close();
+                            }
+                            else
+                            {
+                                _status.Text = string.Format(Loc.T("dl.failExtract"), err != null ? ": " + err : "");
+                                SetButtons(true);
+                            }
+                        });
+                    }
+                    catch { }
                 }
-
-                Dispatcher.Invoke((Action)delegate { _status.Text = Loc.T("dl.extracting"); });
-                string err;
-                bool ex = Core.ExtractZapretZip(zip, target, out err);
-                try { File.Delete(zip); } catch { }
-
-                Dispatcher.Invoke((Action)delegate
-                {
-                    _busy = false;
-                    if (ex && File.Exists(Path.Combine(target, "bin", "winws.exe")))
-                    {
-                        Core.SetRoot(target);
-                        Core.RememberRoot(target);
-                        _status.Text = Loc.T("dl.done");
-                        Core.Good(string.Format(Loc.T("dl.installed"), target));
-                        Succeeded = true; ResultRoot = target;
-                        var mr = MessageBox.Show(Loc.T("dl.done"), "zapret", MessageBoxButton.OK, MessageBoxImage.Information);
-                        Close();
-                    }
-                    else
-                    {
-                        _status.Text = string.Format(Loc.T("dl.failExtract"), err != null ? ": " + err : "");
-                        SetButtons(true);
-                    }
-                });
+                catch { }
             });
         }
 

@@ -1,6 +1,6 @@
 ; Lantern Installer — Inno Setup 6
 #define AppName "Lantern"
-#define AppVersion "5.2"
+#define AppVersion "6.0"
 #define AppPublisher "krinix1337"
 #define AppURL "https://github.com/krinix1337/lantern-zapret"
 #define AppExeName "Lantern.exe"

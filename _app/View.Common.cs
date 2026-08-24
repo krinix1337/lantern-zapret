@@ -263,6 +263,7 @@ namespace ZapretStudio
     {
         const double WheelStep = 80;
         double _targetOffset;
+        double _lastApplied;
         bool _isAnimating;
 
         public SmoothScrollViewer()
@@ -291,12 +292,23 @@ namespace ZapretStudio
             if (!_isAnimating)
             {
                 _isAnimating = true;
+                _lastApplied = VerticalOffset;
                 CompositionTarget.Rendering += OnRendering;
             }
         }
 
         void OnRendering(object sender, EventArgs e)
         {
+            // Смещение, не сделанное нами (перетаскивание ползунка скроллбара,
+            // клавиатура): прекращаем анимацию и отдаём управление пользователю.
+            if (Math.Abs(VerticalOffset - _lastApplied) > 1.5)
+            {
+                _isAnimating = false;
+                _targetOffset = VerticalOffset;
+                CompositionTarget.Rendering -= OnRendering;
+                return;
+            }
+
             double cur = VerticalOffset;
             double diff = _targetOffset - cur;
             if (Math.Abs(diff) < 0.5 || ScrollableHeight <= 0)
@@ -309,6 +321,7 @@ namespace ZapretStudio
 
             // Плавная интерполяция к цели на каждом кадре дисплея
             double next = cur + diff * 0.28;
+            _lastApplied = next;
             ScrollToVerticalOffset(next);
         }
     }

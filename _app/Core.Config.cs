@@ -117,6 +117,15 @@ namespace ZapretStudio
             lock (Log)
                 for (int i = Math.Max(0, Log.Count - 40); i < Log.Count; i++)
                     sb.AppendLine(Log[i].Time.ToString("HH:mm:ss") + " [" + Log[i].Level + "] " + Mask(Log[i].Text));
+
+            // Хвост вывода самого winws — ключ к диагностике «почему не работает».
+            string winwsOut = WinwsLogTail(60);
+            if (!string.IsNullOrEmpty(winwsOut))
+            {
+                sb.AppendLine();
+                sb.AppendLine(Loc.T("diag.winwsOutput"));
+                sb.AppendLine(winwsOut);
+            }
             return sb.ToString();
         }
     }

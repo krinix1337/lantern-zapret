@@ -14,10 +14,13 @@ namespace ZapretStudio
             public int Ok;
             public int Total;
             public double AvgMs;
+            // Проверка не выполнена: операция winws занята другим действием.
+            public bool Busy;
         }
 
         // Быстрые пробы для мониторинга (меньше чем StratProbes — только ключевые).
-        static List<Target> QuickProbes()
+        // public: проверяется в юнит-тестах SelfTest.
+        public static List<Target> QuickProbes()
         {
             var l = new List<Target>();
             AddQ(l, "Discord", "https://discord.com");
@@ -37,7 +40,16 @@ namespace ZapretStudio
         public static StratScore TestStrategy(string batFile, List<Target> probes, Func<bool> cancel)
         {
             var sc = new StratScore { File = batFile, Total = probes.Count };
-            if (!TryBeginWinwsOperation()) return sc;
+            if (!TryBeginWinwsOperation()) { sc.Busy = true; return sc; }
+            try { RunStrategyProbe(batFile, probes, cancel, sc); }
+            finally { EndWinwsOperation(); }
+            return sc;
+        }
+
+        // Вариант для вызывающего, который уже удерживает TryBeginWinwsOperation
+        // (массовые прогоны из UI — чтобы между стратегиями никто не вклинился).
+        public static void RunStrategyProbe(string batFile, List<Target> probes, Func<bool> cancel, StratScore sc)
+        {
             try
             {
                 KillWinws();
@@ -61,8 +73,7 @@ namespace ZapretStudio
                 if (msCount > 0) sc.AvgMs = (double)msSum / msCount;
             }
             catch { }
-            finally { try { KillWinws(); } catch { } EndWinwsOperation(); }
-            return sc;
+            finally { try { KillWinws(); } catch { } }
         }
 
         // ---- Автопереключение (watchdog) ----

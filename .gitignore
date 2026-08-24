@@ -33,3 +33,7 @@ _installer/*.exe
 # OS
 Thumbs.db
 Desktop.ini
+
+# Runtime outputs
+/connection-check.txt
+/zapret-gui-log.txt

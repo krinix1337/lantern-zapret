@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Media;
 
 namespace ZapretStudio
@@ -11,26 +13,41 @@ namespace ZapretStudio
         public override string Subtitle { get { return Loc.T("log.sub"); } }
 
         readonly MainWindow _win;
-        StackPanel _lines;
-        ScrollViewer _sv;
+
+        // ---- Виртуализированный список ----
+        // Раньше строки жили в StackPanel: тысячи визуальных элементов тормозили
+        // интерфейс. ListBox + VirtualizingStackPanel создаёт контейнеры только
+        // для видимых строк.
+        ListBox _list;
+        readonly List<LogRow> _rows = new List<LogRow>();
         TextBox _search;
         bool _paused, _autoscroll = true;
         Sev? _levelFilter;
         StackPanel _filterBar;
         TextBlock _count;
 
+        // Строка журнала: готовые к биндингу значения (VM).
+        class LogRow
+        {
+            public DateTime Time;
+            public Sev Level;
+            public string Text;
+            public string TimeText;
+            public string LevelText;
+            public Brush LevelBrush;   // замороженная кисть уровня
+            public Brush RowBg;        // замороженный фон полосы слева
+            public Brush RowBorder;    // замороженная обводка полосы слева
+        }
+
         public LogPage(MainWindow win)
         {
             _win = win;
             BuildToolbar();
             BuildFilterBar();
-            _lines = new StackPanel();
-            _sv = new SmoothScrollViewer { Content = _lines, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                Background = Theme.BrBgDeep, Padding = new Thickness(12, 12, 16, 12) };
-            var card = new Border { Child = _sv, CornerRadius = Theme.R10, BorderBrush = Theme.BrStroke,
-                BorderThickness = new Thickness(1), Margin = new Thickness(0, 8, 0, 0) };
-            // Адаптивная высота: Grid с star-строкой вместо фиксированных 460px.
+            BuildList();
+            var card = new Border { Child = _list, CornerRadius = Theme.R10, BorderBrush = Theme.BrStroke,
+                BorderThickness = new Thickness(1), Margin = new Thickness(0, 8, 0, 0), ClipToBounds = true };
+            // Адаптивная высота: Grid со star-строкой вместо фиксированных пикселей.
             var host = new Grid();
             host.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             host.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -39,6 +56,99 @@ namespace ZapretStudio
             Body.Children.Add(host);
             Core.OnLog -= OnLog;
             Core.OnLog += OnLog;
+        }
+
+        void BuildList()
+        {
+            _list = new ListBox
+            {
+                Background = Theme.BrBgDeep,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(12, 12, 16, 12),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                FocusVisualStyle = null
+            };
+            ScrollViewer.SetHorizontalScrollBarVisibility(_list, ScrollBarVisibility.Disabled);
+            // Виртуализация: контейнеры создаются только для видимых строк.
+            VirtualizingPanel.SetIsVirtualizing(_list, true);
+            VirtualizingPanel.SetCacheLengthUnit(_list, VirtualizationCacheLengthUnit.Page);
+            VirtualizingPanel.SetCacheLength(_list, new VirtualizationCacheLength(1));
+            _list.ItemTemplate = MakeRowTemplate();
+            // Убираем стандартную подсветку выделения — журнал не «выбирается».
+            _list.ItemContainerStyle = MakeContainerStyle();
+        }
+
+        static Style MakeContainerStyle()
+        {
+            var st = new Style(typeof(ListBoxItem));
+            st.Setters.Add(new Setter(Control.FocusVisualStyleProperty, null));
+            var tmpl = new ControlTemplate(typeof(ListBoxItem));
+            var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+            presenter.SetValue(ContentPresenter.MarginProperty, new Thickness(0, 0, 0, 4));
+            tmpl.VisualTree = presenter;
+            st.Setters.Add(new Setter(TemplateProperty, tmpl));
+            return st;
+        }
+
+        static DataTemplate MakeRowTemplate()
+        {
+            var t = new DataTemplate();
+
+            var borderF = new FrameworkElementFactory(typeof(Border), "bd");
+            borderF.SetValue(Border.CornerRadiusProperty, Theme.R6);
+            borderF.SetValue(Border.PaddingProperty, new Thickness(10, 7, 10, 7));
+            borderF.SetValue(Border.BorderThicknessProperty, new Thickness(2, 0, 0, 0));
+            // Фон/обводка строки — из VM (замороженные снимки палитры на момент события).
+            borderF.SetValue(Border.BackgroundProperty, new Binding("RowBg"));
+            borderF.SetValue(Border.BorderBrushProperty, new Binding("RowBorder"));
+
+            var g = new FrameworkElementFactory(typeof(Grid));
+            g.AppendChild(Col(GridLength.Auto));
+            g.AppendChild(Col(GridLength.Auto));
+            g.AppendChild(Col(new GridLength(1, GridUnitType.Star)));
+
+            var time = Col<TextBlock>(0);
+            time.SetValue(TextBlock.TextProperty, new Binding("TimeText"));
+            time.SetValue(TextBlock.ForegroundProperty, Theme.Frozen(Theme.TextFaint));
+            time.SetValue(TextBlock.FontSizeProperty, Theme.FsSmall);
+            time.SetValue(TextBlock.FontFamilyProperty, Theme.MonoFont);
+            time.SetValue(FrameworkElement.WidthProperty, 68.0);
+            g.AppendChild(time);
+
+            var level = Col<TextBlock>(1);
+            level.SetValue(TextBlock.TextProperty, new Binding("LevelText"));
+            level.SetValue(TextBlock.ForegroundProperty, new Binding("LevelBrush"));
+            level.SetValue(TextBlock.FontSizeProperty, Theme.FsTiny);
+            level.SetValue(TextBlock.FontFamilyProperty, Theme.MonoFont);
+            level.SetValue(TextBlock.FontWeightProperty, FontWeights.Bold);
+            level.SetValue(FrameworkElement.WidthProperty, 48.0);
+            level.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 1, 10, 0));
+            g.AppendChild(level);
+
+            var msg = Col<TextBlock>(2);
+            msg.SetValue(TextBlock.TextProperty, new Binding("Text"));
+            msg.SetValue(TextBlock.ForegroundProperty, Theme.Frozen(Theme.Text));
+            msg.SetValue(TextBlock.FontSizeProperty, Theme.FsSmall);
+            msg.SetValue(TextBlock.FontFamilyProperty, Theme.MonoFont);
+            msg.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap);
+            g.AppendChild(msg);
+
+            borderF.AppendChild(g);
+            t.VisualTree = borderF;
+            return t;
+        }
+
+        static FrameworkElementFactory Col(GridLength len)
+        {
+            return new FrameworkElementFactory(typeof(ColumnDefinition))
+                .Set(ColumnDefinition.WidthProperty, len);
+        }
+
+        static FrameworkElementFactory Col<T>(int column) where T : FrameworkElement, new()
+        {
+            var f = new FrameworkElementFactory(typeof(T));
+            f.SetValue(Grid.ColumnProperty, column);
+            return f;
         }
 
         public override void OnShow() { RebuildAll(); }
@@ -86,12 +196,17 @@ namespace ZapretStudio
             diag.Click += (s, e) => CopyDiag();
             wrap.Children.Add(diag);
 
+            var winwsOut = Ctl.Button(Loc.T("log.winwsOut"), Icons.Terminal, 1);
+            winwsOut.Margin = new Thickness(0, 0, 10, 10);
+            winwsOut.Click += (s, e) => CopyWinwsOutput();
+            wrap.Children.Add(winwsOut);
+
             var clear = Ctl.Button(Loc.T("log.clear"), Icons.Cross, 2);
             clear.Margin = new Thickness(0, 0, 10, 10);
             clear.Click += (s, e) => { lock (Core.Log) Core.Log.Clear(); RebuildAll(); };
             wrap.Children.Add(clear);
 
-            _count = UI.Mono("0 events", Theme.FsTiny, Theme.BrFaint);
+            _count = UI.Mono("", Theme.FsTiny, Theme.BrFaint);
             _count.VerticalAlignment = VerticalAlignment.Center;
             _count.Margin = new Thickness(2, 0, 0, 10);
             wrap.Children.Add(_count);
@@ -150,12 +265,37 @@ namespace ZapretStudio
                 Dispatcher.Invoke((Action)delegate
                 {
                     if (!Match(e)) return;
-                    _lines.Children.Add(LineFor(e));
+                    AddLine(MakeRow(e));
                     UpdateCount();
-                    if (_autoscroll) _sv.ScrollToEnd();
+                    if (_autoscroll && _rows.Count > 0) _list.ScrollIntoView(_rows[_rows.Count - 1]);
                 });
             }
             catch { }
+        }
+
+        LogRow MakeRow(LogEvent e)
+        {
+            var accent = UI2.SevColor(e.Level);
+            return new LogRow
+            {
+                Time = e.Time,
+                Level = e.Level,
+                Text = e.Text,
+                TimeText = e.Time.ToString("HH:mm:ss"),
+                LevelText = LevelName(e.Level),
+                LevelBrush = Theme.Frozen(accent),
+                RowBg = Theme.Alpha(accent, 10),
+                RowBorder = Theme.Alpha(accent, 54)
+            };
+        }
+
+        void AddLine(LogRow row)
+        {
+            _rows.Add(row);
+            // Виртуализация рисует только видимое; ограничиваем лишь саму коллекцию.
+            if (_rows.Count > MaxRows) _rows.RemoveAt(0);
+            _list.Items.Add(row);
+            while (_list.Items.Count > MaxRows) _list.Items.RemoveAt(0);
         }
 
         bool Match(LogEvent e)
@@ -164,28 +304,6 @@ namespace ZapretStudio
             string q = (_search.Text ?? "").Trim().ToLowerInvariant();
             if (q.Length > 0 && e.Text.ToLowerInvariant().IndexOf(q) < 0) return false;
             return true;
-        }
-
-        UIElement LineFor(LogEvent e)
-        {
-            var g = new Grid();
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            var time = new TextBlock { Text = e.Time.ToString("HH:mm:ss"), Foreground = Theme.BrFaint,
-                FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont, Width = 68, VerticalAlignment = VerticalAlignment.Top };
-            Grid.SetColumn(time, 0); g.Children.Add(time);
-            var level = new TextBlock { Text = LevelName(e.Level), Foreground = UI2.SevBrush(e.Level),
-                FontSize = Theme.FsTiny, FontFamily = Theme.MonoFont, FontWeight = FontWeights.Bold, Width = 48,
-                VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 1, 10, 0) };
-            Grid.SetColumn(level, 1); g.Children.Add(level);
-            var msg = new TextBlock { Text = e.Text, Foreground = Theme.BrText, FontSize = Theme.FsSmall,
-                FontFamily = Theme.MonoFont, TextWrapping = TextWrapping.Wrap };
-            Grid.SetColumn(msg, 2); g.Children.Add(msg);
-            var accent = UI2.SevColor(e.Level);
-            return new Border { Child = g, Margin = new Thickness(0, 0, 0, 4), Padding = new Thickness(10, 7, 10, 7),
-                Background = Theme.Alpha(accent, 10), BorderBrush = Theme.Alpha(accent, 54),
-                BorderThickness = new Thickness(2, 0, 0, 0), CornerRadius = Theme.R6 };
         }
 
         static string LevelName(Sev level)
@@ -200,17 +318,23 @@ namespace ZapretStudio
         void UpdateCount()
         {
             if (_count == null) return;
-            _count.Text = _lines.Children.Count + " events" + (_paused ? " - paused" : " - live");
+            _count.Text = string.Format(Loc.T("log.events"), _rows.Count)
+                + (_paused ? " - " + Loc.T("log.paused") : " - " + Loc.T("log.live"));
         }
+
+        // Коллекция строк UI: виртуализация делает рендер дешёвым, лимит держим
+        // только ради памяти самих объектов.
+        const int MaxRows = 4000;
 
         void RebuildAll()
         {
-            _lines.Children.Clear();
+            _rows.Clear();
+            _list.Items.Clear();
             lock (Core.Log)
                 foreach (var e in Core.Log)
-                    if (Match(e)) _lines.Children.Add(LineFor(e));
+                    if (Match(e)) AddLine(MakeRow(e));
             UpdateCount();
-            if (_autoscroll) _sv.ScrollToEnd();
+            if (_autoscroll && _rows.Count > 0) _list.ScrollIntoView(_rows[_rows.Count - 1]);
         }
 
         string AllText()
@@ -232,12 +356,17 @@ namespace ZapretStudio
         {
             try
             {
-                string path = System.IO.Path.Combine(Core.Root, "zapret-gui-log.txt");
+                string path = System.IO.Path.Combine(SafeRootForOutputs(), "zapret-gui-log.txt");
                 System.IO.File.WriteAllText(path, AllText());
                 Core.Good(string.Format(Loc.T("log.saved"), path));
                 Core.OpenFile(path);
             }
             catch (Exception ex) { Core.Fail(string.Format(Loc.T("log.saveErr"), ex.Message)); }
+        }
+
+        static string SafeRootForOutputs()
+        {
+            return string.IsNullOrEmpty(Core.Root) ? AppDomain.CurrentDomain.BaseDirectory : Core.Root;
         }
 
         void CopyDiag()
@@ -250,5 +379,28 @@ namespace ZapretStudio
             }
             catch (Exception ex) { Core.Fail(string.Format(Loc.T("log.diagErr"), ex.Message)); }
         }
+
+        void CopyWinwsOutput()
+        {
+            try
+            {
+                string d = Core.WinwsLogAll();
+                if (string.IsNullOrWhiteSpace(d))
+                {
+                    Core.Warn(Loc.T("log.winwsEmpty"));
+                    return;
+                }
+                Clipboard.SetText(d);
+                Core.Good(Loc.T("log.winwsCopied"));
+            }
+            catch (Exception ex) { Core.Fail(string.Format(Loc.T("log.diagErr"), ex.Message)); }
+        }
+    }
+
+    // Мини-хелперы для компактной сборки шаблона из кода.
+    internal static class TemplateEx
+    {
+        public static FrameworkElementFactory Set(this FrameworkElementFactory f, DependencyProperty p, object v)
+        { f.SetValue(p, v); return f; }
     }
 }

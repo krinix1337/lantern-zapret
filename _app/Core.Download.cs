@@ -21,8 +21,8 @@ namespace ZapretStudio
     {
         // Резервная ссылка на архив ветки. Обычно используется архив последнего
         // релиза: он содержит готовые Windows-компоненты и не зависит от имени версии.
-        public const string ZapretZipUrl = "https://github.com/Flowseal/zapret-discord-youtube/archive/refs/heads/main.zip";
-        public const string ZapretReleaseApi = "https://api.github.com/repos/Flowseal/zapret-discord-youtube/releases/latest";
+        public static string ZapretZipUrl { get { return Endpoints.ZapretZipUrl; } }
+        public static string ZapretReleaseApi { get { return Endpoints.ZapretReleaseApi; } }
 
         // Адрес ZIP-ассета последнего релиза. GitHub меняет имя архива вместе с
         // версией, поэтому берём точную ссылку из API. Если API временно недоступен,
@@ -36,7 +36,7 @@ namespace ZapretStudio
                 if (!string.IsNullOrEmpty(detected)) normalized = detected.Trim().TrimStart('v', 'V');
             }
             if (!string.IsNullOrEmpty(normalized))
-                return "https://github.com/Flowseal/zapret-discord-youtube/releases/download/" + normalized
+                return Endpoints.ZapretRepo + "/releases/download/" + normalized
                     + "/zapret-discord-youtube-" + normalized + ".zip";
             try
             {
@@ -122,7 +122,10 @@ namespace ZapretStudio
                                 pr.BytesRead = total;
                                 pr.Elapsed = sw.Elapsed;
                                 pr.SpeedBps = ms > 0 ? total / (ms / 1000.0) : 0;
-                                if (onProgress != null) onProgress(pr);
+                                // Колбэк рисует UI через Dispatcher: исключение из него
+                                // (например, при закрытии окна) не должно убивать загрузку
+                                // и поток пула.
+                                try { if (onProgress != null) onProgress(pr); } catch { }
                             }
                         }
                         pr.BytesRead = total;
@@ -144,14 +147,14 @@ namespace ZapretStudio
                     throw;
                 }
                 pr.Elapsed = sw.Elapsed;
-                if (onProgress != null) onProgress(pr);
+                try { if (onProgress != null) onProgress(pr); } catch { }
                 return true;
             }
             catch (Exception ex)
             {
                 try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
                 pr.Failed = true; pr.Error = Short(ex.Message);
-                if (onProgress != null) onProgress(pr);
+                try { if (onProgress != null) onProgress(pr); } catch { }
                 return false;
             }
         }
