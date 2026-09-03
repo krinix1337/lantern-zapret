@@ -446,27 +446,45 @@ namespace ZapretStudio
             installerUrl = null; sha256Url = null;
             try
             {
-                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072 /*Tls12*/ | (SecurityProtocolType)12288 /*Tls13*/;
                 using (var wc = new WebClient())
                 {
                     wc.Encoding = System.Text.Encoding.UTF8;
                     wc.Headers.Add("User-Agent", "Lantern");
                     string json = wc.DownloadString(AppReleaseApi);
-                    var matches = System.Text.RegularExpressions.Regex.Matches(json,
-                        "\\\"name\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"[\\s\\S]*?\\\"browser_download_url\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
-                    foreach (System.Text.RegularExpressions.Match m in matches)
+
+                    int assetsIdx = json.IndexOf("\"assets\":");
+                    if (assetsIdx >= 0)
                     {
-                        string name = m.Groups[1].Value.Replace("\\/", "/");
-                        string url = m.Groups[2].Value.Replace("\\/", "/");
-                        if (installerUrl == null && name.Equals("Lantern-Setup.exe", StringComparison.OrdinalIgnoreCase))
-                            installerUrl = url;
-                        if (sha256Url == null && (name.Equals("Lantern-Setup.exe.sha256", StringComparison.OrdinalIgnoreCase)
-                            || name.Equals("Lantern-Setup.exe.sig-sha256", StringComparison.OrdinalIgnoreCase)))
-                            sha256Url = url;
+                        string assetsJson = json.Substring(assetsIdx);
+                        var blocks = System.Text.RegularExpressions.Regex.Matches(assetsJson, "\\{([^{}]+)\\}");
+                        foreach (System.Text.RegularExpressions.Match b in blocks)
+                        {
+                            var nameM = System.Text.RegularExpressions.Regex.Match(b.Groups[1].Value, "\"name\"\\s*:\\s*\"([^\"]+)\"");
+                            var urlM = System.Text.RegularExpressions.Regex.Match(b.Groups[1].Value, "\"browser_download_url\"\\s*:\\s*\"([^\"]+)\"");
+                            if (nameM.Success && urlM.Success)
+                            {
+                                string name = nameM.Groups[1].Value.Replace("\\/", "/");
+                                string url = urlM.Groups[1].Value.Replace("\\/", "/");
+                                if (installerUrl == null && name.Equals("Lantern-Setup.exe", StringComparison.OrdinalIgnoreCase))
+                                    installerUrl = url;
+                                if (sha256Url == null && (name.Equals("Lantern-Setup.exe.sha256", StringComparison.OrdinalIgnoreCase)
+                                    || name.Equals("Lantern-Setup.exe.sig-sha256", StringComparison.OrdinalIgnoreCase)))
+                                    sha256Url = url;
+                            }
+                        }
                     }
                 }
             }
             catch { }
+
+            // Надёжный фолбэк: прямые ссылки на assets последнего релиза GitHub
+            if (string.IsNullOrEmpty(installerUrl))
+            {
+                installerUrl = "https://github.com/krinix1337/lantern-zapret/releases/latest/download/Lantern-Setup.exe";
+                if (string.IsNullOrEmpty(sha256Url))
+                    sha256Url = "https://github.com/krinix1337/lantern-zapret/releases/latest/download/Lantern-Setup.exe.sha256";
+            }
         }
 
         // Обратная совместимость: только адрес установщика.
@@ -494,7 +512,7 @@ namespace ZapretStudio
             try
             {
                 string file = Path.Combine(Path.GetTempPath(), "Lantern-Setup-" + Guid.NewGuid().ToString("N") + ".exe");
-                if (!DownloadFile(url, file, onProgress, null)) { error = Loc.T("tg.dlFail"); return false; }
+                if (!DownloadFile(url, file, onProgress, null)) { error = Loc.T("settings.app.dlFail"); return false; }
 
                 string expected = null;
                 if (!string.IsNullOrEmpty(sha256Url))

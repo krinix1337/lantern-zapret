@@ -530,7 +530,7 @@ namespace ZapretStudio
                         else
                         {
                             FinishProgress(_appProgress, _appStatusLine,
-                                Loc.T("tg.dlFail") + (err != null ? ": " + err : ""), false);
+                                Loc.T("settings.app.dlFail") + (err != null ? ": " + err : ""), false);
                         }
                     });
                 }

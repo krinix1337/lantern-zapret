@@ -689,6 +689,11 @@ namespace ZapretStudio
             A("settings.defender.notIn", "Не добавлено в исключения", "Not in exclusions");
             A("settings.defender.ok",    "Папка приложения успешно добавлена в исключения Windows Defender!", "Application folder successfully added to Windows Defender exclusions!");
             A("settings.defender.fail",  "Не удалось добавить в исключения. Убедитесь, что приложение запущено от имени администратора.", "Failed to add to exclusions. Make sure the application is running as administrator.");
+
+            // Обновление приложения Lantern
+            A("settings.app.installerStarted", "Установщик запущен", "Installer started");
+            A("settings.app.changelog",        "Список изменений", "Changelog");
+            A("settings.app.dlFail",           "Загрузка обновления не удалась", "App update download failed");
         }
 
         static void A(string key, string ru, string en) { M[key] = new[] { ru, en }; }
