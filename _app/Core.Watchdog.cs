@@ -28,7 +28,7 @@ namespace ZapretStudio
             AddQ(l, "YT CDN", "https://i.ytimg.com");
             return l;
         }
-        static void AddQ(List<Target> l, string name, string url)
+        public static void AddQ(List<Target> l, string name, string url)
         {
             var t = new Target { Key = name, Name = name, Group = "quick", Kind = "HTTP", Url = url };
             try { t.Host = new Uri(url).Host; } catch { t.Host = url; }
@@ -36,7 +36,6 @@ namespace ZapretStudio
         }
 
         // Проверить одну стратегию: запустить winws, прогнать пробы через curl (3 протокола), вернуть счёт.
-        // Логика как в test zapret.ps1: ожидание 5с, curl -I с HTTP/1.1 + TLS1.2 + TLS1.3.
         public static StratScore TestStrategy(string batFile, List<Target> probes, Func<bool> cancel)
         {
             var sc = new StratScore { File = batFile, Total = probes.Count };
@@ -54,22 +53,48 @@ namespace ZapretStudio
             {
                 KillWinws();
                 StartWinws(batFile);
-                Thread.Sleep(5000); // как в test zapret.ps1 — 5 секунд на инициализацию winws
+                Thread.Sleep(600); // 600ms
                 long msSum = 0; int msCount = 0;
-                foreach (var t in probes)
+                int ok = 0;
+                int remaining = probes.Count;
+                using (var done = new ManualResetEvent(false))
                 {
-                    if (cancel != null && cancel()) break;
-                    if (t.Kind == "PING")
+                    foreach (var t in probes)
                     {
-                        var pr = TestPing(t.Host, 5000);
-                        if (pr.State == "reachable") { sc.Ok++; if (pr.Ms >= 0) { msSum += pr.Ms; msCount++; } }
+                        var tt = t;
+                        ThreadPool.QueueUserWorkItem(delegate
+                        {
+                            try
+                            {
+                                if (cancel == null || !cancel())
+                                {
+                                    if (tt.Kind == "PING")
+                                    {
+                                        var pr = TestPing(tt.Host, 3000);
+                                        if (pr.State == "reachable")
+                                        {
+                                            Interlocked.Increment(ref ok);
+                                            if (pr.Ms >= 0) { Interlocked.Add(ref msSum, pr.Ms); Interlocked.Increment(ref msCount); }
+                                        }
+                                    }
+                                    else
+                                    {
+                                        var cr = CurlCheck(tt.Url, 3);
+                                        if (cr.Verdict == "ok")
+                                        {
+                                            Interlocked.Increment(ref ok);
+                                            if (cr.Ms >= 0) { Interlocked.Add(ref msSum, cr.Ms); Interlocked.Increment(ref msCount); }
+                                        }
+                                    }
+                                }
+                            }
+                            catch { }
+                            if (Interlocked.Decrement(ref remaining) == 0) done.Set();
+                        });
                     }
-                    else
-                    {
-                        var cr = CurlCheck(t.Url, 5);
-                        if (cr.Verdict == "ok") { sc.Ok++; if (cr.Ms >= 0) { msSum += cr.Ms; msCount++; } }
-                    }
+                    done.WaitOne(4000);
                 }
+                sc.Ok = ok;
                 if (msCount > 0) sc.AvgMs = (double)msSum / msCount;
             }
             catch { }

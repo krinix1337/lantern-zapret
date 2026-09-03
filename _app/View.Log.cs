@@ -56,8 +56,6 @@ namespace ZapretStudio
             Grid.SetRow(card, 1);
             host.Children.Add(card);
             Body.Children.Add(host);
-            Core.OnLog -= OnLog;
-            Core.OnLog += OnLog;
         }
 
         void BuildList()
@@ -153,7 +151,12 @@ namespace ZapretStudio
             return f;
         }
 
-        public override void OnShow() { RebuildAll(); }
+        public override void OnShow()
+        {
+            Core.OnLog -= OnLog;
+            Core.OnLog += OnLog;
+            RebuildAll();
+        }
         public override void OnHide() { Core.OnLog -= OnLog; }
 
         void BuildToolbar()

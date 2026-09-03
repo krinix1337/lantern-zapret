@@ -568,19 +568,12 @@ namespace ZapretStudio
         // Реальные проверки, без подмены результатов.
         static List<Target> StratProbes()
         {
-            // Читаем из utils/targets.txt как test zapret.ps1
-            var fromFile = Core.LoadTargets();
-            if (fromFile.Count > 0) return fromFile;
-            // Фолбэк если targets.txt пуст
             var l = new List<Target>();
-            AddProbe(l, "Discord",          "Discord", "https://discord.com");
-            AddProbe(l, "Discord CDN",      "Discord", "https://cdn.discordapp.com");
-            AddProbe(l, "Discord Gateway",  "Discord", "https://gateway.discord.gg");
-            AddProbe(l, "YouTube",          "YouTube", "https://www.youtube.com");
-            AddProbe(l, "YouTube images",   "YouTube", "https://i.ytimg.com");
-            AddProbe(l, "YouTube Music",    "YouTube", "https://music.youtube.com");
-            AddProbe(l, "Google",           "Google", "https://www.google.com");
-            AddProbe(l, "Cloudflare",       "Cloudflare", "https://www.cloudflare.com");
+            AddProbe(l, "Discord Web",    "Discord", "https://discord.com");
+            AddProbe(l, "Discord CDN",    "Discord", "https://cdn.discordapp.com");
+            AddProbe(l, "YouTube Web",    "YouTube", "https://www.youtube.com");
+            AddProbe(l, "YouTube Video",  "YouTube", "https://i.ytimg.com");
+            AddProbe(l, "Google",         "Google",  "https://www.google.com");
             return l;
         }
 
@@ -651,6 +644,8 @@ namespace ZapretStudio
         void RunQueue(List<StratRowRef> queue)
         {
             BeginBusy();
+            bool wasRunning = _win.IsActive2();
+            string prevStrat = _win.CurrentStrategyFile();
             foreach (var rr in queue) SetStratPill(rr, Sev.Neutral, Loc.T("check.strat.queued"));
             var probes = StratProbes();
             Core.Info(Loc.T("check.strat.busy") + " (" + queue.Count + ")");
@@ -675,22 +670,38 @@ namespace ZapretStudio
                     {
                         Core.KillWinws();
                         Core.StartWinws(row.File);
-                        for (int i = 0; i < 50 && !_stratCancel; i++) Thread.Sleep(100); // 5с как в test zapret.ps1
-                        foreach (var t in probes)
+                        for (int i = 0; i < 6 && !_stratCancel; i++) Thread.Sleep(100); // 600ms вместо 5000ms
+
+                        // Параллельная проверка всех целей за 2-3 секунды
+                        int remaining = probes.Count;
+                        using (var done = new ManualResetEvent(false))
                         {
-                            if (_stratCancel) break;
-                            var tt = t;
-                            Dispatcher.Invoke((Action)delegate { row.Result.Text = string.Format(Loc.T("check.strat.probing"), tt.Name); });
-                            if (t.Kind == "PING")
+                            foreach (var t in probes)
                             {
-                                CheckResult res = Core.TestTarget(t, 5000);
-                                if (res.State == "reachable") ok++;
+                                var tt = t;
+                                ThreadPool.QueueUserWorkItem(delegate
+                                {
+                                    try
+                                    {
+                                        if (!_stratCancel)
+                                        {
+                                            if (tt.Kind == "PING")
+                                            {
+                                                var res = Core.TestPing(tt.Host, 3000);
+                                                if (res.State == "reachable") Interlocked.Increment(ref ok);
+                                            }
+                                            else
+                                            {
+                                                var cr = Core.CurlCheck(tt.Url, 3);
+                                                if (cr.Verdict == "ok") Interlocked.Increment(ref ok);
+                                            }
+                                        }
+                                    }
+                                    catch { }
+                                    if (Interlocked.Decrement(ref remaining) == 0) done.Set();
+                                });
                             }
-                            else
-                            {
-                                Core.CurlResult cr = Core.CurlCheck(t.Url, 5);
-                                if (cr.Verdict == "ok") ok++;
-                            }
+                            done.WaitOne(4000);
                         }
                     }
                     catch (Exception ex) { err = ex.Message; }
@@ -727,7 +738,14 @@ namespace ZapretStudio
                     if (!_stratCancel) ShowComparison();
                 });
               } catch { }
-              finally { Core.EndWinwsOperation(); }
+              finally
+              {
+                  Core.EndWinwsOperation();
+                  if (wasRunning && !string.IsNullOrEmpty(prevStrat))
+                  {
+                      Dispatcher.Invoke((Action)delegate { try { _win.RunStrategy(prevStrat); } catch { } });
+                  }
+              }
             });
         }
 

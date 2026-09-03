@@ -237,13 +237,25 @@ namespace ZapretStudio
             cmd = UnescapeCaret(cmd);
             if (!IpsetEnabled)
             {
-                // В bat-файлах каждая группа правил разделена --new. Убираем только
-                // группы с --ipset= целиком: простое удаление одного аргумента сделало
-                // бы их фильтры применимыми ко всему трафику.
+                // В bat-файлах каждая группа правил разделена --new.
+                // В первой группе правил (parts[0]) находятся глобальные фильтры драйвера (--wf-tcp / --wf-udp).
+                // Удалять её целиком нельзя — удаляем только аргумент --ipset.
+                // Последующие секции с --ipset убираются целиком, чтобы их десинк-фильтры не применились ко всему трафику.
                 var parts = Regex.Split(cmd, @"\s+--new\s+");
                 var kept = new List<string>();
-                foreach (var part in parts)
-                    if (part.IndexOf("--ipset=", StringComparison.OrdinalIgnoreCase) < 0) kept.Add(part);
+                for (int i = 0; i < parts.Length; i++)
+                {
+                    var part = parts[i];
+                    if (part.IndexOf("--ipset=", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        if (i == 0)
+                        {
+                            string cleaned = Regex.Replace(part, @"--ipset=""?[^""\s]+""?\s*", "");
+                            kept.Add(cleaned.Trim());
+                        }
+                    }
+                    else kept.Add(part);
+                }
                 cmd = string.Join(" --new ", kept.ToArray());
             }
             return cmd.Trim();

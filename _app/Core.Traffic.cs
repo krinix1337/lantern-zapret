@@ -9,6 +9,7 @@ namespace ZapretStudio
         static long _prevSent, _prevRecv;
         static DateTime _prevTime;
         static bool _hasPrev;
+        static double _lastSpeedSent, _lastSpeedRecv;
         static readonly object _trafficLock = new object();
 
         public class TrafficSnapshot
@@ -44,15 +45,26 @@ namespace ZapretStudio
                 if (_hasPrev)
                 {
                     double dt = (now - _prevTime).TotalSeconds;
-                    if (dt > 0.5)
+                    if (dt >= 0.5)
                     {
                         spSent = (sent - _prevSent) / dt;
                         spRecv = (recv - _prevRecv) / dt;
                         if (spSent < 0) spSent = 0;
                         if (spRecv < 0) spRecv = 0;
+                        _lastSpeedSent = spSent;
+                        _lastSpeedRecv = spRecv;
+                        _prevSent = sent; _prevRecv = recv; _prevTime = now;
+                    }
+                    else
+                    {
+                        spSent = _lastSpeedSent;
+                        spRecv = _lastSpeedRecv;
                     }
                 }
-                _prevSent = sent; _prevRecv = recv; _prevTime = now; _hasPrev = true;
+                else
+                {
+                    _prevSent = sent; _prevRecv = recv; _prevTime = now; _hasPrev = true;
+                }
             }
 
             var snap = new TrafficSnapshot

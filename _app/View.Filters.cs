@@ -192,16 +192,26 @@ namespace ZapretStudio
             _listBox.Items.Clear();
             string path = CurrentListPath();
             int count = 0;
+            const int MaxDisplay = 300;
             try
             {
                 if (File.Exists(path))
                 {
-                    foreach (var line in File.ReadAllLines(path))
+                    using (var reader = new StreamReader(path))
                     {
-                        string s = line.Trim();
-                        if (s.Length == 0 || s.StartsWith("#")) continue;
-                        _listBox.Items.Add(s);
-                        count++;
+                        string line;
+                        while ((line = reader.ReadLine()) != null)
+                        {
+                            string s = line.Trim();
+                            if (s.Length == 0 || s.StartsWith("#")) continue;
+                            count++;
+                            if (count <= MaxDisplay)
+                                _listBox.Items.Add(s);
+                        }
+                    }
+                    if (count > MaxDisplay)
+                    {
+                        _listBox.Items.Add(string.Format("... +{0} ещё (список сокращён для быстродействия)", count - MaxDisplay));
                     }
                 }
             }
@@ -229,7 +239,7 @@ namespace ZapretStudio
         {
             if (_listBox.SelectedIndex < 0) return;
             string val = _listBox.SelectedItem as string;
-            if (val == null) return;
+            if (val == null || val.StartsWith("... +")) return;
             string path = CurrentListPath();
             try
             {

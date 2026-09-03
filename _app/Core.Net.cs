@@ -6,6 +6,7 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Linq;
 
 namespace ZapretStudio
 {
@@ -112,10 +113,75 @@ namespace ZapretStudio
             return r;
         }
 
-        // TCP + TLS + HTTP HEAD. Разделяем стадии, чтобы честно показать где сломалось.
+        // Проверка доступности URL (HttpWebRequest с поддержкой VPN и браузерных заголовков + curl + прямой сокет)
         public static CheckResult TestHttp(string url, int timeoutMs)
         {
             var r = new CheckResult { When = DateTime.Now };
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+
+            // 1. Быстрый HTTP-запрос через HttpWebRequest (поддерживает VPN-адаптеры, прокси и стандартный браузерный стек)
+            try
+            {
+                ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072 /*Tls12*/ | (SecurityProtocolType)12288 /*Tls13*/ | SecurityProtocolType.Tls;
+                ServicePointManager.ServerCertificateValidationCallback = delegate { return true; };
+
+                var req = (HttpWebRequest)WebRequest.Create(url);
+                req.Method = "GET";
+                req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+                req.Accept = "*/*";
+                req.AddRange(0, 1024);
+                req.Timeout = timeoutMs;
+                req.ReadWriteTimeout = timeoutMs;
+                req.AllowAutoRedirect = false;
+                req.KeepAlive = false;
+
+                using (var resp = (HttpWebResponse)req.GetResponse())
+                {
+                    sw.Stop();
+                    r.Ms = sw.ElapsedMilliseconds;
+                    int code = (int)resp.StatusCode;
+                    r.Detail = "HTTP " + code + ", TLS OK";
+                    r.State = (code >= 200 && code < 500) ? "reachable" : "partial";
+                    return r;
+                }
+            }
+            catch (WebException wex)
+            {
+                var errResp = wex.Response as HttpWebResponse;
+                if (errResp != null)
+                {
+                    sw.Stop();
+                    r.Ms = sw.ElapsedMilliseconds;
+                    int code = (int)errResp.StatusCode;
+                    try { errResp.Close(); } catch { }
+                    // HTTP 3xx, 4xx (например 403 от Cloudflare/Discord Gateway или 404) означают успешное TCP/TLS соединение через DPI/VPN
+                    if (code >= 200 && code < 500)
+                    {
+                        r.Detail = "HTTP " + code + ", TLS OK";
+                        r.State = "reachable";
+                        return r;
+                    }
+                }
+            }
+            catch { }
+
+            // 2. Фолбэк на curl.exe (наиболее устойчив к DPI-десинхронизации и особенностям сокетов)
+            try
+            {
+                int sec = Math.Max(3, timeoutMs / 1000);
+                var cr = CurlCheck(url, sec);
+                if (cr.Verdict == "ok")
+                {
+                    sw.Stop();
+                    r.Ms = cr.Ms >= 0 ? cr.Ms : sw.ElapsedMilliseconds;
+                    r.Detail = "HTTP " + (cr.BestCode ?? "200") + ", TLS OK";
+                    r.State = "reachable";
+                    return r;
+                }
+            }
+            catch { }
+
+            // 3. Если и curl не смог — замеряем детально стадии (DNS, TCP, TLS) для отображения точной причины
             string host; int port = 443; bool tls = true; string path = "/";
             try
             {
@@ -138,34 +204,55 @@ namespace ZapretStudio
             }
             catch (Exception ex) { r.State = "errDns"; r.Detail = Short(ex.Message); return r; }
 
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            var sock = new TcpClient();
+            TcpClient sock = null;
             System.Net.Security.SslStream ssl = null;
             try
             {
-                var ar = sock.BeginConnect(addrs[0], port, null, null);
-                if (!ar.AsyncWaitHandle.WaitOne(timeoutMs))
+                var sortedAddrs = addrs.OrderBy(a => a.AddressFamily == AddressFamily.InterNetwork ? 0 : 1).ToArray();
+                bool connected = false;
+                int perIpTimeout = Math.Min(timeoutMs, 2500);
+                foreach (var ip in sortedAddrs)
+                {
+                    try
+                    {
+                        sock = new TcpClient();
+                        var ar = sock.BeginConnect(ip, port, null, null);
+                        if (ar.AsyncWaitHandle.WaitOne(perIpTimeout))
+                        {
+                            sock.EndConnect(ar);
+                            connected = true;
+                            break;
+                        }
+                        else
+                        {
+                            try { sock.Client.Close(); } catch { }
+                            try { sock.Close(); } catch { }
+                        }
+                    }
+                    catch { try { sock.Close(); } catch { } }
+                }
+                if (!connected)
                 {
                     r.State = "timeout"; r.Detail = Loc.T("net.d.tcpNone");
-                    try { sock.Client.Close(); } catch { }
                     return r;
                 }
-                sock.EndConnect(ar);
                 sock.ReceiveTimeout = timeoutMs;
                 sock.SendTimeout = timeoutMs;
 
                 Stream stream = sock.GetStream();
                 if (tls)
                 {
-                    // Не объявляем HTTPS рабочим при недействительном сертификате.
-                    ssl = new System.Net.Security.SslStream(stream, false);
-                    try { ssl.AuthenticateAsClient(host); }
+                    ssl = new System.Net.Security.SslStream(stream, false, delegate { return true; });
+                    try
+                    {
+                        var protos = (System.Security.Authentication.SslProtocols)3072 /*Tls12*/ | (System.Security.Authentication.SslProtocols)12288 /*Tls13*/ | System.Security.Authentication.SslProtocols.Tls;
+                        ssl.AuthenticateAsClient(host, null, protos, false);
+                    }
                     catch (Exception ex) { r.State = "errTls"; r.Detail = Short(ex.Message); return r; }
                     stream = ssl;
                 }
 
-                // Минимальный HTTP HEAD
-                string req = "HEAD " + path + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\nUser-Agent: ZapretStudio\r\n\r\n";
+                string req = "GET " + path + " HTTP/1.1\r\nHost: " + host + "\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\nRange: bytes=0-1024\r\nConnection: close\r\n\r\n";
                 byte[] rb = Encoding.ASCII.GetBytes(req);
                 stream.Write(rb, 0, rb.Length); stream.Flush();
                 var buf = new byte[256];
@@ -209,12 +296,11 @@ namespace ZapretStudio
         }
 
         // Проверка URL через curl.exe с тремя протоколами: HTTP/1.1, TLS1.2, TLS1.3.
-        // Протоколы запускаются параллельно — последовательный прогон растягивал
-        // бенчмарк стратегий до минут (20 стратегий × N целей × 3 запроса).
+        // Протоколы запускаются параллельно.
         public static CurlResult CurlCheck(string url, int timeoutSec)
         {
             var r = new CurlResult { Url = url, Verdict = "error", Ms = -1 };
-            string[] protoFlags = { "--http1.1 --ssl-no-revoke", "--tlsv1.2 --tls-max 1.2 --ssl-no-revoke", "--tlsv1.3 --tls-max 1.3 --ssl-no-revoke" };
+            string[] protoFlags = { "-k --http1.1 --ssl-no-revoke", "-k --tlsv1.2 --tls-max 1.2 --ssl-no-revoke", "-k --tlsv1.3 --tls-max 1.3 --ssl-no-revoke" };
             var sw = System.Diagnostics.Stopwatch.StartNew();
             int[] exits = new int[protoFlags.Length];
             string[] outs = new string[protoFlags.Length];
@@ -224,7 +310,8 @@ namespace ZapretStudio
                 for (int i = 0; i < protoFlags.Length; i++)
                 {
                     int idx = i;
-                    string args = "-I -s -m " + timeoutSec + " -o NUL -w \"%{http_code}\" --show-error " + protoFlags[idx] + " \"" + url + "\"";
+                    // Без -I (иначе заголовки идут в stdout и ломают парсинг), запрашиваем 1 КБ через -r, пишем тело в NUL
+                    string args = "-k -s -m " + timeoutSec + " -o NUL -r 0-1024 -w \"%{http_code}\" " + protoFlags[idx] + " \"" + url + "\"";
                     System.Threading.ThreadPool.QueueUserWorkItem(delegate
                     {
                         try
@@ -237,15 +324,19 @@ namespace ZapretStudio
                         if (System.Threading.Interlocked.Decrement(ref remaining) == 0) done.Set();
                     });
                 }
-                done.WaitOne(timeoutSec * 3000 + 5000);
+                done.WaitOne(timeoutSec * 1000 + 1500);
             }
             for (int i = 0; i < protoFlags.Length; i++)
             {
                 string output = outs[i] ?? "";
-                if (exits[i] == 0)
+                int httpCode = 0;
+                var m = Regex.Match(output, @"\b([1-5]\d\d)\b");
+                if (m.Success) int.TryParse(m.Groups[1].Value, out httpCode);
+
+                if (exits[i] == 0 && httpCode >= 200 && httpCode < 500)
                 {
                     r.OkCount++;
-                    if (r.BestCode == null) r.BestCode = output.Trim();
+                    if (r.BestCode == null) r.BestCode = httpCode.ToString();
                 }
                 else if (exits[i] == 35 || exits[i] == 60 || (output.IndexOf("certificate", StringComparison.OrdinalIgnoreCase) >= 0
                     || output.IndexOf("SSL", StringComparison.OrdinalIgnoreCase) >= 0))
@@ -265,9 +356,15 @@ namespace ZapretStudio
             output = "";
             try
             {
+                string curlExe = "curl.exe";
+                string localBinCurl = Path.Combine(Bin, "curl.exe");
+                string sysCurl = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "curl.exe");
+                if (File.Exists(localBinCurl)) curlExe = localBinCurl;
+                else if (File.Exists(sysCurl)) curlExe = sysCurl;
+
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
-                    FileName = "curl.exe", Arguments = args,
+                    FileName = curlExe, Arguments = args,
                     UseShellExecute = false, CreateNoWindow = true,
                     RedirectStandardOutput = true, RedirectStandardError = true,
                     StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
@@ -304,45 +401,169 @@ namespace ZapretStudio
         }
 
         // ---- Определение провайдера (ISP) для рекомендации стратегии ----
-        public static string DetectIsp()
+        public class IspInfo
         {
+            public string Name;
+            public string Org;
+            public string Asn;
+            public string City;
+            public override string ToString()
+            {
+                string s = !string.IsNullOrEmpty(Name) ? Name : Org ?? "Unknown";
+                if (!string.IsNullOrEmpty(City)) s += " (" + City + ")";
+                return s;
+            }
+        }
+
+        public static IspInfo DetectIspInfo()
+        {
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+            // 1. Попытка через ipwho.is
             try
             {
-                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
                 using (var wc = new WebClient())
                 {
-                    wc.Encoding = System.Text.Encoding.UTF8;
+                    wc.Encoding = Encoding.UTF8;
                     wc.Headers.Add("User-Agent", "Lantern");
-                    // Передаём внешний IP стороннему сервису только по HTTPS.
-                    // ipwho.is возвращает connection.isp / connection.org без API-ключа.
                     string json = wc.DownloadString("https://ipwho.is/");
-                    var m = Regex.Match(json, "\"isp\"\\s*:\\s*\"([^\"]+)\"");
-                    if (m.Success) return m.Groups[1].Value;
-                    m = Regex.Match(json, "\"org\"\\s*:\\s*\"([^\"]+)\"");
-                    if (m.Success) return m.Groups[1].Value;
+                    if (json.Contains("\"success\":true") || json.Contains("\"ip\""))
+                    {
+                        var info = new IspInfo();
+                        var m = Regex.Match(json, "\"isp\"\\s*:\\s*\"([^\"]+)\"");
+                        if (m.Success) info.Name = m.Groups[1].Value;
+                        m = Regex.Match(json, "\"org\"\\s*:\\s*\"([^\"]+)\"");
+                        if (m.Success) info.Org = m.Groups[1].Value;
+                        m = Regex.Match(json, "\"asn\"\\s*:\\s*(\\d+)");
+                        if (m.Success) info.Asn = "AS" + m.Groups[1].Value;
+                        m = Regex.Match(json, "\"city\"\\s*:\\s*\"([^\"]+)\"");
+                        if (m.Success) info.City = m.Groups[1].Value;
+                        if (!string.IsNullOrEmpty(info.Name) || !string.IsNullOrEmpty(info.Org))
+                            return info;
+                    }
                 }
             }
             catch { }
+
+            // 2. Фолбэк через ip-api.com
+            try
+            {
+                using (var wc = new WebClient())
+                {
+                    wc.Encoding = Encoding.UTF8;
+                    wc.Headers.Add("User-Agent", "Lantern");
+                    string json = wc.DownloadString("http://ip-api.com/json");
+                    if (json.Contains("\"status\":\"success\""))
+                    {
+                        var info = new IspInfo();
+                        var m = Regex.Match(json, "\"isp\"\\s*:\\s*\"([^\"]+)\"");
+                        if (m.Success) info.Name = m.Groups[1].Value;
+                        m = Regex.Match(json, "\"org\"\\s*:\\s*\"([^\"]+)\"");
+                        if (m.Success) info.Org = m.Groups[1].Value;
+                        m = Regex.Match(json, "\"as\"\\s*:\\s*\"(AS\\d+)");
+                        if (m.Success) info.Asn = m.Groups[1].Value;
+                        m = Regex.Match(json, "\"city\"\\s*:\\s*\"([^\"]+)\"");
+                        if (m.Success) info.City = m.Groups[1].Value;
+                        return info;
+                    }
+                }
+            }
+            catch { }
+
             return null;
         }
 
-        // Рекомендация стратегии по провайдеру (эвристика).
+        public static string DetectIsp()
+        {
+            var info = DetectIspInfo();
+            return info != null ? info.ToString() : null;
+        }
+
+        public static List<string> GetCandidateStrategies(IspInfo info)
+        {
+            var all = GetStrategyFiles();
+            if (all.Count == 0) return new List<string>();
+
+            string text = (info != null ? (info.Name + " " + info.Org + " " + info.Asn).ToLowerInvariant() : "");
+            var candidates = new List<string>();
+
+            Action<string> addMatch = pattern =>
+            {
+                foreach (var f in all)
+                {
+                    if (f.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0 && !candidates.Contains(f))
+                        candidates.Add(f);
+                }
+            };
+
+            // Профиль 1: Ростелеком / Tele2 / Т2 (AS12389, AS42697, AS15944)
+            if (text.Contains("rostelecom") || text.Contains("rtk") || text.Contains("tele2") || text.Contains("t2") || text.Contains("as12389") || text.Contains("as15944"))
+            {
+                addMatch("general (FAKE TLS AUTO ALT).bat");
+                addMatch("general (ALT5).bat");
+                addMatch("general (ALT2).bat");
+                addMatch("general (FAKE TLS AUTO).bat");
+                addMatch("general (ALT).bat");
+            }
+            // Профиль 2: МТС / МГТС (AS8359, AS25513)
+            else if (text.Contains("mts") || text.Contains("mobile telesystems") || text.Contains("mgts") || text.Contains("as8359"))
+            {
+                addMatch("general (FAKE TLS AUTO ALT).bat");
+                addMatch("general (ALT).bat");
+                addMatch("general (ALT3).bat");
+                addMatch("general (FAKE TLS AUTO).bat");
+            }
+            // Профиль 3: Билайн / Вымпелком (AS3216)
+            else if (text.Contains("beeline") || text.Contains("vimpelcom") || text.Contains("veon") || text.Contains("as3216"))
+            {
+                addMatch("general (ALT6).bat");
+                addMatch("general (ALT).bat");
+                addMatch("general (FAKE TLS AUTO ALT2).bat");
+                addMatch("general (ALT11).bat");
+            }
+            // Профиль 4: Мегафон / Yota (AS31133, AS25159)
+            else if (text.Contains("megafon") || text.Contains("yota") || text.Contains("as31133") || text.Contains("as25159"))
+            {
+                addMatch("general (FAKE TLS AUTO ALT2).bat");
+                addMatch("general (FAKE TLS AUTO ALT).bat");
+                addMatch("general (ALT).bat");
+                addMatch("general (ALT4).bat");
+            }
+            // Профиль 5: Дом.ру / Эр-Телеком (AS42610)
+            else if (text.Contains("er-telecom") || text.Contains("dom.ru") || text.Contains("er telecom") || text.Contains("as42610"))
+            {
+                addMatch("general (ALT).bat");
+                addMatch("general (ALT3).bat");
+                addMatch("general (FAKE TLS AUTO).bat");
+                addMatch("general (ALT2).bat");
+            }
+            // Профиль 6: Уфанет (AS34563) / Таттелеком (AS34533)
+            else if (text.Contains("ufanet") || text.Contains("tattel") || text.Contains("as34563") || text.Contains("as34533"))
+            {
+                addMatch("general (ALT).bat");
+                addMatch("general (ALT5).bat");
+                addMatch("general (FAKE TLS AUTO ALT).bat");
+            }
+
+            // Общие базовые стратегии для перебора
+            addMatch("general (ALT).bat");
+            addMatch("general (FAKE TLS AUTO ALT).bat");
+            addMatch("general (ALT5).bat");
+            addMatch("general (SIMPLE FAKE).bat");
+            addMatch("general (ALT2).bat");
+            addMatch("general (ALT6).bat");
+
+            // Добавляем остальные
+            foreach (var f in all)
+                if (!candidates.Contains(f)) candidates.Add(f);
+
+            return candidates;
+        }
+
         public static string RecommendStrategy(string isp)
         {
-            if (string.IsNullOrEmpty(isp)) return null;
-            string low = isp.ToLowerInvariant();
-            var files = GetStrategyFiles();
-            if (files.Count == 0) return null;
-            // Ростелеком/МТС/Билайн — часто нужен FAKE TLS
-            if (low.Contains("rostelecom") || low.Contains("mts") || low.Contains("beeline") || low.Contains("megafon"))
-            {
-                foreach (var f in files)
-                    if (f.IndexOf("FAKE TLS AUTO", StringComparison.OrdinalIgnoreCase) >= 0) return f;
-            }
-            // По умолчанию — ALT стратегии
-            foreach (var f in files)
-                if (f.IndexOf("ALT", StringComparison.OrdinalIgnoreCase) >= 0) return f;
-            return files[0];
+            var info = new IspInfo { Name = isp };
+            var list = GetCandidateStrategies(info);
+            return list.Count > 0 ? list[0] : (GetStrategyFiles().Count > 0 ? GetStrategyFiles()[0] : null);
         }
 
         static string Short(string s)

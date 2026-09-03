@@ -128,9 +128,11 @@ namespace ZapretStudio
         }
 
         StackPanel _sumResult;
+        bool _verifying;
 
         void Verify()
         {
+            if (_verifying) return;
             _sumResult.Children.Clear();
             string sumsFile = System.IO.Path.Combine(Core.Root, "SHA256SUMS.txt");
             if (!System.IO.File.Exists(sumsFile))
@@ -138,26 +140,55 @@ namespace ZapretStudio
                 _sumResult.Children.Add(Warn(Loc.T("about.sums.absent")));
                 return;
             }
-            int ok = 0, bad = 0, miss = 0;
-            foreach (var line in System.IO.File.ReadAllLines(sumsFile))
+            _verifying = true;
+            _sumResult.Children.Add(UI.T(Loc.T("common.checking") + "...", Theme.FsSmall, Theme.BrMuted, FontWeights.Normal));
+
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
-                string s = line.Trim();
-                if (s.Length == 0 || s.StartsWith("#")) continue;
-                int sp = s.IndexOf(' ');
-                if (sp < 0) continue;
-                string hash = s.Substring(0, sp).Trim().ToLowerInvariant();
-                string rel = s.Substring(sp).Trim().TrimStart('*').Trim();
-                string full = System.IO.Path.Combine(Core.Root, rel.Replace('/', System.IO.Path.DirectorySeparatorChar));
-                if (!System.IO.File.Exists(full)) { miss++; _sumResult.Children.Add(SumLine(rel, Sev.Warn, Loc.T("about.sums.missing"))); continue; }
-                string actual;
-                try { actual = Sha256(full); }
-                catch { miss++; _sumResult.Children.Add(SumLine(rel, Sev.Warn, Loc.T("about.sums.missing"))); continue; }
-                if (actual == hash) { ok++; _sumResult.Children.Add(SumLine(rel, Sev.Ok, Loc.T("about.sums.match"))); }
-                else { bad++; _sumResult.Children.Add(SumLine(rel, Sev.Err, Loc.T("about.sums.mismatch"))); }
-            }
-            string msg = string.Format(Loc.T("about.sums.summary"), ok, bad, miss);
-            Core.Info(msg);
-            _sumResult.Children.Insert(0, UI.T(msg, Theme.FsBody, bad > 0 ? Theme.BrErr : Theme.BrOk, FontWeights.SemiBold));
+                try
+                {
+                    var lines = System.IO.File.ReadAllLines(sumsFile);
+                    var items = new System.Collections.Generic.List<Tuple<string, Sev, string>>();
+                    int ok = 0, bad = 0, miss = 0;
+                    foreach (var line in lines)
+                    {
+                        string s = line.Trim();
+                        if (s.Length == 0 || s.StartsWith("#")) continue;
+                        int sp = s.IndexOf(' ');
+                        if (sp < 0) continue;
+                        string hash = s.Substring(0, sp).Trim().ToLowerInvariant();
+                        string rel = s.Substring(sp).Trim().TrimStart('*').Trim();
+                        string cleanRel = rel.Replace('/', System.IO.Path.DirectorySeparatorChar).TrimStart('.', System.IO.Path.DirectorySeparatorChar);
+                        string full = System.IO.Path.Combine(Core.Root, cleanRel);
+                        if (!System.IO.File.Exists(full)) { miss++; items.Add(Tuple.Create(rel, Sev.Warn, Loc.T("about.sums.missing"))); continue; }
+                        string actual;
+                        try { actual = Sha256(full); }
+                        catch { miss++; items.Add(Tuple.Create(rel, Sev.Warn, Loc.T("about.sums.missing"))); continue; }
+                        if (actual == hash) { ok++; items.Add(Tuple.Create(rel, Sev.Ok, Loc.T("about.sums.match"))); }
+                        else { bad++; items.Add(Tuple.Create(rel, Sev.Err, Loc.T("about.sums.mismatch"))); }
+                    }
+                    string msg = string.Format(Loc.T("about.sums.summary"), ok, bad, miss);
+                    Core.Info(msg);
+                    Dispatcher.Invoke((Action)delegate
+                    {
+                        _sumResult.Children.Clear();
+                        _sumResult.Children.Add(UI.T(msg, Theme.FsBody, bad > 0 ? Theme.BrErr : Theme.BrOk, FontWeights.SemiBold));
+                        foreach (var it in items)
+                        {
+                            _sumResult.Children.Add(SumLine(it.Item1, it.Item2, it.Item3));
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Dispatcher.Invoke((Action)delegate
+                    {
+                        _sumResult.Children.Clear();
+                        _sumResult.Children.Add(Warn(ex.Message));
+                    });
+                }
+                finally { _verifying = false; }
+            });
         }
 
         static string Sha256(string path)

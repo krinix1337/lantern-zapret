@@ -26,6 +26,7 @@ namespace ZapretStudio
             BuildWatchdog();
             BuildProfiles();
             BuildPrivacy();
+            BuildAntivirus();
         }
 
         Toggle Tog(string cfgKey, bool dflt, string accName, Action<bool> onChange)
@@ -654,6 +655,76 @@ namespace ZapretStudio
         {
             Body.Children.Add(SectionLabel(Loc.T("settings.sec.privacy")));
             Body.Children.Add(NoteCard(Icons.Shield, Theme.BrOk, Loc.T("settings.privacy.note"), Sev.Ok));
+        }
+
+        void BuildAntivirus()
+        {
+            Body.Children.Add(SectionLabel(Loc.T("settings.sec.antivirus")));
+            Body.Children.Add(NoteCard(Icons.Shield, Theme.BrWarn, Loc.T("settings.defender.note"), Sev.Warn));
+            Body.Children.Add(space());
+
+            var btn = Ctl.Button(Loc.T("settings.defender.btn"), Icons.Shield, 1);
+            btn.HorizontalAlignment = HorizontalAlignment.Left;
+            var pillHost = new Border { VerticalAlignment = VerticalAlignment.Center };
+            pillHost.Child = Pill.Make(Sev.Neutral, Loc.T("settings.defender.notIn"));
+
+            Action updateStatus = delegate
+            {
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                {
+                    bool isSet = Core.IsDefenderExclusionSet();
+                    Dispatcher.Invoke((Action)delegate
+                    {
+                        if (isSet)
+                        {
+                            pillHost.Child = Pill.Make(Sev.Ok, Loc.T("settings.defender.inList"));
+                            btn.IsEnabled = false;
+                        }
+                        else
+                        {
+                            pillHost.Child = Pill.Make(Sev.Warn, Loc.T("settings.defender.notIn"));
+                            btn.IsEnabled = true;
+                        }
+                    });
+                });
+            };
+
+            btn.Click += (s, e) =>
+            {
+                btn.IsEnabled = false;
+                _win.ShowToast(Loc.T("settings.defender.btn") + "...", Sev.Info);
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                {
+                    bool ok = Core.AddDefenderExclusion();
+                    Dispatcher.Invoke((Action)delegate
+                    {
+                        if (ok)
+                        {
+                            _win.ShowToast(Loc.T("settings.defender.ok"), Sev.Ok);
+                            Core.Info(Loc.T("settings.defender.ok"));
+                            updateStatus();
+                        }
+                        else
+                        {
+                            _win.ShowToast(Loc.T("settings.defender.fail"), Sev.Err);
+                            btn.IsEnabled = true;
+                        }
+                    });
+                });
+            };
+
+            updateStatus();
+
+            var row = new Grid();
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(btn, 0);
+            Grid.SetColumn(pillHost, 2);
+            row.Children.Add(btn);
+            row.Children.Add(pillHost);
+
+            Body.Children.Add(row);
         }
 
         static UIElement space() { return new Border { Height = 10 }; }

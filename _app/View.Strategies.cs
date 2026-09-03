@@ -54,24 +54,94 @@ namespace ZapretStudio
             {
                 try
                 {
-                    string isp = Core.DetectIsp();
-                    string rec = Core.RecommendStrategy(isp);
+                    var info = Core.DetectIspInfo();
+                    string ispDisplay = info != null ? info.ToString() : Core.DetectIsp();
+                    var candidates = Core.GetCandidateStrategies(info);
+
+                    string bestFile = null;
+                    bool liveVerified = false;
+                    bool wasRunning = _win.IsActive2();
+                    string prevStrat = _win.CurrentStrategyFile();
+
+                    if (Core.TryBeginWinwsOperation())
+                    {
+                        try
+                        {
+                            var quickProbes = new List<Target>();
+                            Core.AddQ(quickProbes, "Discord", "https://discord.com");
+                            Core.AddQ(quickProbes, "YouTube", "https://www.youtube.com");
+
+                            int testCount = Math.Min(4, candidates.Count);
+                            for (int i = 0; i < testCount; i++)
+                            {
+                                string cand = candidates[i];
+                                Core.KillWinws();
+                                Core.StartWinws(cand);
+                                System.Threading.Thread.Sleep(500);
+
+                                int ok = 0;
+                                foreach (var q in quickProbes)
+                                {
+                                    var cr = Core.CurlCheck(q.Url, 2);
+                                    if (cr.Verdict == "ok") ok++;
+                                }
+                                if (ok >= 1)
+                                {
+                                    bestFile = cand;
+                                    liveVerified = true;
+                                    break;
+                                }
+                            }
+                        }
+                        finally
+                        {
+                            Core.KillWinws();
+                            Core.EndWinwsOperation();
+                            if (wasRunning && !string.IsNullOrEmpty(prevStrat))
+                            {
+                                Dispatcher.Invoke((Action)delegate { try { _win.RunStrategy(prevStrat); } catch { } });
+                            }
+                        }
+                    }
+
+                    if (bestFile == null && candidates.Count > 0)
+                        bestFile = candidates[0];
+
                     Dispatcher.Invoke((Action)delegate
                     {
-                        if (rec == null)
+                        if (bestFile == null)
                         {
                             _win.ShowToast(Loc.T("strat.recommend.fail"), Sev.Warn);
                             return;
                         }
-                        string name = Core.PrettyName(rec);
-                        string msg = string.IsNullOrEmpty(isp)
-                            ? string.Format(Loc.T("strat.recommend.result"), name)
-                            : string.Format(Loc.T("strat.recommend.isp"), isp, name);
-                        _win.ShowToast(msg, Sev.Ok);
+                        string name = Core.PrettyName(bestFile);
+                        string verifiedNote = liveVerified ? " (проверено живым тестом)" : "";
+                        string msg = string.IsNullOrEmpty(ispDisplay)
+                            ? string.Format(Loc.T("strat.recommend.result"), name) + verifiedNote
+                            : string.Format(Loc.T("strat.recommend.isp"), ispDisplay, name) + verifiedNote;
+
+                        var res = MessageBox.Show(
+                            msg + Environment.NewLine + Environment.NewLine + "Применить эту стратегию прямо сейчас?",
+                            "Подбор стратегии",
+                            MessageBoxButton.YesNo,
+                            MessageBoxImage.Question);
+
+                        if (res == MessageBoxResult.Yes)
+                        {
+                            _win.RunStrategy(bestFile);
+                            _win.ShowToast("Стратегия применена: " + name, Sev.Ok);
+                        }
+                        else
+                        {
+                            _win.ShowToast(msg, Sev.Ok);
+                        }
                         Core.Info(msg);
                     });
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    Dispatcher.Invoke((Action)delegate { Core.Fail("DoRecommend: " + ex.Message); });
+                }
             });
         }
 
@@ -106,6 +176,7 @@ namespace ZapretStudio
             cats.Children.Add(CatChip("General", "General"));
             cats.Children.Add(CatChip("ALT", "ALT"));
             cats.Children.Add(CatChip("FAKE", "FAKE"));
+            cats.Children.Add(CatChip("SIMPLE", "SIMPLE"));
             cats.Children.Add(CatChip("fav", Loc.T("strat.favorites")));
             _catBar = cats;
             Grid.SetColumn(cats, 1);

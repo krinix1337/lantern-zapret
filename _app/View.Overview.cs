@@ -533,6 +533,10 @@ namespace ZapretStudio
                     if (_restartBtn != null) _restartBtn.IsEnabled = false;
                 }
             }
+            else if (running)
+            {
+                _statusSub.Text = mode == Loc.T("mode.service") ? Loc.T("ov.sub.service") : Loc.T("ov.sub.manual");
+            }
 
             if (_stratName != null) _stratName.Text = string.IsNullOrEmpty(strat) ? Loc.T("ov.stratNone") : strat;
             _modeVal.Text = running ? mode : "—";

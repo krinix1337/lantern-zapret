@@ -1,10 +1,10 @@
 ; Lantern Installer — Inno Setup 6
 #define AppName "Lantern"
-#define AppVersion "6.1"
+#define AppVersion "7.0"
 #define AppPublisher "krinix1337"
 #define AppURL "https://github.com/krinix1337/lantern-zapret"
 #define AppExeName "Lantern.exe"
-#define SrcDir "C:\project\zapret\zapret-discord-youtube-1.9.9d"
+#define SrcDir ".."
 
 [Setup]
 AppId={{A7F3B2C1-4D5E-6F7A-8B9C-0D1E2F3A4B5C}
@@ -23,6 +23,7 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
+CloseApplications=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#AppExeName}

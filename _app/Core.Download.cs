@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 
 namespace ZapretStudio
@@ -184,6 +186,11 @@ namespace ZapretStudio
                         if (SkipGitEntry(entry.FullName)) continue;
                         string cleanName = entry.FullName.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
                         string destPath = Path.Combine(tmp, cleanName);
+                        string fullDestPath = Path.GetFullPath(destPath);
+                        string fullTmp = Path.GetFullPath(tmp);
+                        if (!fullDestPath.StartsWith(fullTmp.EndsWith(Path.DirectorySeparatorChar.ToString()) ? fullTmp : fullTmp + Path.DirectorySeparatorChar))
+                            continue;
+
                         if (entry.FullName.EndsWith("/") || entry.FullName.EndsWith("\\") || string.IsNullOrEmpty(entry.Name))
                         {
                             if (!Directory.Exists(destPath)) Directory.CreateDirectory(destPath);
@@ -209,8 +216,14 @@ namespace ZapretStudio
 
                 if (!Directory.Exists(destDir)) Directory.CreateDirectory(destDir);
                 if (onStage != null) onStage("replace");
-                CopyDir(src, destDir);
+                var copyErrors = new List<string>();
+                CopyDir(src, destDir, ref copyErrors);
                 DeleteDirSafe(tmp);
+                if (copyErrors.Count > 0)
+                {
+                    error = "Locked files: " + string.Join("; ", copyErrors.Take(3).ToArray());
+                    return false;
+                }
                 return true;
             }
             catch (Exception ex)
@@ -240,22 +253,27 @@ namespace ZapretStudio
             }
         }
 
-        static void CopyDir(string src, string dst, int depth = 0)
+        static bool CopyDir(string src, string dst, ref List<string> errors, int depth = 0)
         {
-            if (depth > 32 || !Directory.Exists(src)) return;
+            if (depth > 32 || !Directory.Exists(src)) return true;
             if (!Directory.Exists(dst)) Directory.CreateDirectory(dst);
+            bool ok = true;
             foreach (var f in Directory.GetFiles(src))
             {
+                string targetFile = Path.Combine(dst, Path.GetFileName(f));
                 try
                 {
-                    string targetFile = Path.Combine(dst, Path.GetFileName(f));
                     if (File.Exists(targetFile))
                     {
                         try { File.SetAttributes(targetFile, FileAttributes.Normal); } catch { }
                     }
                     File.Copy(f, targetFile, true);
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    ok = false;
+                    if (errors != null) errors.Add(Path.GetFileName(f) + ": " + ex.Message);
+                }
             }
             foreach (var d in Directory.GetDirectories(src))
             {
@@ -264,17 +282,18 @@ namespace ZapretStudio
                     dirName.Equals(".git", StringComparison.OrdinalIgnoreCase) ||
                     dirName.Equals(".service", StringComparison.OrdinalIgnoreCase))
                     continue;
-                CopyDir(d, Path.Combine(dst, dirName), depth + 1);
+                if (!CopyDir(d, Path.Combine(dst, dirName), ref errors, depth + 1)) ok = false;
             }
+            return ok;
         }
 
-        // Пометить корень в локальном gui-config рядом с exe, чтобы найти после перезапуска.
+        // Пометить корень в локальном gui-config рядом с exe, сохраняя остальные настройки.
         public static void RememberRoot(string path)
         {
             try
             {
-                var cfgPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "gui-config.ini");
-                File.WriteAllText(cfgPath, "root=" + path + Environment.NewLine);
+                Set("root", path);
+                SaveConfig();
             }
             catch { }
         }

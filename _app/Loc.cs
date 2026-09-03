@@ -680,6 +680,15 @@ namespace ZapretStudio
             // Версии в сайдбаре без данных проверки (честно, без «актуально»)
             A("mw.tgVerPlain",   "Версия TG-Proxy: {0}", "TG-Proxy version: {0}");
             A("mw.appShellPlain","Версия оболочки: v{0}", "Shell version: v{0}");
+
+            // Исключения Windows Defender
+            A("settings.sec.antivirus",  "Антивирус и Защитник Windows", "Antivirus and Windows Defender");
+            A("settings.defender.note",  "Драйвер WinDivert (необходим для работы zapret) часто ошибочно помечается Защитником Windows как RiskTool/HackTool. Добавление папки приложения в исключения гарантирует, что антивирус не заблокирует драйвер и не удалит файлы программы.", "The WinDivert driver (required by zapret) is often falsely flagged by Windows Defender as RiskTool/HackTool. Adding the application folder to exclusions guarantees that antivirus will not block the driver or delete the app.");
+            A("settings.defender.btn",   "Добавить в исключения Windows Defender", "Add to Windows Defender exclusions");
+            A("settings.defender.inList","Папка в исключениях", "Folder in exclusions");
+            A("settings.defender.notIn", "Не добавлено в исключения", "Not in exclusions");
+            A("settings.defender.ok",    "Папка приложения успешно добавлена в исключения Windows Defender!", "Application folder successfully added to Windows Defender exclusions!");
+            A("settings.defender.fail",  "Не удалось добавить в исключения. Убедитесь, что приложение запущено от имени администратора.", "Failed to add to exclusions. Make sure the application is running as administrator.");
         }
 
         static void A(string key, string ru, string en) { M[key] = new[] { ru, en }; }

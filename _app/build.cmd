@@ -6,5 +6,7 @@ rem -codepage:65001 обязателен: исходники в UTF-8 без BOM
 rem читает их в системной ANSI-кодировке и портит кириллицу в строках.
 "%CSC%" -nologo -codepage:65001 -target:winexe -out:"zapret.exe" -win32manifest:app.manifest -resource:assets\peter-griffin.png,ZapretStudio.Assets.PeterGriffin @refs.rsp %SRCS%
 if errorlevel 1 ( echo BUILD FAILED & exit /b 1 )
-echo BUILD OK: zapret.exe
+copy /y "zapret.exe" "..\Lantern.exe" >nul
+copy /y "zapret.exe" "..\zapret.exe" >nul
+echo BUILD OK: zapret.exe and Lantern.exe updated
 endlocal

@@ -210,6 +210,11 @@ namespace ZapretStudio
             bool dohIface = DohInterfaceConfigured();
             d.Add(new DiagItem { Name = Loc.T("diag.n.dohIface"), Sev = dohIface ? Sev.Ok : Sev.Info,
                 Value = dohIface ? Loc.T("diag.v.on") : Loc.T("diag.v.dohHint") });
+
+            // Исключение Windows Defender
+            bool defEx = IsDefenderExclusionSet();
+            d.Add(new DiagItem { Name = Loc.T("settings.sec.antivirus"), Sev = defEx ? Sev.Ok : Sev.Warn,
+                Value = defEx ? Loc.T("settings.defender.inList") : Loc.T("settings.defender.notIn") });
         }
 
         // Killer / SmartByte / Intel Connectivity: наличие службы по подстроке имени.

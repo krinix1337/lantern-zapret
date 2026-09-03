@@ -12,6 +12,7 @@ namespace ZapretStudio
         public static DateTime? StartedAt; // время запуска (для uptime), пока процессом управляет приложение
         static int _winwsOperation;
         static int _lastKnownWinwsPid = -1;
+        static Process _winwsProcess;
 
         // ---- Кольцевой буфер вывода winws (stdout/stderr) ----
         // Окно winws скрыто и его логи раньше терялись: буфер хранит последние
@@ -113,9 +114,11 @@ namespace ZapretStudio
             {
                 try
                 {
-                    var p = Process.GetProcessById(_lastKnownWinwsPid);
-                    if (!p.HasExited && p.ProcessName.Equals("winws", StringComparison.OrdinalIgnoreCase))
-                        return true;
+                    using (var p = Process.GetProcessById(_lastKnownWinwsPid))
+                    {
+                        if (!p.HasExited && p.ProcessName.Equals("winws", StringComparison.OrdinalIgnoreCase))
+                            return true;
+                    }
                 }
                 catch { _lastKnownWinwsPid = -1; }
             }
@@ -157,26 +160,27 @@ namespace ZapretStudio
             };
             try
             {
-                using (var p = Process.Start(psi))
+                var p = Process.Start(psi);
+                if (p == null) { Say(Sev.Err, "StartWinws: process was not created"); return false; }
+                // Логи winws — в кольцевой буфер (см. журнал → «Вывод winws»).
+                p.OutputDataReceived += delegate(object s, DataReceivedEventArgs e) { WinwsLogAppend(e.Data); };
+                p.ErrorDataReceived += delegate(object s, DataReceivedEventArgs e) { WinwsLogAppend(e.Data); };
+                p.BeginOutputReadLine();
+                p.BeginErrorReadLine();
+                // Process.Start успешен даже если winws немедленно завершился
+                // из-за неверных аргументов или отсутствующего драйвера.
+                System.Threading.Thread.Sleep(150);
+                if (p.HasExited)
                 {
-                    if (p == null) { Say(Sev.Err, "StartWinws: process was not created"); return false; }
-                    // Логи winws — в кольцевой буфер (см. журнал → «Вывод winws»).
-                    p.OutputDataReceived += delegate(object s, DataReceivedEventArgs e) { WinwsLogAppend(e.Data); };
-                    p.ErrorDataReceived += delegate(object s, DataReceivedEventArgs e) { WinwsLogAppend(e.Data); };
-                    p.BeginOutputReadLine();
-                    p.BeginErrorReadLine();
-                    // Process.Start успешен даже если winws немедленно завершился
-                    // из-за неверных аргументов или отсутствующего драйвера.
-                    System.Threading.Thread.Sleep(150);
-                    if (p.HasExited)
-                    {
-                        Say(Sev.Err, "StartWinws: winws exited with code " + p.ExitCode);
-                        return false;
-                    }
-                    _lastKnownWinwsPid = p.Id;
-                    StartedAt = DateTime.Now;
-                    return true;
+                    Say(Sev.Err, "StartWinws: winws exited with code " + p.ExitCode);
+                    p.Dispose();
+                    return false;
                 }
+                if (_winwsProcess != null) { try { _winwsProcess.Dispose(); } catch { } }
+                _winwsProcess = p;
+                _lastKnownWinwsPid = p.Id;
+                StartedAt = DateTime.Now;
+                return true;
             }
             catch (Exception ex) { Say(Sev.Err, "StartWinws: " + ex.Message); return false; }
         }
@@ -185,6 +189,11 @@ namespace ZapretStudio
         {
             bool ok = true;
             _lastKnownWinwsPid = -1;
+            if (_winwsProcess != null)
+            {
+                try { _winwsProcess.Dispose(); } catch { }
+                _winwsProcess = null;
+            }
             var procs = RootWinwsProcesses();
             try
             {
@@ -278,9 +287,9 @@ namespace ZapretStudio
             string args;
             try { args = BuildArgs(batFileName); }
             catch (Exception ex) { Say(Sev.Err, "InstallService: " + ex.Message); return false; }
-string binPath = Q(WinwsExe) + " " + args;
+            string escapedBinPath = "\\\"" + WinwsExe + "\\\" " + args;
             string err;
-            if (!Run("sc", "create " + ServiceName + " binPath= " + Q(binPath) + " DisplayName= \"zapret\" start= auto", 20000, out err)) return false;
+            if (!Run("sc", "create " + ServiceName + " binPath= " + Q(escapedBinPath) + " DisplayName= \"zapret\" start= auto", 20000, out err)) return false;
             if (!Run("sc", "description " + ServiceName + " \"Zapret DPI bypass software\"", 15000, out err)) return false;
             if (!Run("sc", "start " + ServiceName, 20000, out err)) return false;
             // отметим стратегию в реестре (как в service.bat)
@@ -294,13 +303,17 @@ string binPath = Q(WinwsExe) + " " + args;
 public static bool StartService() { string err; bool ok = Run("sc", "start " + ServiceName, 20000, out err); if (ok) StartedAt = DateTime.Now; InvalidateServiceStrategyCache(); return ok; }
         public static bool StopService()  { string err; bool ok = Run("sc", "stop " + ServiceName, 20000, out err); if (ok) StartedAt = null; InvalidateServiceStrategyCache(); return ok; }
 
-public static bool RemoveService()
+        public static bool RemoveService()
         {
             string err;
             Run("net", "stop " + ServiceName, 20000, out err);
             bool existed = ServiceExists();
             bool ok = !existed || Run("sc", "delete " + ServiceName, 15000, out err);
             KillWinws();
+            Run("net", "stop WinDivert", 10000, out err);
+            Run("sc", "delete WinDivert", 10000, out err);
+            Run("net", "stop WinDivert14", 10000, out err);
+            Run("sc", "delete WinDivert14", 10000, out err);
             InvalidateServiceStrategyCache();
             InvalidateWinDivertCache();
             StartedAt = null;
@@ -450,6 +463,47 @@ public static bool RemoveService()
                 }
             }
             catch { return ""; }
+        }
+
+        // Добавление папки приложения в исключения Windows Defender, чтобы антивирус не удалял WinDivert и zapret.exe
+        public static bool AddDefenderExclusion()
+        {
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = "-NoProfile -ExecutionPolicy Bypass -Command \"Add-MpPreference -ExclusionPath '" + Root.Replace("'", "''") + "'\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using (var p = Process.Start(psi))
+                {
+                    p.WaitForExit(10000);
+                    return p.ExitCode == 0;
+                }
+            }
+            catch { return false; }
+        }
+
+        public static bool IsDefenderExclusionSet()
+        {
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = "-NoProfile -ExecutionPolicy Bypass -Command \"$p = (Get-MpPreference).ExclusionPath; if ($p -contains '" + Root.Replace("'", "''") + "') { exit 0 } else { exit 1 }\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using (var p = Process.Start(psi))
+                {
+                    p.WaitForExit(5000);
+                    return p.ExitCode == 0;
+                }
+            }
+            catch { return false; }
         }
     }
 }

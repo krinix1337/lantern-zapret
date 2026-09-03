@@ -273,6 +273,16 @@ namespace ZapretStudio
             {
                 if (!_isAnimating) _targetOffset = VerticalOffset;
             };
+            Unloaded += (s, e) => StopAnimation();
+        }
+
+        void StopAnimation()
+        {
+            if (_isAnimating)
+            {
+                _isAnimating = false;
+                CompositionTarget.Rendering -= OnRendering;
+            }
         }
 
         void OnPreviewMouseWheel(object sender, MouseWheelEventArgs e)
@@ -303,9 +313,8 @@ namespace ZapretStudio
             // клавиатура): прекращаем анимацию и отдаём управление пользователю.
             if (Math.Abs(VerticalOffset - _lastApplied) > 1.5)
             {
-                _isAnimating = false;
+                StopAnimation();
                 _targetOffset = VerticalOffset;
-                CompositionTarget.Rendering -= OnRendering;
                 return;
             }
 
@@ -314,8 +323,7 @@ namespace ZapretStudio
             if (Math.Abs(diff) < 0.5 || ScrollableHeight <= 0)
             {
                 ScrollToVerticalOffset(_targetOffset);
-                _isAnimating = false;
-                CompositionTarget.Rendering -= OnRendering;
+                StopAnimation();
                 return;
             }
 
