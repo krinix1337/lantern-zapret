@@ -306,6 +306,8 @@ namespace ZapretStudio
         Button _tgUpdateBtn;
         Button _appUpdateBtn;
         string _zapLatest;
+        // Тег последнего релиза прокси: им помечается установленная сборка.
+        string _tgLatest;
 
         // Вызывается главным окном после единой автоматической проверки при старте.
         // Статус остаётся в настройках и не превращается обратно в кнопку через 5 секунд.
@@ -320,6 +322,7 @@ namespace ZapretStudio
             string apLoc = NormVer(appLocal);
 
             _zapLatest = zLat;
+            if (!string.IsNullOrEmpty(tgLat)) _tgLatest = tgLat;
             if (_zapLocalVersion != null)
                 _zapLocalVersion.Text = Loc.T("settings.localVersion") + zLoc;
             if (_tgLocalVersion != null)
@@ -414,7 +417,10 @@ namespace ZapretStudio
             if (line != null) { line.Text = text; line.Foreground = ok ? Theme.BrOk : Theme.BrWarn; }
             if (progress != null)
             {
-                progress.Show(text, ok ? 100 : -1, ok ? Theme.BrOk : Theme.BrWarn);
+                // И успех, и ошибка — полная полоса: отличает их цвет (зелёный или
+                // красный). Отрицательный процент теперь означает «размер
+                // неизвестен» и включает пульсацию, для итога это не нужно.
+                progress.Show(text, 100, ok ? Theme.BrOk : Theme.BrWarn);
                 if (ok)
                 {
                     var tm = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1400) };
@@ -487,16 +493,24 @@ namespace ZapretStudio
                         if (ok)
                         {
                             SetTgUpdateProgress(Loc.T("settings.update.replacing"), 96);
+                            // Скачивается ассет из /releases/latest, но апстрим не
+                            // обновляет метаданные версии внутри exe (в 1.10.1 файл
+                            // всё ещё помечен 1.10.0.0). Поэтому запоминаем тег сами:
+                            // без метки карточка снова показывала кнопку обновления,
+                            // и это выглядело как откат.
+                            string tag = !string.IsNullOrEmpty(_tgLatest) ? _tgLatest : Core.Get("latest_tg", "");
+                            Core.TgProxyMarkInstalled(tag);
                             string nv = Core.TgProxyLocalVersion();
                             string nvNorm = string.IsNullOrEmpty(nv) ? "—" : NormVer(nv);
-                            if (!string.IsNullOrEmpty(nv)) { Core.Set("latest_tg", nv); Core.SaveConfig(); }
-                            if (_win != null) _win.RefreshSidebarVersions();
-                            FinishProgress(_tgProgress, _tgStatusLine,
-                                Loc.T("settings.update.done") + ": " + nvNorm, true);
                             if (_tgLocalVersion != null)
                                 _tgLocalVersion.Text = Loc.T("settings.localVersion") + nvNorm;
+                            // Главное окно держит результат последней проверки: без
+                            // обновления его кеша повторный вход в настройки снова
+                            // подставлял старую локальную версию.
+                            if (_win != null) _win.NoteTgProxyUpdated(nv);
+                            FinishProgress(_tgProgress, _tgStatusLine,
+                                Loc.T("settings.update.done") + ": " + nvNorm, true);
                             _win.ShowToast(Loc.T("tg.dlOk"), Sev.Ok);
-                            _win.RefreshSidebarVersions();
                             if (wasRunning) { string tgErr; Core.TgProxyStart(out tgErr); }
                         }
                         else
@@ -745,14 +759,65 @@ namespace ZapretStudio
         }
 
         static UIElement space() { return new Border { Height = 10 }; }
+
+#if SELFTEST
+        // Полосы прогресса обычно скрыты, и аудит их не видел. Показываем все три
+        // сразу в разных состояниях: 0 % (раньше выглядело пустым овалом),
+        // неизвестный размер файла и середина загрузки.
+        internal void ShowDemoProgress()
+        {
+            ShowProgress(_zapProgress, _zapStatusLine, Loc.T("settings.update.downloading"), 0, Theme.BrAccent);
+            ShowProgress(_tgProgress, _tgStatusLine, Loc.T("settings.update.downloading"), -1, Theme.BrAccent);
+            ShowProgress(_appProgress, _appStatusLine, Loc.T("settings.update.replacing"), 63, Theme.BrAccent);
+            _zapProgress.SnapForTest(); _tgProgress.SnapForTest(); _appProgress.SnapForTest();
+        }
+
+        internal void CheckDemoProgress()
+        {
+            _zapProgress.SnapForTest(); _tgProgress.SnapForTest(); _appProgress.SnapForTest();
+            double track = _appProgress.TrackWidth;
+            if (!(_zapProgress.Visible && _tgProgress.Visible && _appProgress.Visible))
+                throw new Exception("progress bars hidden");
+            if (track < 120) throw new Exception("progress track too narrow: " + track);
+            // На нуле должен остаться видимый кусочек, но не полоса на всю ширину.
+            double zero = _zapProgress.FillWidth;
+            if (zero < 6 || zero > 24) throw new Exception("zero fill width " + zero);
+            // Неизвестный размер — полная дорожка.
+            if (Math.Abs(_tgProgress.FillWidth - track) > 1.5)
+                throw new Exception("indeterminate fill " + _tgProgress.FillWidth + " of " + track);
+            // 63 % — ровно 63 % дорожки.
+            double mid = _appProgress.FillWidth / track;
+            if (Math.Abs(mid - 0.63) > 0.02) throw new Exception("mid fill " + mid);
+        }
+
+        internal void HideDemoProgress()
+        {
+            _zapProgress.Hide(); _tgProgress.Hide(); _appProgress.Hide();
+        }
+
+        // Раздел обновлений лежит в середине страницы: для снимка подматываем его
+        // в видимую область.
+        internal void ScrollProgressIntoView()
+        {
+            // Подматываем последнюю из трёх карточек — тогда в кадр попадают все.
+            var fe = _appProgress.View as FrameworkElement;
+            if (fe != null) fe.BringIntoView();
+        }
+#endif
     }
 
-    // Компактный индикатор для карточек обновления (чистая анимированная полоса без дублирующего текста)
+    // Компактный индикатор для карточек обновления: полоса во всю ширину карточки
+    // с плавным заполнением, без дублирующего текста. Раньше дорожка имела
+    // фиксированную ширину 240 px, высоту 4 px и скругление 999 — на 0 % она
+    // выглядела пустым овалом посреди карточки.
     sealed class UpdateProgressBar
     {
-        const double TrackWidth = 240;
+        const double BarH = 8;
         readonly Border _root;
         readonly Border _fill;
+        readonly ProgressTrack _track;
+        bool _pulsing;
+        double _target;
 
         public UIElement View { get { return _root; } }
 
@@ -760,25 +825,34 @@ namespace ZapretStudio
         {
             _fill = new Border
             {
-                Width = 0,
-                Height = 4,
-                CornerRadius = Theme.Rpill,
-                Background = Theme.BrAccent,
-                HorizontalAlignment = HorizontalAlignment.Left
+                // Внутри обводки дорожки остаётся 6 px — скругление 3 даёт
+                // аккуратную «капсулу» заполнения.
+                CornerRadius = new CornerRadius((BarH - 2) / 2),
+                Background = Theme.BrAccent
             };
-            var track = new Border
+            _track = new ProgressTrack { Height = BarH - 2 };
+            _track.Children.Add(_fill);
+            var groove = new Border
             {
-                Width = TrackWidth,
-                Height = 4,
-                CornerRadius = Theme.Rpill,
+                Height = BarH,
+                CornerRadius = new CornerRadius(BarH / 2),
                 Background = Theme.BrSurfaceHi,
+                // Тонкая обводка: на карточке BrSurfaceHi почти не отличается от
+                // фона, и без неё незаполненная часть дорожки не читается.
+                BorderBrush = Theme.BrStrokeSoft,
+                BorderThickness = new Thickness(1),
                 ClipToBounds = true,
-                Margin = new Thickness(0, 8, 0, 0),
-                HorizontalAlignment = HorizontalAlignment.Left,
-                Child = _fill
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Child = _track
             };
 
-            _root = new Border { Child = track, Visibility = Visibility.Collapsed, Opacity = 0 };
+            _root = new Border
+            {
+                Child = groove,
+                Margin = new Thickness(0, 9, 0, 2),
+                Visibility = Visibility.Collapsed,
+                Opacity = 0
+            };
         }
 
         public void Show(string phase, int percent, Brush color)
@@ -794,43 +868,103 @@ namespace ZapretStudio
                 else _root.Opacity = 1;
             }
 
-            int safe = percent < 0 ? 20 : Math.Max(0, Math.Min(100, percent));
-            _fill.Background = color;
-            double target = TrackWidth * safe / 100.0;
-            if (Theme.AnimationsEnabled)
+            _fill.Background = Sheen(color);
+            if (percent < 0)
             {
-                var animation = new DoubleAnimation(target, TimeSpan.FromMilliseconds(160))
-                { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-                _fill.BeginAnimation(FrameworkElement.WidthProperty, animation);
+                // Размер файла неизвестен: полная полоса с мягкой пульсацией
+                // вместо обманчивых «20 %».
+                SetFraction(1);
+                StartPulse();
             }
             else
             {
-                _fill.BeginAnimation(FrameworkElement.WidthProperty, null);
-                _fill.Width = target;
+                StopPulse();
+                SetFraction(Math.Max(0, Math.Min(100, percent)) / 100.0);
             }
         }
 
         public void Hide()
         {
             if (_root.Visibility == Visibility.Collapsed) return;
+            StopPulse();
             if (Theme.AnimationsEnabled)
             {
                 var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(180));
                 fadeOut.Completed += (s, e) =>
                 {
-                    _fill.BeginAnimation(FrameworkElement.WidthProperty, null);
-                    _fill.Width = 0;
+                    SetFraction(0, true);
                     _root.Visibility = Visibility.Collapsed;
                 };
                 _root.BeginAnimation(UIElement.OpacityProperty, fadeOut);
             }
             else
             {
-                _fill.BeginAnimation(FrameworkElement.WidthProperty, null);
-                _fill.Width = 0;
+                SetFraction(0, true);
                 _root.Opacity = 0;
                 _root.Visibility = Visibility.Collapsed;
             }
         }
+
+        void SetFraction(double f) { SetFraction(f, false); }
+
+        void SetFraction(double f, bool instant)
+        {
+            _target = f;
+            if (!instant && Theme.AnimationsEnabled)
+            {
+                var a = new DoubleAnimation(f, TimeSpan.FromMilliseconds(180))
+                { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                _track.BeginAnimation(ProgressTrack.FractionProperty, a);
+            }
+            else
+            {
+                _track.BeginAnimation(ProgressTrack.FractionProperty, null);
+                _track.Fraction = f;
+            }
+        }
+
+        void StartPulse()
+        {
+            if (_pulsing || !Theme.AnimationsEnabled) return;
+            _pulsing = true;
+            var a = new DoubleAnimation(0.45, 1.0, TimeSpan.FromMilliseconds(750))
+            { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever };
+            _fill.BeginAnimation(UIElement.OpacityProperty, a);
+        }
+
+        void StopPulse()
+        {
+            if (!_pulsing) return;
+            _pulsing = false;
+            _fill.BeginAnimation(UIElement.OpacityProperty, null);
+            _fill.Opacity = 1;
+        }
+
+        // Лёгкий градиент из плоского цвета: слева темнее, справа — сам цвет.
+        static Brush Sheen(Brush flat)
+        {
+            var scb = flat as SolidColorBrush;
+            if (scb == null) return flat;
+            var c = scb.Color;
+            var lg = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
+            lg.GradientStops.Add(new GradientStop(Dim(c, 0.78), 0));
+            lg.GradientStops.Add(new GradientStop(c, 1));
+            lg.Freeze();
+            return lg;
+        }
+
+        static Color Dim(Color c, double k)
+        {
+            return Color.FromArgb(c.A, (byte)(c.R * k), (byte)(c.G * k), (byte)(c.B * k));
+        }
+
+#if SELFTEST
+        // Проверке нужен детерминированный размер: снимаем анимацию и ставим
+        // целевую долю сразу.
+        internal void SnapForTest() { SetFraction(_target, true); }
+        internal double FillWidth { get { return _fill.ActualWidth; } }
+        internal double TrackWidth { get { return _track.ActualWidth; } }
+        internal bool Visible { get { return _root.Visibility == Visibility.Visible; } }
+#endif
     }
 }

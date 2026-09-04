@@ -184,10 +184,20 @@ namespace ZapretStudio
         {
             var r = new Endpoint { T = t };
             var g = new Grid();
+            // Колонки: выбор | название и адрес | спарклайн | задержка | состояние.
+            // У колонки задержки раньше стояла жёсткая ширина 150 px, а строка
+            // «ping 116 мс · http 253 мс» шире: текст выравнивался по правому краю
+            // и уезжал на 36 px влево — под спарклайн и за скруглённую рамку
+            // карточки, которая его обрезала (первая цифра пропадала). Теперь
+            // ширина 118 px, а текст в ней переносится на две строки. Auto здесь
+            // не годится: если раскладку успели померить на почти нулевой ширине
+            // (переключение вкладки во время изменения размера окна), Grid
+            // сжимает Auto-колонку до нескольких пикселей и уже не расширяет её
+            // при следующем Arrange — задержка снова вылезала из колонки.
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(MetricW) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             r.Sel = Ctl.Check(string.Format(Loc.T("net.select"), t.Name));
@@ -197,28 +207,51 @@ namespace ZapretStudio
             g.Children.Add(r.Sel);
 
             var mid = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            var top = new StackPanel { Orientation = Orientation.Horizontal };
-            top.Children.Add(UI.T(t.Name, Theme.FsBody, Theme.BrText, FontWeights.SemiBold));
+            // Название и тип — сетка, а не горизонтальный StackPanel: тот меряется
+            // без ограничения ширины, и «Discord Gateway HTTP/TLS» вылезал из
+            // колонки под спарклайн. Тип держим по правому краю названия.
+            var top = new Grid();
+            top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var nameTb = UI.T(t.Name, Theme.FsBody, Theme.BrText, FontWeights.SemiBold);
+            nameTb.TextTrimming = TextTrimming.CharacterEllipsis;
+            Grid.SetColumn(nameTb, 0);
+            top.Children.Add(nameTb);
             var kind = new TextBlock { Text = t.Kind == "PING" ? "Ping" : "HTTP/TLS", Foreground = Theme.BrFaint,
                 FontSize = Theme.FsTiny, FontFamily = Theme.MonoFont, Margin = new Thickness(10, 2, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(kind, 1);
             top.Children.Add(kind);
             mid.Children.Add(top);
-            var hostLine = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 3, 0, 0) };
-            hostLine.Children.Add(new TextBlock { Text = t.Host, Foreground = Theme.BrMuted, FontSize = Theme.FsSmall,
-                FontFamily = Theme.MonoFont });
+            mid.Children.Add(new TextBlock { Text = t.Host, Foreground = Theme.BrMuted, FontSize = Theme.FsSmall,
+                FontFamily = Theme.MonoFont, Margin = new Thickness(0, 3, 0, 0),
+                TextWrapping = TextWrapping.Wrap });
+            // Подробности ответа — отдельной строкой с переносом. В одной строке
+            // с адресом (горизонтальный StackPanel меряется без ограничения по
+            // ширине) длинный текст вроде «HTTP 200 · TLS 1.2 · 1420 Б» вылезал
+            // из колонки под спарклайн. Пока строки нет — места не занимает.
             r.Detail = new TextBlock { Text = "", Foreground = Theme.BrFaint, FontSize = Theme.FsSmall,
-                FontFamily = Theme.UiFont, Margin = new Thickness(10, 0, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
-            hostLine.Children.Add(r.Detail);
-            mid.Children.Add(hostLine);
+                FontFamily = Theme.UiFont, Margin = new Thickness(0, 3, 0, 0),
+                TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
+            mid.Children.Add(r.Detail);
             Grid.SetColumn(mid, 1);
             g.Children.Add(mid);
 
-            var metric = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right };
+            var metric = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Stretch,
+                Margin = new Thickness(10, 0, 0, 0) };
+            // Задержку переносим по словам в пределах колонки: строка
+            // «ping 116 мс · http 253 мс» занимала 187 px и отбирала ширину у
+            // названия и адреса. Выравнивание — Stretch с TextAlignment.Right:
+            // при выравнивании самого блока по правому краю сжатая колонка
+            // отводила ему отрицательный X, текст уезжал под спарклайн и
+            // обрезался рамкой карточки.
             r.Latency = new TextBlock { Text = "-", Foreground = Theme.BrText, FontSize = Theme.FsBody,
-                FontFamily = Theme.MonoFont, HorizontalAlignment = HorizontalAlignment.Right };
+                FontFamily = Theme.MonoFont, HorizontalAlignment = HorizontalAlignment.Stretch,
+                TextAlignment = TextAlignment.Right, TextWrapping = TextWrapping.Wrap };
             r.When = new TextBlock { Text = "", Foreground = Theme.BrFaint, FontSize = Theme.FsTiny,
-                FontFamily = Theme.UiFont, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 2, 0, 0) };
+                FontFamily = Theme.UiFont, HorizontalAlignment = HorizontalAlignment.Stretch,
+                TextAlignment = TextAlignment.Right, TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 0) };
             metric.Children.Add(r.Latency);
             metric.Children.Add(r.When);
             Grid.SetColumn(metric, 3);
@@ -240,12 +273,17 @@ namespace ZapretStudio
             return r;
         }
 
-        const double SparkW = 120, SparkH = 30;
+        const double SparkW = 90, SparkH = 30;
+        // Ширина колонки задержки: «ping 1502 мс» в моношрифте занимает 108 px.
+        const double MetricW = 118;
 
+        // Пустой график не показываем: пунктирная базовая линия без данных
+        // читалась как случайная строчка точек посреди карточки, да и 136 px
+        // ширины до первой проверки лучше отдать названию и адресу.
         static Canvas MakeSparkCanvas()
         {
             var c = new Canvas { Width = SparkW, Height = SparkH, VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(10, 0, 6, 0), Opacity = 0.85 };
+                Margin = new Thickness(10, 0, 6, 0), Opacity = 0.85, Visibility = Visibility.Collapsed };
             var baseLine = new System.Windows.Shapes.Line
             {
                 X1 = 0, X2 = SparkW, Y1 = SparkH - 1, Y2 = SparkH - 1,
@@ -267,6 +305,7 @@ namespace ZapretStudio
                 h = new List<long>(src);
             }
             var c = r.Spark;
+            c.Visibility = Visibility.Visible;
             // точки — отдельные дети после базовой линии
             for (int i = c.Children.Count - 1; i >= 1; i--) c.Children.RemoveAt(i);
 
@@ -333,6 +372,28 @@ namespace ZapretStudio
             }
         }
 
+#if SELFTEST
+        // Заполнить строки правдоподобными результатами. Аудит вёрстки иначе
+        // видит только исходное «-» и не замечает, что заполненная строка
+        // (задержка + подробности + плашка) не влезает по ширине.
+        internal void FillDemoResults()
+        {
+            string[] states = { "reachable", "partial", "timeout", "errTls", "unreachable" };
+            long[] samples = { 98, 97, 116, 101, 12, 340, 1502 };
+            int i = 0;
+            foreach (var r in _rows)
+            {
+                long ms = samples[i % samples.Length];
+                for (int k = 0; k < SparkPoints; k++) PushLatency(r.T, ms + (k * 7) % 23);
+                DrawSpark(r);
+                string lat = Loc.T("net.ping") + " " + ms + Loc.T("net.ms") + "\n" +
+                    Loc.T("net.http") + " " + (ms + 137) + Loc.T("net.ms");
+                SetRow(r, states[i % states.Length], lat, "HTTP 200 · TLS 1.2 · 1420 " + Loc.T("unit.b"), "12:34:56");
+                i++;
+            }
+        }
+#endif
+
         void SetRow(Endpoint r, string state, string latency, string detail, string when)
         {
             var np = Pill.Make(SevOf(state), StateLabel(state));
@@ -344,7 +405,11 @@ namespace ZapretStudio
             if (idx >= 0) { g.Children.RemoveAt(idx); g.Children.Insert(idx, np); }
             r.StatePill = np;
             if (latency != null) r.Latency.Text = latency;
-            if (detail != null) r.Detail.Text = detail;
+            if (detail != null)
+            {
+                r.Detail.Text = detail;
+                r.Detail.Visibility = detail.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+            }
             if (when != null) r.When.Text = when;
         }
 
@@ -385,7 +450,9 @@ namespace ZapretStudio
                         DrawSpark(row);
                         string lat = "";
                         if (pingMs >= 0) lat += Loc.T("net.ping") + " " + pingMs + Loc.T("net.ms");
-                        if (res.Ms >= 0) lat += (lat.Length > 0 ? " · " : "") + Loc.T("net.http") + " " + res.Ms + Loc.T("net.ms");
+                        // Пинг и http — отдельными строками: в одну строку они
+                        // занимали 187 px и отбирали ширину у названия и адреса.
+                        if (res.Ms >= 0) lat += (lat.Length > 0 ? "\n" : "") + Loc.T("net.http") + " " + res.Ms + Loc.T("net.ms");
                         if (lat.Length == 0) lat = "-";
                         SetRow(row, res.State, lat, res.Detail, res.When.HasValue ? res.When.Value.ToString("HH:mm:ss") : "");
                     });
@@ -422,9 +489,11 @@ namespace ZapretStudio
             sb.AppendLine(string.Format(Loc.T("check.export.head"), DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")));
             sb.AppendLine();
             foreach (var r in _rows)
-                sb.AppendLine(string.Format("{0,-24} {1,-10} {2,-8} {3}",
+                sb.AppendLine(string.Format("{0,-24} {1,-10} {2,-24} {3}",
                     r.T.Name, Pill.GetText(r.StatePill),
-                    r.Latency.Text, r.Detail.Text));
+                    // В интерфейсе задержка занимает две строки — в отчёте
+                    // возвращаем её в одну, иначе таблица разъезжается.
+                    r.Latency.Text.Replace("\r", "").Replace("\n", " · "), r.Detail.Text));
             try
             {
                 string path = System.IO.Path.Combine(Core.Root, "connection-check.txt");

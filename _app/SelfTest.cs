@@ -174,6 +174,16 @@ namespace ZapretStudio
                         NavCheck(win, key);
                         layoutIssues += LayoutAudit(win, lang + " " + w.ToString("0") + " " + key);
                         if (key == "check") layoutIssues += AuditCheckTabs(win, lang + " " + w.ToString("0"));
+                        if (key == "settings")
+                        {
+                            var sp = FillSettingsProgress(win);
+                            if (sp != null)
+                            {
+                                layoutIssues += LayoutAudit(win, lang + " " + w.ToString("0") + " settings progress");
+                                sp.HideDemoProgress();
+                                Pump(); ForceLayout(win);
+                            }
+                        }
                     }
                 }
             }
@@ -186,7 +196,25 @@ namespace ZapretStudio
             NavCheck(win, "overview"); Shot(win, "min-overview");
             ScrollEnd(win); Shot(win, "min-overview-bottom"); ScrollHome(win);
             NavCheck(win, "settings"); Shot(win, "min-settings");
-            NavCheck(win, "check"); Shot(win, "min-check");
+            // Полоса загрузки обновления: дорожка во всю ширину карточки, на 0 %
+            // остаётся видимый кусочек, при неизвестном размере — вся дорожка.
+            Try("update progress bar", delegate
+            {
+                var sp = FillSettingsProgress(win);
+                Assert(sp != null);
+                sp.CheckDemoProgress();
+            });
+            {
+                var sp = FindPage(win) as SettingsPage;
+                if (sp != null) { sp.ScrollProgressIntoView(); Pump(); ForceLayout(win); }
+            }
+            Shot(win, "min-settings-progress");
+            {
+                var sp = FindPage(win) as SettingsPage;
+                if (sp != null) { sp.HideDemoProgress(); Pump(); ForceLayout(win); }
+            }            NavCheck(win, "check"); Shot(win, "min-check");
+            ClickTab(win, Loc.T("check.tab.popular"));
+            FillCheck(win); Shot(win, "min-check-filled");
             NavCheck(win, "service"); Shot(win, "min-service");
             NavCheck(win, "strategies"); Shot(win, "min-strategies");
             NavCheck(win, "filters"); Shot(win, "min-filters");
@@ -493,6 +521,35 @@ namespace ZapretStudio
         }
 
         // Вкладки «Проверки соединения» строят разное содержимое — проверяем каждую.
+        // Переключить вкладку страницы проверки по подписи кнопки.
+        static void ClickTab(MainWindow win, string label)
+        {
+            var b = FindByName<Button>(win, label);
+            if (b == null) { Line("WARN", "tab not found: " + label); return; }
+            b.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            Pump(); ForceLayout(win);
+        }
+
+        // Заполнить открытую страницу проверки правдоподобными результатами.
+        static void FillCheck(MainWindow win)
+        {
+            var cp = FindPage(win) as CheckPage;
+            if (cp == null) return;
+            cp.FillDemoResults();
+            Pump(); ForceLayout(win);
+        }
+
+        // Показать полосы прогресса обновления на открытых настройках: в покое
+        // они скрыты, и аудит их геометрию не проверял.
+        static SettingsPage FillSettingsProgress(MainWindow win)
+        {
+            var sp = FindPage(win) as SettingsPage;
+            if (sp == null) return null;
+            sp.ShowDemoProgress();
+            Pump(); ForceLayout(win);
+            return sp;
+        }
+
         static int AuditCheckTabs(MainWindow win, string tag)
         {
             int issues = 0;
@@ -505,6 +562,16 @@ namespace ZapretStudio
                 b.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
                 Pump(); ForceLayout(win);
                 issues += LayoutAudit(win, tag + " check/" + lbl);
+                // И то же самое с заполненными строками: задержка, подробности и
+                // плашка состояния появляются только после проверки, а обрезается
+                // вёрстка именно на них.
+                var cp = FindPage(win) as CheckPage;
+                if (cp != null)
+                {
+                    cp.FillDemoResults();
+                    Pump(); ForceLayout(win);
+                    issues += LayoutAudit(win, tag + " check/" + lbl + " filled");
+                }
             }
             return issues;
         }

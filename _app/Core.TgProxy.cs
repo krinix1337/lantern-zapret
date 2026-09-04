@@ -23,9 +23,47 @@ namespace ZapretStudio
 
         public static bool TgProxyInstalled() { return File.Exists(TgProxyExe); }
 
-        // Локальная версия утилиты из метаданных файла (если заданы), иначе null.
+        // Апстрим не обновляет метаданные версии в TgWsProxy_windows.exe: в
+        // релизе 1.10.1 файл по-прежнему помечен как 1.10.0.0. Поэтому после
+        // успешной установки запоминаем тег релиза вместе с отпечатком файла
+        // (размер и время записи). Пока отпечаток совпадает, метка достовернее
+        // метаданных; если файл подменили вручную — метка игнорируется.
+        static string TgProxyFingerprint()
+        {
+            try
+            {
+                var fi = new FileInfo(TgProxyExe);
+                if (!fi.Exists) return null;
+                return fi.Length.ToString() + ":" + fi.LastWriteTimeUtc.ToString("yyyyMMddHHmmss");
+            }
+            catch { return null; }
+        }
+
+        public static void TgProxyMarkInstalled(string version)
+        {
+            string v = (version ?? "").Trim().TrimStart('v', 'V');
+            string fp = TgProxyFingerprint();
+            if (v.Length == 0 || fp == null) return;
+            Set("tg_installed", v + "|" + fp);
+            SaveConfig();
+        }
+
+        static string TgProxyStampVersion()
+        {
+            string raw = Get("tg_installed", "");
+            if (string.IsNullOrEmpty(raw)) return null;
+            int bar = raw.IndexOf('|');
+            if (bar <= 0) return null;
+            string fp = TgProxyFingerprint();
+            if (fp == null || fp != raw.Substring(bar + 1)) return null;
+            return raw.Substring(0, bar);
+        }
+
+        // Локальная версия утилиты: сначала метка установки, затем метаданные файла.
         public static string TgProxyLocalVersion()
         {
+            string stamp = TgProxyStampVersion();
+            if (!string.IsNullOrEmpty(stamp)) return stamp;
             try
             {
                 if (!File.Exists(TgProxyExe)) return null;

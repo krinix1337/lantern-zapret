@@ -365,6 +365,15 @@ namespace ZapretStudio
                 {
                     try { System.IO.Directory.CreateDirectory(Core.TgToolsDir); } catch { }
                     bool ok = Core.DownloadFile(url, dest, null, null);
+                    if (ok)
+                    {
+                        // Помечаем установленную сборку тегом релиза: в exe апстрима
+                        // версия не обновляется, и без метки настройки сразу же
+                        // предлагали «обновить» только что скачанный файл.
+                        string tag = Core.Get("latest_tg", "");
+                        if (string.IsNullOrEmpty(tag)) { try { tag = Core.TgProxyLatestVersion(); } catch { } }
+                        Core.TgProxyMarkInstalled(tag);
+                    }
                     Dispatcher.Invoke((Action)delegate
                     {
                         if (ok) Core.Good(Loc.T("tg.dlOk"));

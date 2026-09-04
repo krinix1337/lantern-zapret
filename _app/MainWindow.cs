@@ -711,6 +711,16 @@ namespace ZapretStudio
             }
         }
 
+        // Вызывается настройками после успешного обновления Telegram-прокси.
+        // Кеш результатов проверки хранит локальную версию, снятую до установки;
+        // без его обновления повторный вход в настройки возвращал кнопку
+        // «Обновить», хотя новая сборка уже стояла.
+        public void NoteTgProxyUpdated(string local)
+        {
+            if (!string.IsNullOrEmpty(local)) _lastTgLocal = local;
+            RefreshSidebarVersions();
+        }
+
         Button NavItem(string key, string icon, string label)
         {
             var b = new Button { Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 0, 4), HorizontalContentAlignment = HorizontalAlignment.Stretch };
@@ -1219,9 +1229,19 @@ namespace ZapretStudio
                         if (ex)
                         {
                             string newVer = Core.ZapretVersion();
-                            _lastZapretLatest = newVer;
+                            // Раньше и «последней», и «локальной» версией здесь
+                            // записывался результат чтения service.bat. Если архив
+                            // его не обновил (частичная распаковка, занятые файлы),
+                            // карточка сообщала «актуальная версия», а следующая
+                            // проверка возвращала кнопку — обновление выглядело как
+                            // откат. Теперь «последняя» — запрошенный тег, а
+                            // расхождение видно в журнале.
+                            _lastZapretLatest = string.IsNullOrEmpty(ver) ? newVer : ver;
                             _lastZapretLocal = newVer;
-                            Core.Set("latest_zapret", newVer); Core.SaveConfig();
+                            if (SettingsPage.CompareVersions(_lastZapretLatest, newVer) > 0)
+                                Core.Warn(string.Format(Loc.T("mw.zapVerNew"),
+                                    SettingsPage.NormVer(_lastZapretLatest), SettingsPage.NormVer(newVer)));
+                            Core.Set("latest_zapret", _lastZapretLatest); Core.SaveConfig();
                             _updateLine.Text = string.Format(Loc.T("mw.verCurrent"), newVer);
                             FinishZapretUpdate(Loc.T("settings.update.done") + ": " + newVer, true);
                             Core.Good(string.Format(Loc.T("mw.updDone"), newVer));

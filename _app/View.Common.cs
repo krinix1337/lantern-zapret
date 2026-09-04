@@ -511,4 +511,46 @@ namespace ZapretStudio
             return fin;
         }
     }
+
+    // Дорожка индикатора загрузки: заполнение задаётся долей 0..1, а не
+    // фиксированной шириной, поэтому полоса тянется на всю ширину карточки и
+    // остаётся корректной при изменении размера окна. Fraction помечен
+    // AffectsArrange — его можно анимировать, как обычную ширину.
+    sealed class ProgressTrack : Panel
+    {
+        public static readonly DependencyProperty FractionProperty = DependencyProperty.Register(
+            "Fraction", typeof(double), typeof(ProgressTrack),
+            new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.AffectsArrange));
+
+        public double Fraction
+        {
+            get { return (double)GetValue(FractionProperty); }
+            set { SetValue(FractionProperty, value); }
+        }
+
+        // На 0 % пустая дорожка не показывает, что загрузка началась: оставляем
+        // короткий видимый кусочек.
+        public double MinFill = 12;
+
+        protected override Size MeasureOverride(Size avail)
+        {
+            double w = double.IsInfinity(avail.Width) ? 240 : avail.Width;
+            double h = double.IsInfinity(avail.Height) ? 6 : avail.Height;
+            var cell = new Size(w, h);
+            for (int i = 0; i < InternalChildren.Count; i++)
+                InternalChildren[i].Measure(cell);
+            return new Size(w, h);
+        }
+
+        protected override Size ArrangeOverride(Size fin)
+        {
+            double f = Fraction;
+            if (double.IsNaN(f) || f < 0) f = 0;
+            if (f > 1) f = 1;
+            double w = Math.Max(Math.Min(MinFill, fin.Width), fin.Width * f);
+            for (int i = 0; i < InternalChildren.Count; i++)
+                InternalChildren[i].Arrange(new Rect(0, 0, w, fin.Height));
+            return fin;
+        }
+    }
 }
