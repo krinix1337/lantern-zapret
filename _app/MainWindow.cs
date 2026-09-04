@@ -308,7 +308,10 @@ namespace ZapretStudio
             var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             right.Children.Add(TopIcon(Theme.Mode == ThemeMode.Light ? Icons.Moon : Icons.Sun,
                 Loc.T("settings.theme"), delegate { ToggleTheme(); }));
-            right.Children.Add(TopIcon(Icons.Restart, Loc.T("ov.restart"), delegate { RestartCurrent(); }));
+            // Перезапуск в шапке поднимает заново весь рабочий набор: обход в своём
+            // режиме и Telegram-прокси, плюс перепроверку версий. Тему не трогает.
+            _topRestartBtn = TopIcon(Icons.Restart, Loc.T("mw.restartAllTip"), delegate { RestartAll(); }, out _topRestartIcon);
+            right.Children.Add(_topRestartBtn);
             right.Children.Add(TopIcon(Icons.Gear, Loc.T("common.settings"), delegate { Navigate("settings"); }));
             right.Children.Add(WinBtn(Icons.Minimize, Loc.T("common.minimize"), delegate { WindowState = WindowState.Minimized; }, false));
             right.Children.Add(WinBtn(Icons.Maximize, Loc.T("common.maximize"), delegate { ToggleMax(); }, false));
@@ -319,6 +322,14 @@ namespace ZapretStudio
         }
 
         Button TopIcon(string icon, string name, Action act)
+        {
+            System.Windows.Shapes.Path unused;
+            return TopIcon(icon, name, act, out unused);
+        }
+
+        // Перегрузка отдаёт саму иконку: кнопке перезапуска она нужна, чтобы
+        // крутить её всё время операции (SetTopRestartBusy).
+        Button TopIcon(string icon, string name, Action act, out System.Windows.Shapes.Path iconShape)
         {
             var b = new Button { Cursor = Cursors.Hand, Width = 38, Height = 38, Margin = new Thickness(2, 0, 2, 0) };
             Ctl.StripChrome(b);
@@ -334,6 +345,7 @@ namespace ZapretStudio
             Ctl.AutomationSetName(b, name);
             b.ToolTip = name;
             System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(b, true);
+            iconShape = ic;
             return b;
         }
 
@@ -919,14 +931,17 @@ namespace ZapretStudio
             System.Threading.ThreadPool.QueueUserWorkItem(delegate { RunStrategyCore(file); });
         }
 
-        void RunStrategyCore(string file)
+        // Возвращает признак успеха: он нужен полному перезапуску (RestartAll),
+        // чтобы отличить «перезапущено» от «перезапуск с ошибками».
+        bool RunStrategyCore(string file)
         {
             if (!Core.TryBeginWinwsOperation())
             {
                 Warn(Loc.T("mw.busy"));
                 UiPost(delegate { if (_overview != null) _overview.SetZapretTransition(false); });
-                return;
+                return false;
             }
+            bool ok = false;
             try
             {
                 Core.Info(string.Format(Loc.T("mw.startingLog"), Core.PrettyName(file)));
@@ -936,6 +951,7 @@ namespace ZapretStudio
                 if (!Core.StartWinws(file)) throw new Exception("winws.exe was not started");
                 _currentStrategyFile = file;
                 Core.Set("last_strategy", file); Core.SaveConfig();
+                ok = true;
                 Core.Good(string.Format(Loc.T("mw.startedToast"), Core.PrettyName(file)));
                 UiPost(delegate
                 {
@@ -953,6 +969,7 @@ namespace ZapretStudio
                     RefreshTop();
                 });
             }
+            return ok;
         }
 
         // Остановка из UI: не блокирует окно.
@@ -1003,6 +1020,146 @@ namespace ZapretStudio
             // и снимает winws. Прежняя пара StopAll()+RunStrategy() при переходе на
             // асинхронный запуск дала бы две конкурирующие операции и «занято».
             RunStrategy(_currentStrategyFile);
+        }
+
+        // ---------- Полный перезапуск (кнопка в шапке) ----------
+        volatile bool _restartingAll;
+        Button _topRestartBtn;
+        System.Windows.Shapes.Path _topRestartIcon;
+
+        // Раньше кнопка в шапке звала RestartCurrent(): она поднимала только winws
+        // и всегда в ручном режиме, то есть режим «служба» молча терялся, а
+        // Telegram-прокси и версии оставались как были. Теперь перезапускается всё
+        // работающее: обход в своём режиме (служба или ручной запуск) и прокси,
+        // после чего заново запрашиваются версии zapret, прокси и приложения.
+        // Тема, язык и открытая страница не меняются — окно не пересобирается.
+        public void RestartAll()
+        {
+            if (_restartingAll || Core.WinwsOperationActive()) { Warn(Loc.T("mw.busy")); ShowToast(Loc.T("mw.busy"), Sev.Warn); return; }
+
+            if (string.IsNullOrEmpty(_currentStrategyFile))
+            {
+                var files = Core.GetStrategyFiles();
+                if (files.Count > 0) _currentStrategyFile = files[0];
+            }
+            string strategy = _currentStrategyFile;
+            bool asService = Core.ServiceState() == "running";
+            bool asManual = !asService && Core.IsWinwsRunning();
+            bool doBypass = asService || asManual || !string.IsNullOrEmpty(strategy);
+            // Прокси поднимаем заново только если он работал: запускать то, что
+            // пользователь сам выключил, кнопка перезапуска не должна.
+            bool doTg = Core.TgProxyInstalled() && Core.TgProxyRunning();
+
+            if (doBypass && !Core.IsAdmin()) { NeedAdmin(Loc.T("mw.startBypassAct")); return; }
+            if (!doBypass) Core.Warn(Loc.T("mw.restartNoBypass"));
+            if (!doTg) Core.Info(Loc.T("mw.restartTgSkip"));
+
+            _restartingAll = true;
+            SetTopRestartBusy(true);
+            Core.Info(Loc.T("mw.restartAll"));
+            ShowToast(Loc.T("mw.restartAll"), Sev.Info);
+            if (_overview != null)
+            {
+                if (doBypass) _overview.SetZapretTransition(true);
+                if (doTg) _overview.SetTgTransition(true);
+            }
+            SetSettingsChecking();
+
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                bool bypassOk = !doBypass;
+                bool tgOk = !doTg;
+                try
+                {
+                    if (doBypass) bypassOk = asService ? RestartServiceCore() : RunStrategyCore(strategy);
+                    if (doTg) tgOk = RestartTgProxyCore();
+                }
+                catch (Exception ex) { Core.Fail(string.Format(Loc.T("mw.restartAllErr"), ex.Message)); }
+                finally
+                {
+                    UiPost(delegate
+                    {
+                        _restartingAll = false;
+                        SetTopRestartBusy(false);
+                        if (_overview != null)
+                        {
+                            _overview.SetZapretTransition(false);
+                            _overview.SetTgTransition(false);
+                            _overview.Refresh();
+                        }
+                        RefreshTop();
+                        RefreshSidebarVersions();
+                        ShowToast(bypassOk && tgOk ? Loc.T("mw.restartAllDone") : Loc.T("mw.restartAllPart"),
+                            bypassOk && tgOk ? Sev.Ok : Sev.Warn);
+                        // Версии перепроверяем в конце: карточки настроек покажут
+                        // строку и кнопку, только если обновление действительно есть.
+                        CheckUpdates();
+                    });
+                }
+            });
+        }
+
+        // Режим «служба»: RunStrategyCore здесь не подходит — он поднимает winws
+        // вручную и тем самым переводит обход из службы в ручной запуск.
+        bool RestartServiceCore()
+        {
+            if (!Core.TryBeginWinwsOperation()) { Warn(Loc.T("mw.busy")); return false; }
+            try
+            {
+                Core.Info(Loc.T("mw.restartSvc"));
+                if (!Core.StopService()) throw new Exception("Could not stop Windows service");
+                Core.KillWinws();
+                if (!Core.ServiceExists()) throw new Exception("Windows service is not installed");
+                if (!Core.StartService()) throw new Exception("Could not start Windows service");
+                Core.Good(Loc.T("mw.restartSvcOk"));
+                return true;
+            }
+            catch (Exception ex) { Core.Fail(string.Format(Loc.T("mw.startErr"), ex.Message)); return false; }
+            finally { Core.EndWinwsOperation(); }
+        }
+
+        bool RestartTgProxyCore()
+        {
+            Core.TgProxyStop();
+            // Порт освобождается не мгновенно: без паузы повторный старт иногда
+            // падает на «address already in use».
+            System.Threading.Thread.Sleep(300);
+            string err;
+            if (Core.TgProxyStart(out err)) { Core.Good(Loc.T("tg.startedOk")); return true; }
+            Core.Fail(string.Format(Loc.T("tg.startErr"), err));
+            return false;
+        }
+
+        void SetSettingsChecking()
+        {
+            Page settingsPage;
+            if (_pages.TryGetValue("settings", out settingsPage))
+            {
+                var settings = settingsPage as SettingsPage;
+                if (settings != null) settings.SetCheckingUpdates();
+            }
+        }
+
+        // Пока идёт перезапуск, кнопка недоступна и непрерывно крутится.
+        void SetTopRestartBusy(bool busy)
+        {
+            if (_topRestartBtn == null) return;
+            _topRestartBtn.IsEnabled = !busy;
+            _topRestartBtn.Opacity = busy ? 0.7 : 1.0;
+            _topRestartBtn.ToolTip = Loc.T(busy ? "mw.restartAllBusy" : "mw.restartAllTip");
+            if (_topRestartIcon == null) return;
+            RotateTransform rt = null;
+            var tg = _topRestartIcon.RenderTransform as TransformGroup;
+            if (tg != null)
+                foreach (Transform t in tg.Children) { rt = t as RotateTransform; if (rt != null) break; }
+            if (rt == null) return;
+            if (busy && Theme.AnimationsEnabled)
+            {
+                var spin = new System.Windows.Media.Animation.DoubleAnimation(0, 360, TimeSpan.FromMilliseconds(900));
+                spin.RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever;
+                rt.BeginAnimation(RotateTransform.AngleProperty, spin);
+            }
+            else rt.BeginAnimation(RotateTransform.AngleProperty, null);
         }
 
         void NeedAdmin(string what)

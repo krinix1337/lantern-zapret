@@ -64,6 +64,18 @@ namespace ZapretStudio
             A("mw.stopErr",     "Остановка: {0}",     "Stop: {0}");
             A("mw.noStratSel",  "Стратегия не выбрана", "No strategy selected");
             A("mw.restarting",  "Перезапуск обхода…", "Restarting bypass…");
+            // Кнопка перезапуска в шапке: поднимает заново обход и Telegram-прокси
+            // и заново проверяет обновления (тему и язык не трогает).
+            A("mw.restartAll",  "Перезапуск обхода и Telegram-прокси…", "Restarting bypass and Telegram proxy…");
+            A("mw.restartAllTip","Перезапустить обход и прокси, проверить обновления", "Restart bypass and proxy, check for updates");
+            A("mw.restartAllBusy","Перезапуск выполняется…", "Restart in progress…");
+            A("mw.restartAllDone","Перезапуск завершён",  "Restart finished");
+            A("mw.restartAllPart","Перезапуск завершён с ошибками — смотрите журнал", "Restart finished with errors — see the journal");
+            A("mw.restartAllErr","Перезапуск: {0}",     "Restart: {0}");
+            A("mw.restartSvc",  "Перезапуск службы zapret…", "Restarting the zapret service…");
+            A("mw.restartSvcOk","Служба zapret перезапущена", "The zapret service has been restarted");
+            A("mw.restartTgSkip","Telegram-прокси не запущен — перезапускать нечего", "Telegram proxy is not running — nothing to restart");
+            A("mw.restartNoBypass","Обход не запущен и стратегия не выбрана — перезапускать нечего", "Bypass is not running and no strategy is selected — nothing to restart");
             A("mw.busy",        "Другая операция с обходом уже выполняется.", "Another bypass operation is already running.");
             A("mw.needAdminMsg","Для действия «{0}» нужны права администратора.\nЗапустите приложение от имени администратора.", "The \"{0}\" action requires administrator rights.\nRestart the app as administrator.");
             A("mw.needAdminLog","{0}: нет прав администратора", "{0}: no administrator rights");
@@ -200,9 +212,10 @@ namespace ZapretStudio
             A("settings.checkNow",      "Проверить сейчас", "Check now");
             A("settings.versionCheck",  "Проверка версии", "Version check");
             A("settings.checkingOnStart", "Проверка выполняется при запуске…", "Checking on startup…");
-            A("settings.latestFull", "Последняя версия (GitHub): {0} — актуально", "Latest version (GitHub): {0} — up to date");
+            A("settings.checkingUpd", "Проверяем обновления…", "Checking for updates…");
+            // Строки «актуально» и «локальная новее» убраны намеренно: когда
+            // обновления нет, карточка ничего не пишет (SetAutomaticStatus).
             A("settings.updateFull", "Последняя версия (GitHub): {0} — есть обновление", "Latest version (GitHub): {0} — update available");
-            A("settings.localNewer", "Локальная версия {0} новее последней на GitHub: {1}", "Local version {0} is newer than the latest on GitHub: {1}");
             A("settings.localVersion",  "Локальная версия: ", "Local version: ");
             A("settings.tgVer",         "Версия Telegram-прокси", "Telegram proxy version");
             A("settings.tgVer.desc",    "Проверить установленную версию tg-ws-proxy и последнюю на GitHub.", "Check the installed tg-ws-proxy version and the latest one on GitHub.");

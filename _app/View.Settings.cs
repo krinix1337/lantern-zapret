@@ -330,45 +330,57 @@ namespace ZapretStudio
             if (_appLocalVersion != null)
                 _appLocalVersion.Text = Loc.T("settings.localVersion") + apLoc;
 
-            SetAutomaticStatus(_zapStatusLine, _zapUpdateBtn, zLat, zLoc, Core.ReleaseUrl);
-            SetAutomaticStatus(_tgStatusLine, _tgUpdateBtn, tgLat, tgLoc, Core.TgProxyReleasePage);
-            SetAutomaticStatus(_appStatusLine, _appUpdateBtn, apLat, apLoc, Core.AppReleaseUrl);
+            SetAutomaticStatus(_zapStatusLine, _zapUpdateBtn, zLat, zLoc);
+            SetAutomaticStatus(_tgStatusLine, _tgUpdateBtn, tgLat, tgLoc);
+            SetAutomaticStatus(_appStatusLine, _appUpdateBtn, apLat, apLoc);
         }
 
-        void SetAutomaticStatus(TextBlock line, Button updateButton, string latest, string local, string updateUrl)
+        // Показывается на время проверки (при старте и после кнопки перезапуска):
+        // иначе после нажатия карточки выглядели бы «мёртвыми».
+        public void SetCheckingUpdates()
+        {
+            string t = Loc.T("settings.checkingUpd");
+            ShowLine(_zapStatusLine, t, Theme.BrMuted);
+            ShowLine(_tgStatusLine, t, Theme.BrMuted);
+            ShowLine(_appStatusLine, t, Theme.BrMuted);
+        }
+
+        static void ShowLine(TextBlock line, string text, Brush fg)
+        {
+            if (line == null) return;
+            line.Text = text;
+            line.Foreground = fg;
+            line.Visibility = Visibility.Visible;
+        }
+
+        // «Нет обновления» — это отсутствие строки, а не строка «последняя версия».
+        static void HideLine(TextBlock line)
+        {
+            if (line == null) return;
+            line.Text = "";
+            line.Visibility = Visibility.Collapsed;
+        }
+
+        void SetAutomaticStatus(TextBlock line, Button updateButton, string latest, string local)
         {
             if (line == null || updateButton == null) return;
             var existingProgress = ProgressFor(updateButton);
             if (existingProgress != null) existingProgress.Hide();
             updateButton.Visibility = Visibility.Collapsed;
-            if (string.IsNullOrEmpty(latest))
+            // Провал проверки — единственный случай без обновления, о котором всё
+            // же надо сказать: иначе тишину не отличить от «всё актуально».
+            if (string.IsNullOrEmpty(latest)) { ShowLine(line, Loc.T("mw.verFail"), Theme.BrWarn); return; }
+            // Компонент не установлен (например, прокси): версия «—» в строке выше
+            // уже об этом говорит, скачивание живёт на главной странице.
+            if (string.IsNullOrEmpty(local)) { HideLine(line); return; }
+            if (CompareVersions(latest, local) > 0)
             {
-                line.Text = Loc.T("mw.verFail");
-                line.Foreground = Theme.BrWarn;
-                return;
-            }
-            if (string.IsNullOrEmpty(local))
-            {
-                line.Text = string.Format(Loc.T("settings.latestFull"), latest);
-                line.Foreground = Theme.BrMuted;
-                return;
-            }
-            int comparison = CompareVersions(latest, local);
-            if (comparison > 0)
-            {
-                line.Text = string.Format(Loc.T("settings.updateFull"), latest);
-                line.Foreground = Theme.BrWarn;
+                ShowLine(line, string.Format(Loc.T("settings.updateFull"), latest), Theme.BrWarn);
                 updateButton.Visibility = Visibility.Visible;
                 return;
             }
-            if (comparison < 0)
-            {
-                line.Text = string.Format(Loc.T("settings.localNewer"), local, latest);
-                line.Foreground = Theme.BrOk;
-                return;
-            }
-            line.Text = string.Format(Loc.T("settings.latestFull"), latest);
-            line.Foreground = Theme.BrOk;
+            // Актуальная или более свежая локальная сборка: не пишем ничего.
+            HideLine(line);
         }
 
         UpdateProgressBar ProgressFor(Button button)
@@ -380,11 +392,9 @@ namespace ZapretStudio
 
         void ShowProgress(UpdateProgressBar progress, TextBlock line, string phase, int percent, Brush color)
         {
-            if (line != null)
-            {
-                line.Text = percent >= 0 ? phase + " — " + percent + "%" : phase;
-                line.Foreground = color;
-            }
+            // Строка могла быть скрыта («обновлений нет») — на время загрузки
+            // возвращаем её, иначе прогресс остался бы без подписи.
+            ShowLine(line, percent >= 0 ? phase + " — " + percent + "%" : phase, color);
             if (progress != null) progress.Show(phase, percent, color);
         }
 
@@ -414,7 +424,7 @@ namespace ZapretStudio
 
         void FinishProgress(UpdateProgressBar progress, TextBlock line, string text, bool ok)
         {
-            if (line != null) { line.Text = text; line.Foreground = ok ? Theme.BrOk : Theme.BrWarn; }
+            ShowLine(line, text, ok ? Theme.BrOk : Theme.BrWarn);
             if (progress != null)
             {
                 // И успех, и ошибка — полная полоса: отличает их цвет (зелёный или
@@ -802,6 +812,49 @@ namespace ZapretStudio
             // Подматываем последнюю из трёх карточек — тогда в кадр попадают все.
             var fe = _appProgress.View as FrameworkElement;
             if (fe != null) fe.BringIntoView();
+        }
+
+        // Требование: строка и кнопка появляются только когда обновление реально
+        // есть. Проверяем все четыре состояния карточки.
+        internal void CheckUpdateNotices()
+        {
+            SetAutomaticUpdateResults("1.2", "1.2", "1.2", "1.2", "1.2", "1.2");
+            if (_zapStatusLine.Visibility != Visibility.Collapsed ||
+                _tgStatusLine.Visibility != Visibility.Collapsed ||
+                _appStatusLine.Visibility != Visibility.Collapsed)
+                throw new Exception("up-to-date cards still write a status line");
+            if (_zapUpdateBtn.Visibility != Visibility.Collapsed ||
+                _tgUpdateBtn.Visibility != Visibility.Collapsed ||
+                _appUpdateBtn.Visibility != Visibility.Collapsed)
+                throw new Exception("up-to-date cards show the update button");
+
+            // Локальная сборка новее последнего релиза — тоже «обновления нет».
+            SetAutomaticUpdateResults("1.2", "1.3", "1.2", "1.3", "1.2", "1.3");
+            if (_zapStatusLine.Visibility != Visibility.Collapsed || _zapUpdateBtn.Visibility != Visibility.Collapsed)
+                throw new Exception("newer local build still writes a status line");
+
+            SetAutomaticUpdateResults("1.3", "1.2", "1.3", "1.2", "1.3", "1.2");
+            if (_zapStatusLine.Visibility != Visibility.Visible ||
+                _tgStatusLine.Visibility != Visibility.Visible ||
+                _appStatusLine.Visibility != Visibility.Visible)
+                throw new Exception("available update is not announced");
+            if (_zapUpdateBtn.Visibility != Visibility.Visible ||
+                _tgUpdateBtn.Visibility != Visibility.Visible ||
+                _appUpdateBtn.Visibility != Visibility.Visible)
+                throw new Exception("available update without the update button");
+
+            // Прокси не установлен: молчим, скачивание живёт на главной.
+            SetAutomaticUpdateResults("1.2", "1.2", "1.2", null, "1.2", "1.2");
+            if (_tgStatusLine.Visibility != Visibility.Collapsed || _tgUpdateBtn.Visibility != Visibility.Collapsed)
+                throw new Exception("missing proxy writes a status line");
+
+            // Проверка не удалась: об этом сказать нужно, но кнопки быть не должно.
+            SetAutomaticUpdateResults(null, "1.2", null, "1.2", null, "1.2");
+            if (_zapStatusLine.Visibility != Visibility.Visible || _zapUpdateBtn.Visibility != Visibility.Collapsed)
+                throw new Exception("failed check is not reported");
+
+            // Возвращаем «всё актуально»: дальше по сценарию идут снимки.
+            SetAutomaticUpdateResults("1.2", "1.2", "1.2", "1.2", "1.2", "1.2");
         }
 #endif
     }

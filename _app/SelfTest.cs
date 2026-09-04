@@ -212,7 +212,18 @@ namespace ZapretStudio
             {
                 var sp = FindPage(win) as SettingsPage;
                 if (sp != null) { sp.HideDemoProgress(); Pump(); ForceLayout(win); }
-            }            NavCheck(win, "check"); Shot(win, "min-check");
+            }
+            // Карточки версий: строка и кнопка «Обновить» появляются только когда
+            // обновление действительно есть, иначе карточка молчит.
+            Try("update notices only when needed", delegate
+            {
+                var sp = FindPage(win) as SettingsPage;
+                Assert(sp != null);
+                sp.CheckUpdateNotices();
+                Pump(); ForceLayout(win);
+            });
+            Shot(win, "min-settings-uptodate");
+            NavCheck(win, "check"); Shot(win, "min-check");
             ClickTab(win, Loc.T("check.tab.popular"));
             FillCheck(win); Shot(win, "min-check-filled");
             NavCheck(win, "service"); Shot(win, "min-service");
