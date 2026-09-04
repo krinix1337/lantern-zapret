@@ -4,12 +4,19 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag'
+        description: 'Release tag (например 7.1)'
         required: true
 
+# Прежний workflow собирал апстримный zapret на ubuntu-latest: тег сверялся с
+# .service/version.txt (версия движка Flowseal, а не Lantern), а в архив
+# копировались bin/lists/utils и *.bat, которых в этом репозитории нет — они
+# перечислены в .gitignore и скачиваются самим приложением. Собрать релиз
+# Lantern он не мог ни при каких условиях. Теперь собирается то, что
+# действительно раздаётся: Lantern.exe, установщик Lantern-Setup.exe и файл
+# контрольной суммы, который проверяет самообновление (Core.SelfUpdate).
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     permissions:
       contents: write
 
@@ -17,53 +24,53 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify version matches version.txt
+      - name: Verify tag matches app version
+        shell: pwsh
         run: |
-          VERSION=$(cat .service/version.txt)
-          if [ "$VERSION" != "${{ github.event.inputs.tag }}" ]; then
-            echo "Error: tag '${{ github.event.inputs.tag }}' does not match .service/version.txt ('$VERSION')"
-            exit 1
-          fi
+          $tag = '${{ github.event.inputs.tag }}'.TrimStart('v', 'V')
+          $asmLine = Get-Content '_app/AssemblyInfo.cs' | Where-Object { $_ -like '*AssemblyInformationalVersion*' } | Select-Object -First 1
+          $issLine = Get-Content '_installer/Lantern.iss' | Where-Object { $_ -like '#define AppVersion*' } | Select-Object -First 1
+          if (-not $asmLine) { throw 'AssemblyInformationalVersion not found in _app/AssemblyInfo.cs' }
+          if (-not $issLine) { throw 'AppVersion not found in _installer/Lantern.iss' }
+          $asmVer = ($asmLine -split '"')[1]
+          $issVer = ($issLine -split '"')[1]
+          Write-Host "tag=$tag assembly=$asmVer installer=$issVer"
+          if ($asmVer -ne $tag) { throw "tag '$tag' does not match AssemblyInformationalVersion '$asmVer'" }
+          if ($issVer -ne $tag) { throw "tag '$tag' does not match Lantern.iss AppVersion '$issVer'" }
 
-      - name: Install tools
+      - name: Build Lantern.exe
+        shell: cmd
+        working-directory: _app
+        run: build.cmd
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
         run: |
-          sudo apt-get update
-          sudo apt-get install -y zip tar rar
+          $iscc = 'C:/Program Files (x86)/Inno Setup 6/ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found at $iscc" }
+          & $iscc '_installer/Lantern.iss'
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
 
-      - name: Prepare release bundle
+      - name: Compute SHA256
+        shell: pwsh
         run: |
-          NAME="zapret-discord-youtube-${{ github.event.inputs.tag }}"
-
-          mkdir "$NAME"
-
-          cp -r bin "$NAME/"
-          cp -r lists "$NAME/"
-          cp -r utils "$NAME/"
-          cp *.bat "$NAME/"
-
-      - name: Create archives
-        run: |
-          NAME="zapret-discord-youtube-${{ github.event.inputs.tag }}"
-
-          zip -qr "${NAME}.zip" "$NAME"
-          rar a -idq "${NAME}.rar" "$NAME"
-          tar --owner=0 --group=0 -czf "${NAME}.tar.gz" "$NAME"
-
-      - name: Print SHA256 checksums
-        run: |
-          NAME="zapret-discord-youtube-${{ github.event.inputs.tag }}"
-
-          sha256sum \
-            "${NAME}.zip" \
-            "${NAME}.rar" \
-            "${NAME}.tar.gz"
+          $setup = '_installer/Lantern-Setup.exe'
+          if (-not (Test-Path $setup)) { throw "installer not found: $setup" }
+          $hash = (Get-FileHash -Algorithm SHA256 $setup).Hash.ToLower()
+          # Формат «хеш, два пробела, имя файла» — его разбирает Core.ParseSha256File.
+          Set-Content -Path "$setup.sha256" -Value "$hash  Lantern-Setup.exe" -Encoding ascii
+          Write-Host "$hash  Lantern-Setup.exe"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag }}
-          name: ${{ github.event.inputs.tag }}
+          name: Lantern ${{ github.event.inputs.tag }}
           files: |
-            zapret-discord-youtube-${{ github.event.inputs.tag }}.zip
-            zapret-discord-youtube-${{ github.event.inputs.tag }}.rar
-            zapret-discord-youtube-${{ github.event.inputs.tag }}.tar.gz
+            _installer/Lantern-Setup.exe
+            _installer/Lantern-Setup.exe.sha256
+            Lantern.exe

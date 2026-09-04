@@ -43,7 +43,7 @@ namespace ZapretStudio
 
         // Вкладки
         string _tab = "targets";
-        StackPanel _tabBar;
+        WrapPanel _tabBar;
         Border _tabsHost;       // контейнер для содержимого активной вкладки
         readonly Dictionary<string, Button> _tabButtons = new Dictionary<string, Button>();
 
@@ -66,7 +66,10 @@ namespace ZapretStudio
 
         void BuildTabBar()
         {
-            _tabBar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
+            // WrapPanel, а не StackPanel: на минимальной ширине окна (1000) четыре
+            // вкладки в один ряд не влезают, и последняя («Проверка стратегий»)
+            // обрезалась правым краем страницы. Теперь переносится на вторую строку.
+            _tabBar = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
             _tabBar.Children.Add(TabButton("targets", Icons.List, Loc.T("check.tab.targets")));
             _tabBar.Children.Add(TabButton("popular", Icons.Globe, Loc.T("check.tab.popular")));
             _tabBar.Children.Add(TabButton("games", Icons.Game, Loc.T("check.tab.games")));
@@ -76,7 +79,7 @@ namespace ZapretStudio
 
         Button TabButton(string key, string icon, string label)
         {
-            var b = new Button { Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(0, 0, 8, 0) };
+            var b = new Button { Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(0, 0, 8, 8) };
             Ctl.StripChrome(b);
             var bd = new Border { CornerRadius = Theme.R10, Padding = new Thickness(13, 8, 13, 8),
                 Background = Brushes.Transparent, BorderBrush = Theme.BrStroke, BorderThickness = new Thickness(1) };
@@ -673,36 +676,36 @@ namespace ZapretStudio
                         for (int i = 0; i < 6 && !_stratCancel; i++) Thread.Sleep(100); // 600ms вместо 5000ms
 
                         // Параллельная проверка всех целей за 2-3 секунды
-                        int remaining = probes.Count;
-                        using (var done = new ManualResetEvent(false))
+                        var barrier = new Core.WorkBarrier(probes.Count);
+                        foreach (var t in probes)
                         {
-                            foreach (var t in probes)
+                            var tt = t;
+                            ThreadPool.QueueUserWorkItem(delegate
                             {
-                                var tt = t;
-                                ThreadPool.QueueUserWorkItem(delegate
+                                try
                                 {
-                                    try
+                                    if (!_stratCancel)
                                     {
-                                        if (!_stratCancel)
+                                        if (tt.Kind == "PING")
                                         {
-                                            if (tt.Kind == "PING")
-                                            {
-                                                var res = Core.TestPing(tt.Host, 3000);
-                                                if (res.State == "reachable") Interlocked.Increment(ref ok);
-                                            }
-                                            else
-                                            {
-                                                var cr = Core.CurlCheck(tt.Url, 3);
-                                                if (cr.Verdict == "ok") Interlocked.Increment(ref ok);
-                                            }
+                                            var res = Core.TestPing(tt.Host, 3000);
+                                            if (res.State == "reachable") Interlocked.Increment(ref ok);
+                                        }
+                                        else
+                                        {
+                                            var cr = Core.CurlCheck(tt.Url, 3);
+                                            if (cr.Verdict == "ok") Interlocked.Increment(ref ok);
                                         }
                                     }
-                                    catch { }
-                                    if (Interlocked.Decrement(ref remaining) == 0) done.Set();
-                                });
-                            }
-                            done.WaitOne(4000);
+                                }
+                                catch { }
+                                finally { barrier.Signal(); }
+                            });
                         }
+                        // Одна проба (CurlCheck с -m 3) укладывается в ~4,5 с —
+                        // прежние 4000 мс истекали раньше, чем пробы отвечали,
+                        // и итог считался по неполным данным.
+                        barrier.Wait(9000);
                     }
                     catch (Exception ex) { err = ex.Message; }
                     finally { try { Core.KillWinws(); } catch { } }

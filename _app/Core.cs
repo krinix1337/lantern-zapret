@@ -92,6 +92,12 @@ public static string Bin        { get { if (_bin == null) _bin = Path.Combine(Sa
             for (int i = 0; i < 6 && dir != null; i++)
             {
                 if (File.Exists(Path.Combine(dir, "bin", "winws.exe"))) { SetRoot(dir); return true; }
+                // Приложение скачивает компоненты в подпапку «zapret» рядом с exe,
+                // поэтому поиск только вверх её не видел: после потери gui-config.ini
+                // (например, при переустановке) уже загруженные bin/lists считались
+                // отсутствующими и открывалось окно повторной загрузки.
+                string nested = Path.Combine(dir, "zapret");
+                if (File.Exists(Path.Combine(nested, "bin", "winws.exe"))) { SetRoot(nested); return true; }
                 var parent = Directory.GetParent(dir.TrimEnd(Path.DirectorySeparatorChar));
                 if (parent == null) break;
                 dir = parent.FullName;
@@ -102,17 +108,28 @@ public static string Bin        { get { if (_bin == null) _bin = Path.Combine(Sa
                 var cfgPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "gui-config.ini");
                 if (File.Exists(cfgPath))
                     foreach (var line in File.ReadAllLines(cfgPath))
-                        if (line.StartsWith("root=", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var p = line.Substring(5).Trim();
-                            if (File.Exists(Path.Combine(p, "bin", "winws.exe"))) { SetRoot(p); return true; }
-                        }
+                    {
+                        // SaveConfig пишет "ключ = значение" (с пробелами вокруг «=»),
+                        // поэтому разбираем так же, как LoadConfig, а не по StartsWith("root=").
+                        string s = line.Trim();
+                        int eq = s.IndexOf('=');
+                        if (eq <= 0) continue;
+                        if (!s.Substring(0, eq).Trim().Equals("root", StringComparison.OrdinalIgnoreCase)) continue;
+                        var p = s.Substring(eq + 1).Trim();
+                        if (p.Length > 0 && File.Exists(Path.Combine(p, "bin", "winws.exe"))) { SetRoot(p); return true; }
+                    }
             }
             catch { }
             return false;
         }
 
-        public static void SetRoot(string path) { InvalidatePaths(); Root = path.TrimEnd(Path.DirectorySeparatorChar); }
+        // path == null допустим: так вызывающая сторона возвращает «корень неизвестен»
+        // (например, тест восстанавливает исходное состояние).
+        public static void SetRoot(string path)
+        {
+            InvalidatePaths();
+            Root = string.IsNullOrEmpty(path) ? path : path.TrimEnd(Path.DirectorySeparatorChar);
+        }
 
         static void InvalidatePaths()
         {
@@ -121,8 +138,50 @@ public static string Bin        { get { if (_bin == null) _bin = Path.Combine(Sa
 
         public static string FmtTime(TimeSpan t)
         {
-            if (t.TotalMinutes >= 1) return (int)t.TotalMinutes + " min " + t.Seconds + " s";
-            return t.Seconds + "," + (t.Milliseconds / 100) + " s";
+            if (t.TotalMinutes >= 1) return (int)t.TotalMinutes + " " + Loc.T("time.min") + " " + t.Seconds + " " + Loc.T("time.sec");
+            return t.Seconds + "," + (t.Milliseconds / 100) + " " + Loc.T("time.sec");
+        }
+
+        // Барьер для параллельных проб.
+        //
+        // Прежний код держал ManualResetEvent в using-блоке и звал Set() из воркеров:
+        // если ожидающая сторона выходила по тайм-ауту (для проб это норма, а не
+        // исключение), отставший воркер обращался к уже освобождённому хендлу и
+        // получал ObjectDisposedException в потоке пула — то есть падение процесса.
+        // Здесь нет unmanaged-хендла и нет Dispose: Signal() после тайм-аута
+        // безвреден.
+        public sealed class WorkBarrier
+        {
+            readonly object _gate = new object();
+            int _remaining;
+
+            public WorkBarrier(int count) { _remaining = count; }
+
+            // Вызывать ровно один раз на каждую единицу работы (лучше из finally).
+            public void Signal()
+            {
+                lock (_gate)
+                {
+                    if (_remaining > 0 && --_remaining == 0)
+                        System.Threading.Monitor.PulseAll(_gate);
+                }
+            }
+
+            // true — все воркеры отчитались, false — истёк тайм-аут.
+            public bool Wait(int timeoutMs)
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                lock (_gate)
+                {
+                    while (_remaining > 0)
+                    {
+                        int left = timeoutMs - (int)sw.ElapsedMilliseconds;
+                        if (left <= 0) return false;
+                        System.Threading.Monitor.Wait(_gate, left);
+                    }
+                    return true;
+                }
+            }
         }
     }
 }

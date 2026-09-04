@@ -55,9 +55,26 @@ namespace ZapretStudio
                 Tog("autostart_run", false, Loc.T("settings.autorun"), null)));
             Body.Children.Add(space());
             var appAuto = new Toggle(Loc.T("settings.autostart"));
-            appAuto.IsChecked = Core.AppAutostartEnabled();
-            appAuto.Checked += (s, e) => Core.SetAppAutostart(true);
-            appAuto.Unchecked += (s, e) => Core.SetAppAutostart(false);
+            // Состояние автозапуска читается через schtasks (внешний процесс), а
+            // запись создаёт/удаляет задачу планировщика: и то и другое делаем в
+            // фоне, иначе открытие страницы и клик по переключателю подвешивают UI.
+            // Флаг ready гасит события, которые вызывает первичная установка IsChecked.
+            var ready = new bool[1];
+            appAuto.Checked += (s, e) => { if (ready[0]) System.Threading.ThreadPool.QueueUserWorkItem(delegate { Core.SetAppAutostart(true); }); };
+            appAuto.Unchecked += (s, e) => { if (ready[0]) System.Threading.ThreadPool.QueueUserWorkItem(delegate { Core.SetAppAutostart(false); }); };
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                bool on = Core.AppAutostartEnabled();
+                try
+                {
+                    Dispatcher.BeginInvoke(DispatcherPriority.Normal, (Action)delegate
+                    {
+                        appAuto.IsChecked = on;
+                        ready[0] = true;
+                    });
+                }
+                catch { }
+            });
             Body.Children.Add(Row(Loc.T("settings.autostart"), Loc.T("settings.autostart.desc"), appAuto));
             Body.Children.Add(space());
             var tgAuto = new Toggle(Loc.T("settings.tgAutostart"));

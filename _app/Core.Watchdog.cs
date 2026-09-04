@@ -56,44 +56,44 @@ namespace ZapretStudio
                 Thread.Sleep(600); // 600ms
                 long msSum = 0; int msCount = 0;
                 int ok = 0;
-                int remaining = probes.Count;
-                using (var done = new ManualResetEvent(false))
+                var barrier = new WorkBarrier(probes.Count);
+                foreach (var t in probes)
                 {
-                    foreach (var t in probes)
+                    var tt = t;
+                    ThreadPool.QueueUserWorkItem(delegate
                     {
-                        var tt = t;
-                        ThreadPool.QueueUserWorkItem(delegate
+                        try
                         {
-                            try
+                            if (cancel == null || !cancel())
                             {
-                                if (cancel == null || !cancel())
+                                if (tt.Kind == "PING")
                                 {
-                                    if (tt.Kind == "PING")
+                                    var pr = TestPing(tt.Host, 3000);
+                                    if (pr.State == "reachable")
                                     {
-                                        var pr = TestPing(tt.Host, 3000);
-                                        if (pr.State == "reachable")
-                                        {
-                                            Interlocked.Increment(ref ok);
-                                            if (pr.Ms >= 0) { Interlocked.Add(ref msSum, pr.Ms); Interlocked.Increment(ref msCount); }
-                                        }
+                                        Interlocked.Increment(ref ok);
+                                        if (pr.Ms >= 0) { Interlocked.Add(ref msSum, pr.Ms); Interlocked.Increment(ref msCount); }
                                     }
-                                    else
+                                }
+                                else
+                                {
+                                    var cr = CurlCheck(tt.Url, 3);
+                                    if (cr.Verdict == "ok")
                                     {
-                                        var cr = CurlCheck(tt.Url, 3);
-                                        if (cr.Verdict == "ok")
-                                        {
-                                            Interlocked.Increment(ref ok);
-                                            if (cr.Ms >= 0) { Interlocked.Add(ref msSum, cr.Ms); Interlocked.Increment(ref msCount); }
-                                        }
+                                        Interlocked.Increment(ref ok);
+                                        if (cr.Ms >= 0) { Interlocked.Add(ref msSum, cr.Ms); Interlocked.Increment(ref msCount); }
                                     }
                                 }
                             }
-                            catch { }
-                            if (Interlocked.Decrement(ref remaining) == 0) done.Set();
-                        });
-                    }
-                    done.WaitOne(4000);
+                        }
+                        catch { }
+                        finally { barrier.Signal(); }
+                    });
                 }
+                // CurlCheck сам ждёт до 4,5 с, поэтому окно ожидания с запасом:
+                // прежние 4000 мс истекали почти всегда, и результаты читались,
+                // пока пробы ещё шли.
+                barrier.Wait(9000);
                 sc.Ok = ok;
                 if (msCount > 0) sc.AvgMs = (double)msSum / msCount;
             }

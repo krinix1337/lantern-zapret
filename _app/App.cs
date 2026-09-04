@@ -69,9 +69,30 @@ namespace ZapretStudio
             {
                 try { Core.Fail(string.Format(Loc.T("app.errToast"), e.Exception.Message)); }
                 catch (Exception ex) { System.Diagnostics.Debug.WriteLine("Fail in DispatcherUnhandledException: " + ex); }
-                MessageBox.Show(string.Format(Loc.T("app.errDlg"), e.Exception.Message), "zapret",
+                MessageBox.Show(string.Format(Loc.T("app.errDlg"), e.Exception.Message), Core.AppName,
                     MessageBoxButton.OK, MessageBoxImage.Error);
                 e.Handled = true;
+            };
+
+            // Исключение в потоке пула (пробы, бенчмарк, watchdog, загрузки) не
+            // проходит через DispatcherUnhandledException: раньше такое падение
+            // закрывало приложение молча, без записи в журнал. Перехватить и
+            // продолжить работу здесь нельзя — среда всё равно завершает процесс, —
+            // но причину сохраняем в файл и показываем пользователю.
+            AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+            {
+                string path = null;
+                var ex = e.ExceptionObject as Exception;
+                string text = ex != null ? ex.ToString() : Convert.ToString(e.ExceptionObject);
+                try { path = WriteCrashLog(text); } catch { }
+                try { Core.Fail("FATAL: " + text); } catch { }
+                try
+                {
+                    MessageBox.Show(string.Format(Loc.T("app.crashDlg"),
+                        ex != null ? ex.Message : text, path ?? "-"),
+                        Core.AppName, MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                catch { }
             };
 
             // Язык и тема читаются из локального конфига рядом с exe ещё до поиска корня.
@@ -101,6 +122,39 @@ namespace ZapretStudio
             var win = new MainWindow();
             win.Loaded += (s, e) => Core.EnsureUiFontsInBackground();
             app.Run(win);
+        }
+
+        // Сохранить причину падения рядом с профилем пользователя: папка установки
+        // может быть недоступна для записи, поэтому LocalAppData — основной вариант,
+        // а %TEMP% — резервный. Возвращает путь к файлу или null.
+        static string WriteCrashLog(string text)
+        {
+            string[] roots =
+            {
+                System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Core.AppName),
+                System.IO.Path.GetTempPath()
+            };
+            string stamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+            foreach (var root in roots)
+            {
+                try
+                {
+                    if (string.IsNullOrEmpty(root)) continue;
+                    if (!System.IO.Directory.Exists(root)) System.IO.Directory.CreateDirectory(root);
+                    string file = System.IO.Path.Combine(root, "crash-" + stamp + ".log");
+                    var sb = new System.Text.StringBuilder();
+                    sb.AppendLine(Core.AppName + " " + Core.AppVersion);
+                    sb.AppendLine(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    sb.AppendLine("OS: " + Environment.OSVersion + " / CLR " + Environment.Version);
+                    sb.AppendLine("Base: " + AppDomain.CurrentDomain.BaseDirectory);
+                    sb.AppendLine();
+                    sb.AppendLine(text);
+                    System.IO.File.WriteAllText(file, sb.ToString(), System.Text.Encoding.UTF8);
+                    return file;
+                }
+                catch { }
+            }
+            return null;
         }
 
         static void ApplySavedTheme()

@@ -140,9 +140,17 @@ namespace ZapretStudio
                 Core.Warn(string.Format(Loc.T("service.noAdmin.log"), what));
                 return;
             }
-            try { act(); }
-            catch (Exception ex) { Core.Fail(what + ": " + ex.Message); }
-            Refresh();
+            // sc create/start/stop/delete отвечают до 20 с каждый (RemoveService —
+            // это остановка плюс удаление), поэтому действие уходит в пул потоков:
+            // раньше окно на это время полностью замирало. Журнал потокобезопасен,
+            // а перерисовка страницы возвращается в UI-поток.
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                try { act(); }
+                catch (Exception ex) { Core.Fail(what + ": " + ex.Message); }
+                try { Dispatcher.BeginInvoke(DispatcherPriority.Normal, (Action)delegate { Refresh(); }); }
+                catch { }
+            });
         }
 
         void BuildAdminNote()

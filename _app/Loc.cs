@@ -108,7 +108,10 @@ namespace ZapretStudio
             A("strat.recommend.fail", "Не удалось определить провайдера", "Could not detect ISP");
             A("strat.recommend.isp", "Провайдер: {0}. Рекомендуется: {1}", "ISP: {0}. Recommended: {1}");
             A("strat.recommend.result", "Рекомендуется: {0}", "Recommended: {0}");
-            A("settings.app.changelog", "Что нового", "What's new");
+            A("strat.recommend.verified", " (проверено живым тестом)", " (verified by a live test)");
+            A("strat.recommend.title", "Подбор стратегии", "Strategy selection");
+            A("strat.recommend.applyQ", "Применить эту стратегию прямо сейчас?", "Apply this strategy right now?");
+            A("strat.recommend.applied", "Стратегия применена: {0}", "Strategy applied: {0}");
             A("overview.title",    "Главное меню",               "Main menu");
             A("overview.sub",      "Состояние обхода и быстрые действия.", "Bypass status and quick actions.");
             A("strategies.title",  "Стратегии",           "Strategies");
@@ -178,12 +181,11 @@ namespace ZapretStudio
             A("settings.autorun",     "Запускать обход при старте приложения", "Start bypass when app opens");
             A("settings.autorun.desc","Автоматически применять последнюю стратегию при открытии приложения.", "Automatically apply the last strategy when the app opens.");
             A("settings.autostart",     "Автозапуск приложения с Windows", "Launch app with Windows");
-            A("settings.autostart.desc","Ярлык в автозагрузке. Настраивается вручную в системе — здесь только флаг предпочтения.", "Startup shortcut. Configured manually in the system; this is only a preference flag.");
+            A("settings.autostart.desc","Задача в планировщике Windows: приложение запускается при входе в систему с правами администратора.", "A Windows Task Scheduler entry: the app starts at sign-in with administrator rights.");
             A("settings.tgAutostart",   "Автозапуск TG-Proxy", "Auto-start TG Proxy");
             A("settings.tgAutostart.desc","Запускать Telegram-прокси автоматически при входе в Windows.", "Start Telegram proxy automatically when Windows starts.");
             A("settings.appVer",        "Версия Lantern", "Lantern version");
             A("settings.app.downloading","Скачивание установщика...", "Downloading installer...");
-            A("settings.app.installerStarted","Установщик запущен. Следуйте инструкциям.", "Installer started. Follow the instructions.");
             A("settings.app.manualOnly", "Доступна новая версия, но автоустановка отключена: релиз не имеет проверяемой подписи.", "A new version is available, but automatic installation is disabled because the release has no verifiable signature.");
             A("settings.timeout",     "Тайм-аут проверки соединения", "Connection check timeout");
             A("settings.timeout.desc","Максимальное ожидание ответа при проверке доступности адреса.", "Maximum wait for a response when checking a host.");
@@ -295,6 +297,7 @@ namespace ZapretStudio
             A("ov.zap.notInstalledTitle","Не установлен", "Not installed");
             A("ov.tg.openTools",  "Инструменты",       "Tools");
             A("ov.qa.check",      "Проверить соединение", "Check connection");
+            A("ov.qa.strat",      "Выбрать стратегию",    "Choose strategy");
             A("ov.qa.folder",     "Открыть папку zapret", "Open zapret folder");
             A("ov.qa.tgFolder",   "Папка TG-Proxy",       "Open TG-Proxy folder");
             A("ov.qa.zapretFolder","Папка zapret",        "Open zapret folder");
@@ -363,6 +366,7 @@ namespace ZapretStudio
             A("tg.notInstalledErr", "Прокси не установлен", "Proxy not installed");
             A("app.errToast", "Ошибка: {0}", "Error: {0}");
             A("app.errDlg",   "Произошла ошибка:\n\n{0}", "An error occurred:\n\n{0}");
+            A("app.crashDlg", "Критическая ошибка в фоновой операции:\n\n{0}\n\nПодробности сохранены в файл:\n{1}", "Critical error in a background operation:\n\n{0}\n\nDetails were saved to:\n{1}");
             A("app.startedLog","Приложение запущено. Папка zapret: {0}", "Application started. zapret folder: {0}");
             A("app.adminYes", "Права администратора: есть", "Administrator rights: yes");
             A("app.adminNo",  "Права администратора: нет",  "Administrator rights: no");
@@ -570,6 +574,7 @@ namespace ZapretStudio
             A("settings.watchdog.interval", "Интервал проверки", "Check interval");
             A("settings.watchdog.interval.desc", "Как часто проверять работоспособность текущей стратегии.", "How often to check the current strategy's connectivity.");
             A("time.min", "мин", "min");
+            A("time.sec", "с", "s");
             // Статистика трафика
             A("ov.sec.traffic", "Трафик", "Traffic");
             A("ov.traffic.down", "Загрузка", "Download");
@@ -591,6 +596,8 @@ namespace ZapretStudio
             A("filters.list.add", "Добавить", "Add");
             A("filters.list.del", "Удалить", "Remove");
             A("filters.list.count", "Записей: {0}", "Entries: {0}");
+            A("filters.list.more", "... +{0} ещё (список сокращён для быстродействия)",
+                                   "... +{0} more (list truncated for performance)");
             A("filters.list.added", "Добавлено: {0}", "Added: {0}");
             A("filters.list.removed", "Удалено: {0}", "Removed: {0}");
             // Обновление списков
@@ -664,6 +671,7 @@ namespace ZapretStudio
             A("diag.n.wdOrphan", "WinDivert без winws", "WinDivert without winws");
             A("diag.v.wdOrphan", "Драйвер загружен, но winws не запущен — возможно, его удерживает другой обход.", "Driver is loaded but winws is not running - another bypass may be holding it.");
             A("diag.n.dohIface", "Зашифрованный DNS на интерфейсах", "Encrypted DNS on interfaces");
+            A("diag.v.dohHint", "Не настроен. Включите DNS-over-HTTPS в разделе «Фильтры» или в параметрах сети Windows.", "Not configured. Enable DNS-over-HTTPS on the Filters page or in Windows network settings.");
 
             // Прочее
             A("tray.widget.live", "РАБОТАЕТ", "LIVE");
@@ -676,6 +684,7 @@ namespace ZapretStudio
             A("appupd.hashMismatch",  "Установка отменена: хеш скачанного установщика НЕ совпал с опубликованным.", "Update aborted: downloaded installer hash does NOT match the published one.");
             A("appupd.hashUnreadable","Установка отменена: не удалось прочитать .sha256 из релиза.", "Update aborted: could not read the .sha256 from the release.");
             A("appupd.hashMissing",   "Релиз без .sha256 — проверка целостности недоступна.", "Release without .sha256 - integrity check is not available.");
+            A("appupd.source",        "Установщик: {0}", "Installer: {0}");
 
             // Версии в сайдбаре без данных проверки (честно, без «актуально»)
             A("mw.tgVerPlain",   "Версия TG-Proxy: {0}", "TG-Proxy version: {0}");

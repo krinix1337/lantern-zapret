@@ -1,5 +1,6 @@
 MIT License
 
+Copyright (c) 2025-2026 krinix1337 (Lantern GUI)
 Copyright (c) 2016-2026 bol-van
 Copyright (c) 2024-2026 Flowseal
 
@@ -23,24 +24,32 @@ SOFTWARE.
 
 ---
 
-This repository contains binary files originating from the project by bol-van,  
-available at: https://github.com/bol-van/zapret/ (licensed under the MIT License).
+Lantern -- the GUI application in this repository (directory _app/) -- is
+copyright (c) 2025-2026 krinix1337 and is licensed under the MIT License above.
 
-This repository also includes and depends on WinDivert  
-(https://github.com/basil00/WinDivert), which is licensed under your choice of:
+This repository does not distribute zapret or WinDivert binaries, and neither
+does Lantern-Setup.exe: the engine (winws.exe, WinDivert64.sys, curl.exe, the
+strategy .bat files and the domain/IP lists) is downloaded on first run from the
+release page of https://github.com/Flowseal/zapret-discord-youtube.
 
-1. The GNU Lesser General Public License (LGPL) Version 3, or  
+That engine originates from the project by bol-van,
+available at https://github.com/bol-van/zapret/ (licensed under the MIT
+License), and it ships WinDivert (https://github.com/basil00/WinDivert), which
+is licensed under your choice of:
+
+1. The GNU Lesser General Public License (LGPL) Version 3, or
 2. The GNU General Public License (GPL) Version 2.
 
-Binary distributions of WinDivert are included in this project as-is, without modification.  
-The corresponding source code and license terms for WinDivert are available at  
+WinDivert binaries obtained at run time are used as-is, without modification.
+The corresponding source code and license terms for WinDivert are available at
 https://github.com/basil00/WinDivert.
 
 ---
 
 To comply with the licenses of these projects:
 
-1. The original copyright notices and licenses (above) are retained.  
-2. The use of WinDivert in this project is governed by its licensing terms (LGPLv3/GPLv2).  
-3. This repository provides only binary files and does not include the source code of  
-   the project by bol-van or modifications to WinDivert.  
+1. The original copyright notices and licenses (above) are retained.
+2. The use of WinDivert is governed by its licensing terms (LGPLv3/GPLv2).
+3. This repository contains the source code of the Lantern GUI only. It does not
+   include or redistribute the source code of the project by bol-van, nor any
+   modifications to WinDivert.

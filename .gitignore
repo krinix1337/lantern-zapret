@@ -27,8 +27,10 @@ _app/*.png
 _app/*.txt
 _app/_*.manifest
 
-# Installer output
+# Installer output (собирается workflow-ом Release; контрольная сумма
+# публикуется как ассет релиза, а не хранится в репозитории)
 _installer/*.exe
+_installer/*.sha256
 
 # OS
 Thumbs.db

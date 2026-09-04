@@ -115,21 +115,21 @@ namespace ZapretStudio
                             return;
                         }
                         string name = Core.PrettyName(bestFile);
-                        string verifiedNote = liveVerified ? " (проверено живым тестом)" : "";
+                        string verifiedNote = liveVerified ? Loc.T("strat.recommend.verified") : "";
                         string msg = string.IsNullOrEmpty(ispDisplay)
                             ? string.Format(Loc.T("strat.recommend.result"), name) + verifiedNote
                             : string.Format(Loc.T("strat.recommend.isp"), ispDisplay, name) + verifiedNote;
 
                         var res = MessageBox.Show(
-                            msg + Environment.NewLine + Environment.NewLine + "Применить эту стратегию прямо сейчас?",
-                            "Подбор стратегии",
+                            msg + Environment.NewLine + Environment.NewLine + Loc.T("strat.recommend.applyQ"),
+                            Loc.T("strat.recommend.title"),
                             MessageBoxButton.YesNo,
                             MessageBoxImage.Question);
 
                         if (res == MessageBoxResult.Yes)
                         {
                             _win.RunStrategy(bestFile);
-                            _win.ShowToast("Стратегия применена: " + name, Sev.Ok);
+                            _win.ShowToast(string.Format(Loc.T("strat.recommend.applied"), name), Sev.Ok);
                         }
                         else
                         {
@@ -154,11 +154,19 @@ namespace ZapretStudio
             // поиск
             var sb = new Border { Background = Theme.BrSurface, BorderBrush = Theme.BrStroke,
                 BorderThickness = new Thickness(1), CornerRadius = Theme.R10, Padding = new Thickness(12, 0, 12, 0) };
-            var sg = new StackPanel { Orientation = Orientation.Horizontal };
-            sg.Children.Add(UI.Icon(Icons.Search, 16, Theme.BrMuted, 1.8));
+            // Grid, а не StackPanel с фиксированной шириной поля: на узком окне
+            // (1000 px) поле ввода в 260 px не влезало в свою колонку, и правый
+            // край поля вместе с текстом обрезался рамкой.
+            var sg = new Grid();
+            sg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            sg.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var sicon = UI.Icon(Icons.Search, 16, Theme.BrMuted, 1.8);
+            Grid.SetColumn(sicon, 0);
+            sg.Children.Add(sicon);
             _search = new TextBox { BorderThickness = new Thickness(0), Background = Brushes.Transparent,
                 Foreground = Theme.BrText, CaretBrush = Theme.BrText, FontSize = Theme.FsBody, FontFamily = Theme.UiFont,
-                Width = 260, VerticalContentAlignment = VerticalAlignment.Center, Height = 38, Margin = new Thickness(8, 0, 0, 0) };
+                MinWidth = 80, VerticalContentAlignment = VerticalAlignment.Center, Height = 38, Margin = new Thickness(8, 0, 0, 0) };
+            Grid.SetColumn(_search, 1);
             Ctl.AutomationSetName(_search, Loc.T("strat.search"));
             _search.TextChanged += (s, e) => Rebuild();
             _search.GotFocus += (s, e) => sb.BorderBrush = Theme.BrAccent;

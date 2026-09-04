@@ -80,6 +80,32 @@ namespace ZapretStudio
         static string RegKey { get { return @"HKLM\System\CurrentControlSet\Services\zapret"; } }
         static string Q(string s) { return "\"" + s + "\""; }
 
+        // Экранирование ОДНОГО аргумента командной строки по правилам
+        // CommandLineToArgvW: обрамляем кавычками, внутренние кавычки пишем как \",
+        // а идущие перед кавычкой обратные слэши удваиваем.
+        //
+        // Нужно для sc create: значение binPath само содержит кавычки (пути к
+        // hostlist/bin-файлам в аргументах winws). Прежний код экранировал только
+        // внешнюю пару кавычек, поэтому sc.exe разбирал строку не так, как
+        // задумано, и служба не устанавливалась — гарантированно ломаясь на пути
+        // по умолчанию «C:\Program Files\Lantern\zapret» из-за пробела.
+        internal static string Arg(string value)
+        {
+            if (value == null) value = "";
+            var sb = new System.Text.StringBuilder(value.Length + 8);
+            sb.Append('"');
+            for (int i = 0; i < value.Length; i++)
+            {
+                int slashes = 0;
+                while (i < value.Length && value[i] == '\\') { slashes++; i++; }
+                if (i == value.Length) { sb.Append('\\', slashes * 2); break; }
+                if (value[i] == '"') sb.Append('\\', slashes * 2 + 1).Append('"');
+                else sb.Append('\\', slashes).Append(value[i]);
+            }
+            sb.Append('"');
+            return sb.ToString();
+        }
+
         // ---- winws процесс ----
         // Проверяем только экземпляры winws из выбранной папки zapret. Нельзя
         // управлять одноимённым процессом, который запустила другая программа.
@@ -287,9 +313,17 @@ namespace ZapretStudio
             string args;
             try { args = BuildArgs(batFileName); }
             catch (Exception ex) { Say(Sev.Err, "InstallService: " + ex.Message); return false; }
-            string escapedBinPath = "\\\"" + WinwsExe + "\\\" " + args;
+
+            // ImagePath службы: "<путь к winws.exe>" <аргументы>. Путь берём в
+            // кавычки — он может содержать пробелы; всю строку целиком передаём
+            // sc.exe как один аргумент через Arg().
+            string binPath = "\"" + WinwsExe + "\" " + args;
             string err;
-            if (!Run("sc", "create " + ServiceName + " binPath= " + Q(escapedBinPath) + " DisplayName= \"zapret\" start= auto", 20000, out err)) return false;
+            if (!Run("sc", "create " + ServiceName + " binPath= " + Arg(binPath) + " DisplayName= \"zapret\" start= auto", 20000, out err))
+            {
+                Say(Sev.Err, "InstallService: sc create failed (" + (err ?? "?") + ")");
+                return false;
+            }
             if (!Run("sc", "description " + ServiceName + " \"Zapret DPI bypass software\"", 15000, out err)) return false;
             if (!Run("sc", "start " + ServiceName, 20000, out err)) return false;
             // отметим стратегию в реестре (как в service.bat)
@@ -346,34 +380,85 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
         // ---- TG-Proxy автозагрузка (реестр HKCU\...\Run) ----
         const string TgRunKey = "TgWsProxy";
         const string AppRunKey = "Lantern";
+        const string AppTaskName = "LanternAutostart";
         const string RunRegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+
+        // Автозапуск самого приложения.
+        //
+        // Раньше это была запись в HKCU\...\Run, но манифест Lantern требует
+        // requireAdministrator: при включённом UAC оболочка не может поднять права
+        // для автозапуска и просто не запускает такой exe. Штатное решение для
+        // admin-приложения — задача планировщика с «Run with highest privileges».
+        static bool? _autostartCache;
+        static DateTime _autostartAt;
+        static readonly object _autostartLock = new object();
 
         public static bool AppAutostartEnabled()
         {
-            try
+            lock (_autostartLock)
+                if (_autostartCache.HasValue && (DateTime.Now - _autostartAt).TotalSeconds < 5)
+                    return _autostartCache.Value;
+
+            bool v = false;
+            // schtasks печатает имя задачи в stdout только если она существует;
+            // сообщение об отсутствии уходит в stderr и в вывод не попадает.
+            string o = Capture("schtasks", "/Query /TN " + Q(AppTaskName), 8000);
+            if (o.IndexOf(AppTaskName, StringComparison.OrdinalIgnoreCase) >= 0) v = true;
+            if (!v)
             {
-                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunRegistryPath))
-                    return key != null && key.GetValue(AppRunKey) != null;
+                // Старый способ (до перехода на планировщик) — учитываем, чтобы
+                // галочка в настройках не «слетала» после обновления.
+                try
+                {
+                    using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunRegistryPath))
+                        v = key != null && key.GetValue(AppRunKey) != null;
+                }
+                catch { v = false; }
             }
-            catch { return false; }
+            lock (_autostartLock) { _autostartCache = v; _autostartAt = DateTime.Now; }
+            return v;
         }
 
         public static void SetAppAutostart(bool enable)
         {
+            lock (_autostartLock) _autostartCache = null;
+            string err;
+            // Старую запись в Run убираем всегда: она либо не работала, либо
+            // дублировала бы задачу планировщика.
             try
             {
                 using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunRegistryPath, true))
-                {
-                    if (key == null) { Warn("SetAppAutostart: registry key not found"); return; }
-                    if (enable)
-                    {
-                        string exe = System.Reflection.Assembly.GetEntryAssembly().Location;
-                        key.SetValue(AppRunKey, "\"" + exe + "\"");
-                    }
-                    else key.DeleteValue(AppRunKey, false);
-                }
+                    if (key != null) key.DeleteValue(AppRunKey, false);
             }
-            catch (Exception ex) { Warn("SetAppAutostart: " + ex.Message); }
+            catch { }
+
+            if (!enable)
+            {
+                Run("schtasks", "/Delete /F /TN " + Q(AppTaskName), 15000, out err);
+                return;
+            }
+
+            string exe = null;
+            try { exe = System.Reflection.Assembly.GetEntryAssembly().Location; }
+            catch { }
+            if (string.IsNullOrEmpty(exe)) { Warn("SetAppAutostart: exe path is unknown"); return; }
+
+            // /RL HIGHEST — запуск с полными правами администратора (без запроса UAC),
+            // /SC ONLOGON — при входе пользователя. /RU и /RP не указываем: задача
+            // создаётся для текущего пользователя и не требует пароля.
+            if (!Run("schtasks", "/Create /F /TN " + Q(AppTaskName) +
+                     " /TR " + Arg("\"" + exe + "\"") + " /SC ONLOGON /RL HIGHEST", 15000, out err))
+            {
+                Warn("SetAppAutostart: schtasks failed (" + (err ?? "?") + ")");
+                // Планировщик недоступен — возвращаемся к HKCU\Run как к
+                // «лучше, чем ничего»: сработает, если UAC отключён.
+                try
+                {
+                    using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunRegistryPath, true))
+                        if (key != null) key.SetValue(AppRunKey, "\"" + exe + "\"");
+                }
+                catch (Exception ex) { Warn("SetAppAutostart: " + ex.Message); }
+            }
         }
 
         public static bool TgAutostartEnabled()

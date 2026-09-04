@@ -211,7 +211,7 @@ namespace ZapretStudio
                     }
                     if (count > MaxDisplay)
                     {
-                        _listBox.Items.Add(string.Format("... +{0} ещё (список сокращён для быстродействия)", count - MaxDisplay));
+                        _listBox.Items.Add(string.Format(Loc.T("filters.list.more"), count - MaxDisplay));
                     }
                 }
             }

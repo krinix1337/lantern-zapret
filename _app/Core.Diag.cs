@@ -22,11 +22,6 @@ namespace ZapretStudio
         public static string RepoUrl    { get { return Endpoints.ZapretRepo; } }
         public static string AppReleaseUrl { get { return Endpoints.AppReleaseUrl; } }
 
-        // Включается только вместе с реализацией проверки подписи и жёстко
-        // закреплённым публичным ключом издателя. На текущих релизах такого
-        // манифеста нет, поэтому все пути установки работают fail-closed.
-        public static bool VerifiedUpdateManifestAvailable { get { return false; } }
-
         public static bool IsAdmin()
         {
             try
@@ -81,21 +76,27 @@ namespace ZapretStudio
         public static List<DiagItem> RunDiagnostics()
         {
             var d = new List<DiagItem>();
-            d.Add(new DiagItem { Name = Loc.T("diag.n.admin"), Sev = IsAdmin() ? Sev.Ok : Sev.Warn,
-                Value = IsAdmin() ? Loc.T("diag.v.adminYes") : Loc.T("diag.v.adminNo") });
+            // Дорогие проверки вычисляем ОДИН раз: IsAdmin(), File.Exists(WinwsExe)
+            // и HostsHasYouTube() раньше вызывались по два раза каждая.
+            bool admin = IsAdmin();
+            bool winwsFile = File.Exists(WinwsExe);
+            bool hostsYt = HostsHasYouTube();
 
-            bool root = !string.IsNullOrEmpty(Root) && File.Exists(WinwsExe);
+            d.Add(new DiagItem { Name = Loc.T("diag.n.admin"), Sev = admin ? Sev.Ok : Sev.Warn,
+                Value = admin ? Loc.T("diag.v.adminYes") : Loc.T("diag.v.adminNo") });
+
+            bool root = !string.IsNullOrEmpty(Root) && winwsFile;
             d.Add(new DiagItem { Name = Loc.T("diag.n.root"), Sev = root ? Sev.Ok : Sev.Err,
                 Value = root ? Root : Loc.T("diag.v.notFound") });
 
-            d.Add(new DiagItem { Name = Loc.T("diag.n.winws"), Sev = File.Exists(WinwsExe) ? Sev.Ok : Sev.Err,
-                Value = File.Exists(WinwsExe) ? Loc.T("diag.v.present") : Loc.T("diag.v.absent") });
+            d.Add(new DiagItem { Name = Loc.T("diag.n.winws"), Sev = winwsFile ? Sev.Ok : Sev.Err,
+                Value = winwsFile ? Loc.T("diag.v.present") : Loc.T("diag.v.absent") });
 
             bool wd = WinDivertFilePresent();
             d.Add(new DiagItem { Name = Loc.T("diag.n.wdFile"), Sev = wd ? Sev.Ok : Sev.Err,
                 Value = wd ? Loc.T("diag.v.present") : Loc.T("diag.v.wdQuar") });
 
-            bool wl = WinDivertLoaded();
+            bool wl = WinDivertLoadedCached();
             d.Add(new DiagItem { Name = Loc.T("diag.n.wdLoaded"), Sev = wl ? Sev.Ok : Sev.Info,
                 Value = wl ? Loc.T("diag.v.loaded") : Loc.T("diag.v.wdNotLoaded") });
 
@@ -118,8 +119,8 @@ namespace ZapretStudio
             d.Add(new DiagItem { Name = Loc.T("diag.n.targets"), Sev = tgt ? Sev.Ok : Sev.Warn,
                 Value = tgt ? string.Format(Loc.T("diag.v.targetCount"), LoadTargets().Count) : Loc.T("diag.v.targetsAbsent") });
 
-            d.Add(new DiagItem { Name = Loc.T("diag.n.hosts"), Sev = HostsHasYouTube() ? Sev.Warn : Sev.Ok,
-                Value = HostsHasYouTube() ? Loc.T("diag.v.hostsFound") : Loc.T("diag.v.hostsClean") });
+            d.Add(new DiagItem { Name = Loc.T("diag.n.hosts"), Sev = hostsYt ? Sev.Warn : Sev.Ok,
+                Value = hostsYt ? Loc.T("diag.v.hostsFound") : Loc.T("diag.v.hostsClean") });
 
             d.Add(new DiagItem { Name = Loc.T("diag.n.localVer"), Sev = Sev.Info, Value = ZapretVersion() });
 
@@ -200,7 +201,7 @@ namespace ZapretStudio
 
             // WinDivert активен, а winws не запущен — «висячий» драйвер чужого обхода
             bool winwsRun = IsWinwsRunning();
-            if (!winwsRun && WinDivertLoaded())
+            if (!winwsRun && WinDivertLoadedCached())
             {
                 d.Add(new DiagItem { Name = Loc.T("diag.n.wdOrphan"), Sev = Sev.Warn,
                     Value = Loc.T("diag.v.wdOrphan") });
@@ -441,6 +442,12 @@ namespace ZapretStudio
         // Адрес установщика из GitHub Releases + (если опубликован) его .sha256.
         // Публикация чек-суммы в релизе позволяет убедиться, что скачанный exe —
         // именно тот, что собрал автор, а не результат подмены по пути.
+        //
+        // sha256Url заполняется ТОЛЬКО если такой ассет реально есть в релизе.
+        // Раньше сюда подставлялась ссылка .../releases/latest/download/
+        // Lantern-Setup.exe.sha256 «на всякий случай»; в релизах этого файла нет,
+        // она отдавала 404, и обновление всегда падало с «не удалось прочитать
+        // .sha256» — уже после скачивания 5,5 МБ.
         public static void AppUpdateAssets(out string installerUrl, out string sha256Url)
         {
             installerUrl = null; sha256Url = null;
@@ -452,39 +459,17 @@ namespace ZapretStudio
                     wc.Encoding = System.Text.Encoding.UTF8;
                     wc.Headers.Add("User-Agent", "Lantern");
                     string json = wc.DownloadString(AppReleaseApi);
-
-                    int assetsIdx = json.IndexOf("\"assets\":");
-                    if (assetsIdx >= 0)
-                    {
-                        string assetsJson = json.Substring(assetsIdx);
-                        var blocks = System.Text.RegularExpressions.Regex.Matches(assetsJson, "\\{([^{}]+)\\}");
-                        foreach (System.Text.RegularExpressions.Match b in blocks)
-                        {
-                            var nameM = System.Text.RegularExpressions.Regex.Match(b.Groups[1].Value, "\"name\"\\s*:\\s*\"([^\"]+)\"");
-                            var urlM = System.Text.RegularExpressions.Regex.Match(b.Groups[1].Value, "\"browser_download_url\"\\s*:\\s*\"([^\"]+)\"");
-                            if (nameM.Success && urlM.Success)
-                            {
-                                string name = nameM.Groups[1].Value.Replace("\\/", "/");
-                                string url = urlM.Groups[1].Value.Replace("\\/", "/");
-                                if (installerUrl == null && name.Equals("Lantern-Setup.exe", StringComparison.OrdinalIgnoreCase))
-                                    installerUrl = url;
-                                if (sha256Url == null && (name.Equals("Lantern-Setup.exe.sha256", StringComparison.OrdinalIgnoreCase)
-                                    || name.Equals("Lantern-Setup.exe.sig-sha256", StringComparison.OrdinalIgnoreCase)))
-                                    sha256Url = url;
-                            }
-                        }
-                    }
+                    installerUrl = Endpoints.ReleaseAssetUrl(json, Endpoints.AppInstallerAsset);
+                    sha256Url = Endpoints.ReleaseAssetUrl(json, Endpoints.AppInstallerSha256Asset);
                 }
             }
             catch { }
 
-            // Надёжный фолбэк: прямые ссылки на assets последнего релиза GitHub
+            // API мог быть недоступен (лимит запросов, блокировка api.github.com) —
+            // тогда берём прямую ссылку «последний релиз». Хеш при этом остаётся
+            // неизвестным: SelfUpdate предупредит, но не станет выдумывать URL.
             if (string.IsNullOrEmpty(installerUrl))
-            {
-                installerUrl = "https://github.com/krinix1337/lantern-zapret/releases/latest/download/Lantern-Setup.exe";
-                if (string.IsNullOrEmpty(sha256Url))
-                    sha256Url = "https://github.com/krinix1337/lantern-zapret/releases/latest/download/Lantern-Setup.exe.sha256";
-            }
+                installerUrl = Endpoints.AppInstallerLatestUrl;
         }
 
         // Обратная совместимость: только адрес установщика.
@@ -511,6 +496,7 @@ namespace ZapretStudio
             if (string.IsNullOrEmpty(url)) { error = Loc.T("mw.verFail"); return false; }
             try
             {
+                Info(string.Format(Loc.T("appupd.source"), url));
                 string file = Path.Combine(Path.GetTempPath(), "Lantern-Setup-" + Guid.NewGuid().ToString("N") + ".exe");
                 if (!DownloadFile(url, file, onProgress, null)) { error = Loc.T("settings.app.dlFail"); return false; }
 

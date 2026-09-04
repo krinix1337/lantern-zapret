@@ -123,9 +123,14 @@ namespace ZapretStudio
             try
             {
                 ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072 /*Tls12*/ | (SecurityProtocolType)12288 /*Tls13*/ | SecurityProtocolType.Tls;
-                ServicePointManager.ServerCertificateValidationCallback = delegate { return true; };
 
                 var req = (HttpWebRequest)WebRequest.Create(url);
+                // Проверка сертификата отключается ТОЛЬКО для этой пробы: смысл
+                // пробы — «прошло ли соединение через DPI», а не доверие к узлу.
+                // Глобальный ServicePointManager.ServerCertificateValidationCallback
+                // не трогаем — иначе проверка отключилась бы и для канала
+                // обновления приложения (MITM при скачивании установщика).
+                req.ServerCertificateValidationCallback = delegate { return true; };
                 req.Method = "GET";
                 req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
                 req.Accept = "*/*";
@@ -304,28 +309,28 @@ namespace ZapretStudio
             var sw = System.Diagnostics.Stopwatch.StartNew();
             int[] exits = new int[protoFlags.Length];
             string[] outs = new string[protoFlags.Length];
-            using (var done = new System.Threading.ManualResetEvent(false))
+            var barrier = new WorkBarrier(protoFlags.Length);
+            for (int i = 0; i < protoFlags.Length; i++)
             {
-                int remaining = protoFlags.Length;
-                for (int i = 0; i < protoFlags.Length; i++)
+                int idx = i;
+                // Без -I (иначе заголовки идут в stdout и ломают парсинг), запрашиваем 1 КБ через -r, пишем тело в NUL
+                string args = "-k -s -m " + timeoutSec + " -o NUL -r 0-1024 -w \"%{http_code}\" " + protoFlags[idx] + " \"" + url + "\"";
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
                 {
-                    int idx = i;
-                    // Без -I (иначе заголовки идут в stdout и ломают парсинг), запрашиваем 1 КБ через -r, пишем тело в NUL
-                    string args = "-k -s -m " + timeoutSec + " -o NUL -r 0-1024 -w \"%{http_code}\" " + protoFlags[idx] + " \"" + url + "\"";
-                    System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                    try
                     {
-                        try
-                        {
-                            string output;
-                            exits[idx] = RunCurl(args, out output);
-                            outs[idx] = output;
-                        }
-                        catch { exits[idx] = -1; }
-                        if (System.Threading.Interlocked.Decrement(ref remaining) == 0) done.Set();
-                    });
-                }
-                done.WaitOne(timeoutSec * 1000 + 1500);
+                        string output;
+                        exits[idx] = RunCurl(args, out output);
+                        outs[idx] = output;
+                    }
+                    catch { exits[idx] = -1; }
+                    finally { barrier.Signal(); }
+                });
             }
+            // Тайм-аут ожидания сохранён прежним, чтобы не замедлять бенчмарк:
+            // не отчитавшийся воркер оставляет свой слот пустым (exit 0 + пустой
+            // вывод → HTTP-код не разобран → проба не зачтена), ложных «ok» нет.
+            barrier.Wait(timeoutSec * 1000 + 1500);
             for (int i = 0; i < protoFlags.Length; i++)
             {
                 string output = outs[i] ?? "";
@@ -425,7 +430,7 @@ namespace ZapretStudio
                 {
                     wc.Encoding = Encoding.UTF8;
                     wc.Headers.Add("User-Agent", "Lantern");
-                    string json = wc.DownloadString("https://ipwho.is/");
+                    string json = wc.DownloadString(Endpoints.IspPrimaryUrl);
                     if (json.Contains("\"success\":true") || json.Contains("\"ip\""))
                     {
                         var info = new IspInfo();
@@ -444,25 +449,28 @@ namespace ZapretStudio
             }
             catch { }
 
-            // 2. Фолбэк через ip-api.com
+            // 2. Фолбэк через ipinfo.io (тоже HTTPS; раньше здесь был plaintext
+            //    http://ip-api.com/json — запрос и ответ шли открытым текстом).
+            //    Формат: "org": "AS12389 PJSC Rostelecom", "city": "Moscow".
             try
             {
                 using (var wc = new WebClient())
                 {
                     wc.Encoding = Encoding.UTF8;
                     wc.Headers.Add("User-Agent", "Lantern");
-                    string json = wc.DownloadString("http://ip-api.com/json");
-                    if (json.Contains("\"status\":\"success\""))
+                    string json = wc.DownloadString(Endpoints.IspFallbackUrl);
+                    string org = Endpoints.JsonField(json, "org");
+                    string city = Endpoints.JsonField(json, "city");
+                    if (!string.IsNullOrEmpty(org))
                     {
-                        var info = new IspInfo();
-                        var m = Regex.Match(json, "\"isp\"\\s*:\\s*\"([^\"]+)\"");
-                        if (m.Success) info.Name = m.Groups[1].Value;
-                        m = Regex.Match(json, "\"org\"\\s*:\\s*\"([^\"]+)\"");
-                        if (m.Success) info.Org = m.Groups[1].Value;
-                        m = Regex.Match(json, "\"as\"\\s*:\\s*\"(AS\\d+)");
-                        if (m.Success) info.Asn = m.Groups[1].Value;
-                        m = Regex.Match(json, "\"city\"\\s*:\\s*\"([^\"]+)\"");
-                        if (m.Success) info.City = m.Groups[1].Value;
+                        var info = new IspInfo { Org = org, City = city };
+                        var m = Regex.Match(org, @"^(AS\d+)\s*(.*)$", RegexOptions.IgnoreCase);
+                        if (m.Success)
+                        {
+                            info.Asn = m.Groups[1].Value.ToUpperInvariant();
+                            info.Name = m.Groups[2].Value.Trim();
+                        }
+                        else info.Name = org;
                         return info;
                     }
                 }
@@ -496,7 +504,10 @@ namespace ZapretStudio
             };
 
             // Профиль 1: Ростелеком / Tele2 / Т2 (AS12389, AS42697, AS15944)
-            if (text.Contains("rostelecom") || text.Contains("rtk") || text.Contains("tele2") || text.Contains("t2") || text.Contains("as12389") || text.Contains("as15944"))
+            // «t2» только как отдельное слово: подстрока ловила бы любое имя с "t2"
+            // внутри (в том числе номера AS) и уводила подбор в чужой профиль.
+            if (text.Contains("rostelecom") || text.Contains("rtk") || text.Contains("tele2")
+                || Regex.IsMatch(text, @"\bt2\b") || text.Contains("as12389") || text.Contains("as15944"))
             {
                 addMatch("general (FAKE TLS AUTO ALT).bat");
                 addMatch("general (ALT5).bat");

@@ -1,6 +1,6 @@
 ; Lantern Installer — Inno Setup 6
 #define AppName "Lantern"
-#define AppVersion "7.0"
+#define AppVersion "7.1"
 #define AppPublisher "krinix1337"
 #define AppURL "https://github.com/krinix1337/lantern-zapret"
 #define AppExeName "Lantern.exe"
@@ -55,3 +55,5 @@ Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; F
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\zapret"
 Type: files; Name: "{app}\gui-config.ini"
+; Crash logs written by App.WriteCrashLog
+Type: filesandordirs; Name: "{localappdata}\Lantern"

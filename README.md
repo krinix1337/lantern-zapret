@@ -7,10 +7,10 @@
 ### Современный, легковесный и мощный GUI-менеджер для zapret и winws
 
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/krinix1337/lantern-zapret)
-[![.NET Framework](https://img.shields.io/badge/.NET_Framework-4.0+-512BD4?style=for-the-badge&logo=dotnet&logoColor=white)](https://github.com/krinix1337/lantern-zapret)
+[![.NET Framework](https://img.shields.io/badge/.NET_Framework-4.5+-512BD4?style=for-the-badge&logo=dotnet&logoColor=white)](https://github.com/krinix1337/lantern-zapret)
 [![C# WPF](https://img.shields.io/badge/C%23-Pure_WPF-239120?style=for-the-badge&logo=csharp&logoColor=white)](https://github.com/krinix1337/lantern-zapret)
 [![License: MIT](https://img.shields.io/badge/License-MIT-E0A845?style=for-the-badge)](LICENSE.txt)
-[![Installer Size](https://img.shields.io/badge/Installer-2.2_MB-F28C28?style=for-the-badge&logo=inno-setup&logoColor=white)](https://github.com/krinix1337/lantern-zapret/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/krinix1337/lantern-zapret/total?style=for-the-badge&color=F28C28&logo=inno-setup&logoColor=white&label=%D0%97%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D0%BE%D0%BA)](https://github.com/krinix1337/lantern-zapret/releases/latest)
 [![Latest Release](https://img.shields.io/github/v/release/krinix1337/lantern-zapret?style=for-the-badge&color=00B4D8&label=%D0%A0%D0%B5%D0%BB%D0%B8%D0%B7)](https://github.com/krinix1337/lantern-zapret/releases/latest)
 
 <br>
@@ -19,7 +19,7 @@
 
 <br>
 
-<img src="docs/screenshot.png" width="920" alt="Главный интерфейс Lantern 7.0">
+<img src="docs/screenshot.png" width="920" alt="Главный интерфейс Lantern">
 
 </div>
 
@@ -100,8 +100,8 @@
 
 ### Способ 2: Портативный запуск
 
-1. Распакуйте архив релиза в удобную папку (например, `C:\Program Files\Lantern` или корень диска).
-2. Убедитесь, что рядом находится папка с компонентами `zapret` (папки `bin`, `lists`, `utils`).
+1. Скачайте `Lantern.exe` со [страницы последнего релиза](https://github.com/krinix1337/lantern-zapret/releases/latest) и положите его в удобную папку (например, `D:\Lantern`; в `C:\Program Files` лучше ставить установщиком).
+2. Убедитесь, что компоненты `zapret` лежат рядом: либо в подпапке `zapret\` возле `Lantern.exe`, либо прямо возле него (папки `bin`, `lists`, `utils`). Если их нет, Lantern предложит скачать их при первом запуске.
 3. Запустите `Lantern.exe` от имени администратора.
 
 ---
@@ -118,7 +118,7 @@ cd _app
 build.cmd
 ```
 
-После завершения в папке `_app` появится готовый бинарный файл `zapret.exe` (можно переименовать в `Lantern.exe`).
+Скрипт собирает `_app/zapret.exe` и копирует его в корень репозитория как `Lantern.exe` и `zapret.exe` — переименовывать вручную ничего не нужно.
 
 <details>
 <summary><b>📦 Сборка установщика через Inno Setup</b></summary>
@@ -153,13 +153,22 @@ lantern-zapret/
 │   ├── guide.md        # Подробное иллюстрированное руководство пользователя
 │   ├── themes.md       # Галерея и описание всех тем оформления
 │   ├── screenshot.png  # Главный скриншот программы
+│   ├── screens/        # Скриншоты разделов для руководства
 │   └── themes/         # Скриншоты отдельных тем
 │
-├── lists/              # 📋 Списки доменов и исключений (ipset, list-general и др.)
-├── utils/              # 🛠️ Вспомогательные утилиты, скрипты и конфигурации
-├── bin/                # ⚙️ Исполняемые файлы winws.exe, WinDivert64.sys, curl.exe
-└── general*.bat        # 🎯 Готовые BAT-стратегии обхода блокировок
+├── assets/peter-songs/ # 🎵 Треки встроенного плеера (попадают в установщик)
+└── .github/workflows/  # 🤖 Сборка релиза: Lantern.exe, установщик и его SHA256
 ```
+
+> [!NOTE]
+> Компонентов движка (`bin/`, `lists/`, `utils/`, `general*.bat`) в репозитории
+> нет — они перечислены в `.gitignore` и скачиваются приложением при первом
+> запуске со страницы релизов
+> [Flowseal/zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube):
+> при обычной установке они попадают в `<папка программы>\zapret\`, при работе
+> из исходников — в корень репозитория. Готовые `Lantern.exe` и
+> `Lantern-Setup.exe` тоже не хранятся в репозитории: их собирает workflow
+> `Release` и публикует как ассеты релиза.
 
 ---
 
@@ -168,7 +177,7 @@ lantern-zapret/
 | Компонент | Минимальные требования |
 | :--- | :--- |
 | **Операционная система** | Windows 10 (версия 1809+) или Windows 11 (x64 / ARM64) |
-| **Среда выполнения** | .NET Framework 4.0 или новее *(предустановлен в Windows)* |
+| **Среда выполнения** | .NET Framework 4.5 или новее *(предустановлен в Windows 8 и новее)* |
 | **Привилегии** | Права локального администратора *(для работы WinDivert)* |
 | **Свободное место** | ~25 МБ на диске (включая компоненты zapret) |
 

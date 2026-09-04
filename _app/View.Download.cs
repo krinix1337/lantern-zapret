@@ -20,7 +20,7 @@ namespace ZapretStudio
 
         public DownloadWindow()
         {
-            Title = "zapret";
+            Title = Core.AppName;
             Width = 640; Height = 460;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.NoResize;
@@ -127,7 +127,7 @@ namespace ZapretStudio
                 }
                 else
                 {
-                    MessageBox.Show(Loc.T("dl.noWinws"), "zapret",
+                    MessageBox.Show(Loc.T("dl.noWinws"), Core.AppName,
                         MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
             }
@@ -197,7 +197,7 @@ namespace ZapretStudio
                                 _status.Text = Loc.T("dl.done");
                                 Core.Good(string.Format(Loc.T("dl.installed"), target));
                                 Succeeded = true; ResultRoot = target;
-                                var mr = MessageBox.Show(Loc.T("dl.done"), "zapret", MessageBoxButton.OK, MessageBoxImage.Information);
+                                var mr = MessageBox.Show(Loc.T("dl.done"), Core.AppName, MessageBoxButton.OK, MessageBoxImage.Information);
                                 Close();
                             }
                             else

@@ -152,9 +152,7 @@ namespace ZapretStudio
             };
             Grid.SetRow(_statusSub, 2); g.Children.Add(_statusSub);
 
-            var btnRow = new Grid();
-            btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var btnRow = new ActionRow();
             _mainBtn = Ctl.Button(Loc.T("common.start"), Icons.Play, 0);
             _mainBtn.HorizontalAlignment = HorizontalAlignment.Stretch;
             _mainBtn.Height = 40;
@@ -163,12 +161,11 @@ namespace ZapretStudio
                 if (!System.IO.File.Exists(Core.WinwsExe)) { ZapretDownload(); return; }
                 _win.ToggleRun();
             };
-            Grid.SetColumn(_mainBtn, 0); btnRow.Children.Add(_mainBtn);
+            btnRow.Children.Add(_mainBtn);
             _restartBtn = Ctl.Button(Loc.T("ov.restart"), Icons.Restart, 3);
             _restartBtn.Height = 40;
-            _restartBtn.Margin = new Thickness(10, 0, 0, 0);
             _restartBtn.Click += (s, e) => _win.RestartCurrent();
-            Grid.SetColumn(_restartBtn, 1); btnRow.Children.Add(_restartBtn);
+            btnRow.Children.Add(_restartBtn);
             Grid.SetRow(btnRow, 3); g.Children.Add(btnRow);
 
             _statusCard = UI.Card(g, new Thickness(22, 20, 22, 20));
@@ -206,19 +203,16 @@ namespace ZapretStudio
             };
             Grid.SetRow(_tgStatusSub, 2); g.Children.Add(_tgStatusSub);
 
-            var btnRow = new Grid();
-            btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            btnRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var btnRow = new ActionRow();
             _tgBtn = Ctl.Button(Loc.T("common.start"), Icons.Play, 0);
             _tgBtn.HorizontalAlignment = HorizontalAlignment.Stretch;
             _tgBtn.Height = 40;
             _tgBtn.Click += (s, e) => TgToggle();
-            Grid.SetColumn(_tgBtn, 0); btnRow.Children.Add(_tgBtn);
+            btnRow.Children.Add(_tgBtn);
             _tgFolderBtn = Ctl.Button(Loc.T("ov.qa.tgFolder"), Icons.Folder, 3);
             _tgFolderBtn.Height = 40;
-            _tgFolderBtn.Margin = new Thickness(10, 0, 0, 0);
             _tgFolderBtn.Click += (s, e) => { try { System.IO.Directory.CreateDirectory(Core.TgToolsDir); Core.OpenFolder(Core.TgToolsDir); } catch { } };
-            Grid.SetColumn(_tgFolderBtn, 1); btnRow.Children.Add(_tgFolderBtn);
+            btnRow.Children.Add(_tgFolderBtn);
             Grid.SetRow(btnRow, 3); g.Children.Add(btnRow);
 
             _tgCard = UI.Card(g, new Thickness(22, 20, 22, 20));
@@ -279,16 +273,15 @@ namespace ZapretStudio
         void BuildCards()
         {
             Body.Children.Add(SectionLabel(Loc.T("ov.sec.components")));
-            var g = new Grid();
-            for (int i = 0; i < 4; i++) g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            _cDiscord = MiniCard("Discord", Icons.Dot); Grid.SetColumn(_cDiscord, 0);
-            _cYouTube = MiniCard("YouTube", Icons.Play); Grid.SetColumn(_cYouTube, 1);
-            _cDivert = MiniCard("WinDivert", Icons.Shield); Grid.SetColumn(_cDivert, 2);
-            _cService = MiniCard(Loc.T("ov.card.service"), Icons.Server); Grid.SetColumn(_cService, 3);
-            _cDiscord.Margin = new Thickness(0, 0, 6, 0);
-            _cYouTube.Margin = new Thickness(6, 0, 6, 0);
-            _cDivert.Margin = new Thickness(6, 0, 6, 0);
-            _cService.Margin = new Thickness(6, 0, 0, 0);
+            // CellRow, а не Grid из четырёх Star-колонок: на минимальной ширине
+            // окна карточка сужалась до ~158 px и плашка статуса («Готов к
+            // запуску», «Не установлена») обрезалась. Теперь при нехватке места
+            // строка переносится на два ряда по две карточки.
+            var g = new CellRow { MinCell = 178, Gap = 12 };
+            _cDiscord = MiniCard("Discord", Icons.Dot);
+            _cYouTube = MiniCard("YouTube", Icons.Play);
+            _cDivert = MiniCard("WinDivert", Icons.Shield);
+            _cService = MiniCard(Loc.T("ov.card.service"), Icons.Server);
             g.Children.Add(_cDiscord); g.Children.Add(_cYouTube); g.Children.Add(_cDivert); g.Children.Add(_cService);
             Body.Children.Add(g);
         }

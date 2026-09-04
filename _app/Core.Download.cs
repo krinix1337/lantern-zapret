@@ -13,10 +13,8 @@ namespace ZapretStudio
         public long Total;         // -1 если неизвестно
         public double SpeedBps;    // байт/с
         public TimeSpan Elapsed;
-        public bool Done;
         public bool Failed;
         public string Error;
-        public string Phase;       // "download" | "extract" | "done"
     }
 
     static partial class Core
@@ -84,7 +82,7 @@ namespace ZapretStudio
         // Возвращает true при успехе.
         public static bool DownloadFile(string url, string destPath, Action<DlProgress> onProgress, Func<bool> isCancelled)
         {
-            var pr = new DlProgress { Total = -1, Phase = "download" };
+            var pr = new DlProgress { Total = -1 };
             var sw = System.Diagnostics.Stopwatch.StartNew();
             string tempPath = destPath + ".part";
             try
@@ -288,6 +286,13 @@ namespace ZapretStudio
         }
 
         // Пометить корень в локальном gui-config рядом с exe, сохраняя остальные настройки.
+        //
+        // Писать через SaveConfig() нельзя: после SetRoot() ConfigFile указывает на
+        // <Root>\utils\gui-config.ini, а LocateRoot() при старте читает файл рядом с
+        // exe (Root ещё не известен). Из-за этого путь сохранялся туда, где его
+        // никто не искал, и «выбранная папка» не помнилась между запусками.
+        // Поэтому строку root пишем в локальный файл напрямую, независимо от
+        // текущего ConfigFile и от порядка вызовов SetRoot/RememberRoot.
         public static void RememberRoot(string path)
         {
             try
@@ -296,6 +301,26 @@ namespace ZapretStudio
                 SaveConfig();
             }
             catch { }
+            try
+            {
+                string local = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "gui-config.ini");
+                var lines = new List<string>();
+                if (File.Exists(local))
+                {
+                    foreach (var raw in File.ReadAllLines(local))
+                    {
+                        string s = raw.Trim();
+                        int eq = s.IndexOf('=');
+                        if (eq > 0 && s.Substring(0, eq).Trim().Equals("root", StringComparison.OrdinalIgnoreCase))
+                            continue;   // старое значение заменяем
+                        lines.Add(raw);
+                    }
+                }
+                else lines.Add("# ZapretStudio GUI config");
+                lines.Add("root = " + path);
+                File.WriteAllText(local, string.Join(Environment.NewLine, lines.ToArray()) + Environment.NewLine);
+            }
+            catch (Exception ex) { Warn("RememberRoot: " + ex.Message); }
         }
 
         static bool SkipGitEntry(string path)

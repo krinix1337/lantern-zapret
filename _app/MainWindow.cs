@@ -21,8 +21,9 @@ namespace ZapretStudio
         Border _topStatusPill;
         OverviewPage _overview;
 
-        // Состояние запуска
-        string _currentStrategyFile;   // выбранная/запущенная стратегия
+        // Состояние запуска. Поле читают и пишут как UI-поток, так и фоновые
+        // операции запуска стратегии — отсюда volatile.
+        volatile string _currentStrategyFile;   // выбранная/запущенная стратегия
         System.Windows.Forms.NotifyIcon _tray;
 
         public MainWindow()
@@ -883,19 +884,37 @@ namespace ZapretStudio
             RefreshTop();
         }
 
-        public void RunStrategy(string file)
+        // Выполнить действие в UI-потоке. Вызывать можно из любого потока: фоновые
+        // операции (sc stop, taskkill, ожидание winws) занимают до ~25 с, поэтому
+        // сами они идут в пуле, а окно обновляется через этот помощник.
+        void UiPost(Action a)
         {
-            if (!Core.IsAdmin()) { NeedAdmin(Loc.T("mw.startBypassAct")); return; }
-            if (_overview != null) _overview.SetZapretTransition(true);
-            Dispatcher.BeginInvoke((Action)delegate { RunStrategyNow(file); }, DispatcherPriority.Background);
+            if (a == null) return;
+            try
+            {
+                if (Dispatcher.CheckAccess()) a();
+                else Dispatcher.BeginInvoke(DispatcherPriority.Normal, a);
+            }
+            catch { }
         }
 
-        void RunStrategyNow(string file)
+        public void RunStrategy(string file)
+        {
+            if (!Core.IsAdmin()) { UiPost(delegate { NeedAdmin(Loc.T("mw.startBypassAct")); }); return; }
+            UiPost(delegate { if (_overview != null) _overview.SetZapretTransition(true); });
+            // Раньше запуск выполнялся через Dispatcher.BeginInvoke, то есть в
+            // UI-потоке: остановка службы (до 20 с) и ожидание завершения winws
+            // полностью замораживали окно. Теперь работа идёт в пуле потоков,
+            // а сам метод можно вызывать из любого потока.
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate { RunStrategyCore(file); });
+        }
+
+        void RunStrategyCore(string file)
         {
             if (!Core.TryBeginWinwsOperation())
             {
                 Warn(Loc.T("mw.busy"));
-                if (_overview != null) _overview.SetZapretTransition(false);
+                UiPost(delegate { if (_overview != null) _overview.SetZapretTransition(false); });
                 return;
             }
             try
@@ -908,33 +927,56 @@ namespace ZapretStudio
                 _currentStrategyFile = file;
                 Core.Set("last_strategy", file); Core.SaveConfig();
                 Core.Good(string.Format(Loc.T("mw.startedToast"), Core.PrettyName(file)));
-                Notify(Loc.T("mw.startedTitle"), Core.PrettyName(file));
-                ShowToast(string.Format(Loc.T("mw.startedToast"), Core.PrettyName(file)), Sev.Ok);
+                UiPost(delegate
+                {
+                    Notify(Loc.T("mw.startedTitle"), Core.PrettyName(file));
+                    ShowToast(string.Format(Loc.T("mw.startedToast"), Core.PrettyName(file)), Sev.Ok);
+                });
             }
             catch (Exception ex) { Core.Fail(string.Format(Loc.T("mw.startErr"), ex.Message)); }
             finally
             {
                 Core.EndWinwsOperation();
-                if (_overview != null) _overview.SetZapretTransition(false);
+                UiPost(delegate
+                {
+                    if (_overview != null) _overview.SetZapretTransition(false);
+                    RefreshTop();
+                });
             }
-            RefreshTop();
         }
 
+        // Остановка из UI: не блокирует окно.
         public void StopAll()
         {
-            if (!Core.TryBeginWinwsOperation()) { Warn(Loc.T("mw.busy")); return; }
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate { StopAllCore(); });
+        }
+
+        // Синхронная остановка для фоновых сценариев (например, обновление zapret,
+        // где распаковка обязана идти уже после освобождения файлов winws).
+        public bool StopAllCore()
+        {
+            if (!Core.TryBeginWinwsOperation()) { Warn(Loc.T("mw.busy")); return false; }
+            bool ok = false;
             try
             {
                 if (Core.ServiceState() == "running" && !Core.StopService())
                     throw new Exception("Could not stop Windows service");
                 if (!Core.KillWinws()) throw new Exception("Could not stop winws.exe");
+                ok = true;
                 Core.Info(Loc.T("mw.stopped"));
-                Notify(Loc.T("mw.stoppedTitle"), Loc.T("mw.stoppedBody"));
-                ShowToast(Loc.T("mw.stopped"), Sev.Warn);
+                UiPost(delegate
+                {
+                    Notify(Loc.T("mw.stoppedTitle"), Loc.T("mw.stoppedBody"));
+                    ShowToast(Loc.T("mw.stopped"), Sev.Warn);
+                });
             }
             catch (Exception ex) { Core.Fail(string.Format(Loc.T("mw.stopErr"), ex.Message)); }
-            finally { Core.EndWinwsOperation(); }
-            RefreshTop();
+            finally
+            {
+                Core.EndWinwsOperation();
+                UiPost(delegate { RefreshTop(); });
+            }
+            return ok;
         }
 
         public void RestartCurrent()
@@ -946,8 +988,10 @@ namespace ZapretStudio
             }
             if (string.IsNullOrEmpty(_currentStrategyFile)) { Warn(Loc.T("mw.noStratSel")); return; }
             Core.Info(Loc.T("mw.restarting"));
-            ShowToast(Loc.T("mw.restarting"), Sev.Info);
-            StopAll();
+            UiPost(delegate { ShowToast(Loc.T("mw.restarting"), Sev.Info); });
+            // Отдельный StopAll не нужен: RunStrategyCore сам останавливает службу
+            // и снимает winws. Прежняя пара StopAll()+RunStrategy() при переходе на
+            // асинхронный запуск дала бы две конкурирующие операции и «занято».
             RunStrategy(_currentStrategyFile);
         }
 
@@ -1106,7 +1150,6 @@ namespace ZapretStudio
             bool restartService = Core.ServiceState() == "running";
             bool restartManual = !restartService && Core.IsWinwsRunning();
             string restartStrategy = _currentStrategyFile;
-            if (restartService || restartManual) StopAll();
             string zip = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "zapret_update.zip");
             string root = Core.Root;
             Core.Info(string.Format(Loc.T("mw.updStart"), ver));
@@ -1117,6 +1160,11 @@ namespace ZapretStudio
             {
                 try
                 {
+                    // Остановка обязана завершиться до распаковки, иначе winws
+                    // держит файлы в bin. Ждём здесь, в фоновом потоке: асинхронный
+                    // StopAll() не давал такой гарантии, а синхронный вызов в
+                    // UI-потоке замораживал окно на время «sc stop».
+                    if (restartService || restartManual) StopAllCore();
                     string url = Core.ZapretDownloadUrl(ver);
                     bool ok = Core.DownloadFile(url, zip, delegate (DlProgress p)
                     {
@@ -1182,8 +1230,6 @@ namespace ZapretStudio
                             if (!string.IsNullOrEmpty(changelog))
                                 msg += "\n\n" + Loc.T("mw.changelog") + ":\n" + changelog;
                             MessageBox.Show(msg, Loc.T("mw.verDlgTitle"), MessageBoxButton.OK, MessageBoxImage.Information);
-                            if (restartService && Core.ServiceExists()) Core.StartService();
-                            else if (restartManual && !string.IsNullOrEmpty(restartStrategy)) RunStrategy(restartStrategy);
                             Page strategiesPage;
                             if (_pages.TryGetValue("strategies", out strategiesPage))
                             {
@@ -1198,6 +1244,14 @@ namespace ZapretStudio
                             Core.Fail(string.Format(Loc.T("dl.failExtract"), err != null ? ": " + err : ""));
                         }
                     });
+
+                    // Восстановление обхода после обновления делаем здесь, в фоновом
+                    // потоке: «sc start» отвечает до 20 с и в UI-потоке подвешивал окно.
+                    if (ex)
+                    {
+                        if (restartService) { if (Core.ServiceExists()) Core.StartService(); }
+                        else if (restartManual && !string.IsNullOrEmpty(restartStrategy)) RunStrategy(restartStrategy);
+                    }
                 }
                 catch { }
                 finally { try { Dispatcher.Invoke((Action)delegate { _updating = false; }); } catch { _updating = false; } }

@@ -333,4 +333,182 @@ namespace ZapretStudio
             ScrollToVerticalOffset(next);
         }
     }
+
+    // Ряд кнопок: если все влезают в строку, первая растягивается на остаток,
+    // остальные идут по своей ширине справа. Если не влезают — каждая кнопка
+    // занимает отдельную строку во всю ширину. Раньше это была Grid со
+    // Star-колонкой, и на узком окне (1000 px) первая кнопка сжималась ниже
+    // своей подписи, а рамка обрезала текст («Скачать прок»).
+    class ActionRow : Panel
+    {
+        public double Gap = 10;
+
+        bool _stack;
+        double[] _nat = new double[0];
+
+        double NatSum()
+        {
+            double s = 0;
+            for (int i = 0; i < _nat.Length; i++) s += _nat[i];
+            return s + Gap * Math.Max(0, _nat.Length - 1);
+        }
+
+        double NatMax()
+        {
+            double m = 0;
+            for (int i = 0; i < _nat.Length; i++) m = Math.Max(m, _nat[i]);
+            return m;
+        }
+
+        double FirstWidth(double avail)
+        {
+            if (_nat.Length == 0) return 0;
+            double rest = NatSum() - _nat[0];
+            return Math.Max(_nat[0], avail - rest);
+        }
+
+        protected override Size MeasureOverride(Size avail)
+        {
+            int n = InternalChildren.Count;
+            if (n == 0) return new Size(0, 0);
+            if (_nat.Length != n) _nat = new double[n];
+
+            var inf = new Size(double.PositiveInfinity, double.PositiveInfinity);
+            double h = 0;
+            for (int i = 0; i < n; i++)
+            {
+                var ch = InternalChildren[i];
+                ch.Measure(inf);
+                _nat[i] = ch.DesiredSize.Width;
+                h = Math.Max(h, ch.DesiredSize.Height);
+            }
+
+            double need = NatSum();
+            double w = avail.Width;
+            _stack = !double.IsInfinity(w) && need > w + 0.5;
+
+            if (!_stack)
+            {
+                double first = double.IsInfinity(w) ? _nat[0] : FirstWidth(w);
+                InternalChildren[0].Measure(new Size(first, avail.Height));
+                for (int i = 1; i < n; i++) InternalChildren[i].Measure(new Size(_nat[i], avail.Height));
+                return new Size(double.IsInfinity(w) ? need : w, h);
+            }
+
+            double total = 0;
+            for (int i = 0; i < n; i++)
+            {
+                var ch = InternalChildren[i];
+                ch.Measure(new Size(w, double.PositiveInfinity));
+                total += ch.DesiredSize.Height;
+            }
+            return new Size(Math.Max(w, NatMax()), total + Gap * (n - 1));
+        }
+
+        protected override Size ArrangeOverride(Size fin)
+        {
+            int n = InternalChildren.Count;
+            if (n == 0) return fin;
+
+            if (!_stack)
+            {
+                double x = 0;
+                for (int i = 0; i < n; i++)
+                {
+                    double cw = i == 0 ? FirstWidth(fin.Width) : _nat[i];
+                    InternalChildren[i].Arrange(new Rect(x, 0, cw, fin.Height));
+                    x += cw + Gap;
+                }
+                return fin;
+            }
+
+            double y = 0;
+            for (int i = 0; i < n; i++)
+            {
+                double ch = InternalChildren[i].DesiredSize.Height;
+                InternalChildren[i].Arrange(new Rect(0, y, fin.Width, ch));
+                y += ch + Gap;
+            }
+            return fin;
+        }
+    }
+
+    // Сетка равных ячеек с переносом: колонок столько, сколько влезает при
+    // минимальной ширине ячейки MinCell. Заменяет Grid с фиксированным числом
+    // Star-колонок там, где на узком окне карточки сжимались и обрезали текст.
+    class CellRow : Panel
+    {
+        public double MinCell = 160;
+        public double Gap = 12;
+
+        int _cols = 1;
+
+        int ColsFor(double avail)
+        {
+            int n = InternalChildren.Count;
+            if (n <= 1) return 1;
+            if (double.IsInfinity(avail) || avail <= 0) return n;
+            int cols = (int)Math.Floor((avail + Gap) / (MinCell + Gap));
+            if (cols < 1) cols = 1;
+            if (cols > n) cols = n;
+            // Четыре карточки в три колонки дают неровное «3 + 1»:
+            // два ряда по два выглядят аккуратнее.
+            if (cols > 1 && n % cols != 0 && n % 2 == 0 && cols > n / 2) cols = n / 2;
+            return cols;
+        }
+
+        double CellWidth(double avail)
+        {
+            if (double.IsInfinity(avail) || avail <= 0) return MinCell;
+            return Math.Max(1, (avail - Gap * (_cols - 1)) / _cols);
+        }
+
+        protected override Size MeasureOverride(Size avail)
+        {
+            int n = InternalChildren.Count;
+            if (n == 0) return new Size(0, 0);
+            _cols = ColsFor(avail.Width);
+            double cw = CellWidth(avail.Width);
+
+            double y = 0, rowH = 0;
+            for (int i = 0; i < n; i++)
+            {
+                var ch = InternalChildren[i];
+                ch.Measure(new Size(cw, double.PositiveInfinity));
+                rowH = Math.Max(rowH, ch.DesiredSize.Height);
+                bool last = i == n - 1;
+                if ((i + 1) % _cols == 0 || last)
+                {
+                    y += rowH + (last ? 0 : Gap);
+                    rowH = 0;
+                }
+            }
+            double w = double.IsInfinity(avail.Width) ? cw * _cols + Gap * (_cols - 1) : avail.Width;
+            return new Size(w, y);
+        }
+
+        protected override Size ArrangeOverride(Size fin)
+        {
+            int n = InternalChildren.Count;
+            if (n == 0) return fin;
+            _cols = ColsFor(fin.Width);
+            double cw = CellWidth(fin.Width);
+
+            double y = 0, rowH = 0;
+            for (int i = 0; i < n; i++)
+            {
+                var ch = InternalChildren[i];
+                rowH = Math.Max(rowH, ch.DesiredSize.Height);
+                if ((i + 1) % _cols == 0 || i == n - 1)
+                {
+                    int start = i - (i % _cols);
+                    for (int j = start; j <= i; j++)
+                        InternalChildren[j].Arrange(new Rect((j - start) * (cw + Gap), y, cw, rowH));
+                    y += rowH + Gap;
+                    rowH = 0;
+                }
+            }
+            return fin;
+        }
+    }
 }
