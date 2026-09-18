@@ -128,6 +128,7 @@ namespace ZapretStudio
                 if (savedScroll > 0 && !string.IsNullOrEmpty(_current) && _pages.ContainsKey(_current))
                 {
                     var curPage = _pages[_current];
+                    curPage.ScrollOffset = savedScroll;
                     Dispatcher.BeginInvoke(DispatcherPriority.Loaded, (Action)delegate
                     {
                         try { curPage.ScrollOffset = savedScroll; } catch { }

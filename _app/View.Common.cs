@@ -271,13 +271,36 @@ namespace ZapretStudio
         double _targetOffset;
         double _lastApplied;
         bool _isAnimating;
+        double _pendingScroll = -1;
 
         public SmoothScrollViewer()
         {
             PreviewMouseWheel += OnPreviewMouseWheel;
             ScrollChanged += (s, e) =>
             {
-                if (!_isAnimating) _targetOffset = VerticalOffset;
+                if (_pendingScroll >= 0 && ScrollableHeight > 0)
+                {
+                    double target = _pendingScroll;
+                    _pendingScroll = -1;
+                    _targetOffset = target;
+                    _lastApplied = target;
+                    ScrollToVerticalOffset(Math.Min(target, ScrollableHeight));
+                }
+                else if (!_isAnimating)
+                {
+                    _targetOffset = VerticalOffset;
+                }
+            };
+            LayoutUpdated += (s, e) =>
+            {
+                if (_pendingScroll >= 0 && ScrollableHeight > 0)
+                {
+                    double target = _pendingScroll;
+                    _pendingScroll = -1;
+                    _targetOffset = target;
+                    _lastApplied = target;
+                    ScrollToVerticalOffset(Math.Min(target, ScrollableHeight));
+                }
             };
             Unloaded += (s, e) => StopAnimation();
         }
@@ -287,7 +310,15 @@ namespace ZapretStudio
             StopAnimation();
             _targetOffset = offset;
             _lastApplied = offset;
-            ScrollToVerticalOffset(offset);
+            if (ScrollableHeight > 0)
+            {
+                _pendingScroll = -1;
+                ScrollToVerticalOffset(Math.Min(offset, ScrollableHeight));
+            }
+            else
+            {
+                _pendingScroll = offset;
+            }
         }
 
         void StopAnimation()
