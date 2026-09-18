@@ -19,6 +19,7 @@ namespace ZapretStudio
         ContentControl _host;
         string _current = "";
         Border _topStatusPill;
+        Border _topAdminPill;
         OverviewPage _overview;
 
         // Состояние запуска. Поле читают и пишут как UI-поток, так и фоновые
@@ -357,10 +358,11 @@ namespace ZapretStudio
         Border BuildTopbar()
         {
             var g = new Grid { Background = Theme.BrBgBase };
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 0: brand
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 1: _topStatusPill
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 2: _topAdminPill
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // 3: drag
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 4: right
 
             var brand = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(18, 0, 0, 0) };
@@ -378,10 +380,26 @@ namespace ZapretStudio
             _topStatusPill.Margin = new Thickness(16, 0, 0, 0);
             Grid.SetColumn(_topStatusPill, 1); g.Children.Add(_topStatusPill);
 
+            _topAdminPill = Pill.Make(Sev.Warn, Loc.T("mw.noAdminBadge"));
+            _topAdminPill.VerticalAlignment = VerticalAlignment.Center;
+            _topAdminPill.Margin = new Thickness(8, 0, 0, 0);
+            _topAdminPill.Cursor = System.Windows.Input.Cursors.Hand;
+            _topAdminPill.ToolTip = Loc.T("mw.noAdminTip");
+            _topAdminPill.MouseLeftButtonUp += (s, e) =>
+            {
+                if (MessageBox.Show(Loc.T("mw.restartAsAdminPrompt"), Loc.T("service.noAdmin.title"),
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                {
+                    Core.RestartAsAdmin();
+                }
+            };
+            _topAdminPill.Visibility = Core.IsAdmin() ? Visibility.Collapsed : Visibility.Visible;
+            Grid.SetColumn(_topAdminPill, 2); g.Children.Add(_topAdminPill);
+
             // область для перетаскивания окна
             var drag = new Border { Background = Brushes.Transparent };
             drag.MouseLeftButtonDown += (s, e) => { if (e.ClickCount == 1) DragMove(); };
-            Grid.SetColumn(drag, 2); g.Children.Add(drag);
+            Grid.SetColumn(drag, 3); g.Children.Add(drag);
 
             var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             right.Children.Add(TopIcon(Theme.Mode == ThemeMode.Light ? Icons.Moon : Icons.Sun,
@@ -394,7 +412,7 @@ namespace ZapretStudio
             right.Children.Add(WinBtn(Icons.Minimize, Loc.T("common.minimize"), delegate { WindowState = WindowState.Minimized; }, false));
             right.Children.Add(WinBtn(Icons.Maximize, Loc.T("common.maximize"), delegate { ToggleMax(); }, false));
             right.Children.Add(WinBtn(Icons.Cross, Loc.T("common.close"), delegate { Close(); }, true));
-            Grid.SetColumn(right, 3); g.Children.Add(right);
+            Grid.SetColumn(right, 4); g.Children.Add(right);
 
             return new Border { Child = g, BorderBrush = Theme.BrStroke, BorderThickness = new Thickness(0, 0, 0, 1) };
         }
@@ -1242,9 +1260,13 @@ namespace ZapretStudio
 
         void NeedAdmin(string what)
         {
-            MessageBox.Show(string.Format(Loc.T("mw.needAdminMsg"), what), Loc.T("service.noAdmin.title"),
-                MessageBoxButton.OK, MessageBoxImage.Warning);
             Core.Warn(string.Format(Loc.T("mw.needAdminLog"), what));
+            var res = MessageBox.Show(string.Format(Loc.T("mw.needAdminPrompt"), what), Loc.T("service.noAdmin.title"),
+                MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (res == MessageBoxResult.Yes)
+            {
+                Core.RestartAsAdmin();
+            }
         }
 
         void Warn(string t) { Core.Warn(t); }
@@ -1267,6 +1289,8 @@ namespace ZapretStudio
                     _topStatusPill = np;
                 }
             }
+            if (_topAdminPill != null)
+                _topAdminPill.Visibility = Core.IsAdmin() ? Visibility.Collapsed : Visibility.Visible;
             UpdateTray(on);
         }
 

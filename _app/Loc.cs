@@ -78,7 +78,11 @@ namespace ZapretStudio
             A("mw.restartNoBypass","Обход не запущен и стратегия не выбрана — перезапускать нечего", "Bypass is not running and no strategy is selected — nothing to restart");
             A("mw.busy",        "Другая операция с обходом уже выполняется.", "Another bypass operation is already running.");
             A("mw.needAdminMsg","Для действия «{0}» нужны права администратора.\nЗапустите приложение от имени администратора.", "The \"{0}\" action requires administrator rights.\nRestart the app as administrator.");
+            A("mw.needAdminPrompt","Для действия «{0}» требуются права администратора.\n\nПерезапустить приложение от имени администратора сейчас?", "The \"{0}\" action requires administrator rights.\n\nRestart the application as administrator now?");
             A("mw.needAdminLog","{0}: нет прав администратора", "{0}: no administrator rights");
+            A("mw.noAdminBadge","Нет прав админа", "No Admin Rights");
+            A("mw.noAdminTip",  "Нажмите, чтобы перезапустить Lantern от имени администратора", "Click to restart Lantern as administrator");
+            A("mw.restartAsAdminPrompt","Для работы обхода блокировок и установки драйвера требуются права администратора.\n\nПерезапустить Lantern с правами администратора?", "Administrator rights are required for bypass and driver operation.\n\nRestart Lantern with administrator rights?");
             A("mw.startBypassAct","Запуск обхода",    "Starting bypass");
             A("mw.checkVer",    "Проверка версии…",   "Checking version…");
             A("mw.verFail",     "Не удалось получить версию из репозитория", "Could not fetch the version from the repository");

@@ -64,5 +64,37 @@ namespace ZapretStudio
             }
             catch { return null; }
         }
+
+        // Нормализация домена или IP-адреса для списков zapret:
+        // 1. Очистка начальных и конечных пробелов.
+        // 2. Для доменов — отсечение схем http(s):// и путей /url, приведение к нижнему регистру.
+        // 3. Конвертация кириллических / IDN доменов (например «яндекс.рф») в формат Punycode («xn--...»).
+        // 4. Для списков IP (ipset) — сохранение IP-адресов и CIDR-масок (например 1.2.3.4/24).
+        public static string NormalizeHostEntry(string entry, bool isIpSet)
+        {
+            if (string.IsNullOrEmpty(entry)) return "";
+            string val = entry.Trim();
+            if (val.StartsWith("#")) return val;
+
+            if (isIpSet)
+            {
+                return val;
+            }
+
+            if (val.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) val = val.Substring(8);
+            else if (val.StartsWith("http://", StringComparison.OrdinalIgnoreCase)) val = val.Substring(7);
+            int slash = val.IndexOf('/');
+            if (slash >= 0) val = val.Substring(0, slash);
+            val = val.Trim().TrimEnd('.');
+
+            try
+            {
+                var idn = new System.Globalization.IdnMapping();
+                val = idn.GetAscii(val);
+            }
+            catch { }
+
+            return val.ToLowerInvariant();
+        }
     }
 }

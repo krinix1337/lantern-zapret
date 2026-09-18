@@ -33,6 +33,33 @@ namespace ZapretStudio
             catch { return false; }
         }
 
+        // Перезапуск приложения с запросом прав администратора (UAC)
+        public static bool RestartAsAdmin()
+        {
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = Process.GetCurrentProcess().MainModule.FileName,
+                    UseShellExecute = true,
+                    Verb = "runas"
+                };
+                Process.Start(psi);
+                System.Windows.Application.Current.Shutdown();
+                return true;
+            }
+            catch (System.ComponentModel.Win32Exception)
+            {
+                // Пользователь нажал «Нет» в окне подтверждения контроля учетных записей (UAC)
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Fail("RestartAsAdmin: " + ex.Message);
+                return false;
+            }
+        }
+
         // Иконка приложения, встроенная в exe (-win32icon). Кэшируется.
         static System.Drawing.Icon _appIcon;
         static bool _appIconTried;

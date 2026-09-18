@@ -52,6 +52,23 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent shellexec
 
+[Registry]
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "Lantern"; Flags: dontcreatekey uninsdeletevalue
+
+[UninstallRun]
+; Stop and delete the zapret service and WinDivert drivers if they were installed
+Filename: "{sys}\net.exe"; Parameters: "stop zapret"; Flags: runhidden
+Filename: "{sys}\sc.exe"; Parameters: "delete zapret"; Flags: runhidden
+Filename: "{sys}\net.exe"; Parameters: "stop WinDivert"; Flags: runhidden
+Filename: "{sys}\sc.exe"; Parameters: "delete WinDivert"; Flags: runhidden
+Filename: "{sys}\net.exe"; Parameters: "stop WinDivert14"; Flags: runhidden
+Filename: "{sys}\sc.exe"; Parameters: "delete WinDivert14"; Flags: runhidden
+; Terminate running processes to release file locks before deleting files
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM winws.exe /T"; Flags: runhidden
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM TgWsProxy_windows.exe /T"; Flags: runhidden
+; Remove scheduled autostart task if registered
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN ""LanternAutostart"""; Flags: runhidden
+
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\zapret"
 Type: files; Name: "{app}\gui-config.ini"

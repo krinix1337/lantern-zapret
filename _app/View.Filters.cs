@@ -164,6 +164,7 @@ namespace ZapretStudio
                 FontSize = Theme.FsBody, FontFamily = Theme.MonoFont,
                 VerticalContentAlignment = VerticalAlignment.Center, Padding = new Thickness(10, 0, 10, 0)
             };
+            _entryInput.KeyDown += (s, e) => { if (e.Key == System.Windows.Input.Key.Enter) AddEntry(); };
             editRow.Children.Add(_entryInput);
 
             var addBtn = Ctl.Button(Loc.T("filters.list.add"), Icons.Check, 0);
@@ -221,9 +222,12 @@ namespace ZapretStudio
 
         void AddEntry()
         {
-            string val = (_entryInput.Text ?? "").Trim();
-            if (val.Length == 0) return;
+            string raw = (_entryInput.Text ?? "").Trim();
+            if (raw.Length == 0) return;
             string path = CurrentListPath();
+            bool isIpSet = path.IndexOf("ipset", StringComparison.OrdinalIgnoreCase) >= 0;
+            string val = Core.NormalizeHostEntry(raw, isIpSet);
+            if (val.Length == 0) return;
             try
             {
                 File.AppendAllText(path, val + Environment.NewLine);

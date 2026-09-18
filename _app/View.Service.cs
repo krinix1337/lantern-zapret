@@ -243,9 +243,13 @@ namespace ZapretStudio
         {
             if (!Core.IsAdmin())
             {
-                MessageBox.Show(string.Format(Loc.T("service.noAdmin.msg"), what),
-                    Loc.T("service.noAdmin.title"), MessageBoxButton.OK, MessageBoxImage.Warning);
                 Core.Warn(string.Format(Loc.T("service.noAdmin.log"), what));
+                var res = MessageBox.Show(string.Format(Loc.T("service.noAdmin.msg"), what) + "\n\n" + Loc.T("mw.restartAsAdminPrompt"),
+                    Loc.T("service.noAdmin.title"), MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (res == MessageBoxResult.Yes)
+                {
+                    Core.RestartAsAdmin();
+                }
                 return;
             }
             // sc create/start/stop/delete отвечают до 20 с каждый (RemoveService —
