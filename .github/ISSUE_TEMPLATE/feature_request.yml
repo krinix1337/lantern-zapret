@@ -1,0 +1,45 @@
+name: 💡 Предложение новой функции
+title: '[IDEA] '
+description: Предложить новую функцию, стратегию или улучшение для Lantern
+labels: ['enhancement']
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Есть классная идея, как сделать Lantern удобнее или стабильнее? Поделитесь ей ниже!
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: С какой проблемой или неудобством вы столкнулись?
+      description: Опишите ситуацию, которая привела к этой идее.
+      placeholder: Например: При смене Wi-Fi сети приходится вручную перезапускать службу...
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Какое решение вы предлагаете?
+      description: Подробное описание желаемой функции или изменения.
+      placeholder: Добавить автоматическое определение смены активного сетевого интерфейса...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Рассматривали ли вы альтернативные решения?
+      description: Какие другие способы решения проблемы вы пробовали?
+      placeholder: Вручную нажимать кнопку «Перезапуск» в шапке окна...
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Дополнительный контекст или референсы
+      description: Ссылки, макеты интерфейса или примеры из других приложений
+    validations:
+      required: false

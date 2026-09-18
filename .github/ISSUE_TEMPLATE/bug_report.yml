@@ -1,38 +1,92 @@
-name: 🐛 Проблема
-title: '[Проблема] '
-description: Сообщить о проблеме
-labels: ['type: проблема', 'status: нуждается в сортировке']
+name: 🐛 Сообщение об ошибке
+title: '[BUG] '
+description: Сообщить о неполадке или сбое в работе Lantern
+labels: ['bug']
 
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за помощь в улучшении Lantern! Перед созданием тикета, пожалуйста, убедитесь, что вы используете последнюю версию программы.
+
   - type: checkboxes
     id: checklist
     attributes:
-      label: ⚠️ Чеклист
-      description: Перед созданием нового Issue, удостоверьтесь что выполнили следующие пункты
+      label: ⚠️ Чеклист перед отправкой
       options:
-        - label: Я искал решение проблемы в [README](https://github.com/Flowseal/zapret-discord-youtube/blob/main/README.md) и среди [Issues](https://github.com/Flowseal/zapret-discord-youtube/issues)
-        - label: Я скачал ``zapret-discord-youtube`` из [релизов официального репозитория](https://github.com/Flowseal/zapret-discord-youtube/releases)
+        - label: Я запускаю Lantern **от имени Администратора** (требуется для драйвера WinDivert и системной службы)
+          required: true
+        - label: Я ознакомился с разделом решения частых проблем в [Руководстве пользователя (FAQ)](https://github.com/krinix1337/lantern-zapret/blob/master/docs/guide.md#-решение-частых-проблем-faq)
+          required: true
+        - label: Я скачал сборку из [официальных релизов krinix1337/lantern-zapret](https://github.com/krinix1337/lantern-zapret/releases)
+          required: true
 
   - type: textarea
     id: description
     attributes:
-      label: Опишите вашу проблему
-      description: Чётко опишите проблему с которой вы столкнулись
-      placeholder: Описание проблемы
+      label: Описание проблемы
+      description: Подробно опишите, что пошло не так и что вы ожидали увидеть.
+      placeholder: При запуске стратегии general (ALT11).bat видео на YouTube не воспроизводятся...
     validations:
       required: true
 
   - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      description: Опишите пошагово действия, приводящие к ошибке.
+      placeholder: |
+        1. Запустил Lantern от имени администратора.
+        2. Выбрал стратегию "general (ALT4).bat" и нажал "Запустить".
+        3. Открыл Discord / YouTube.
+        4. Произошла ошибка...
+    validations:
+      required: true
+
+  - type: input
     id: version
     attributes:
-      label: Версия zapret-discord-youtube
-      description: Версия zapret-discord-youtube на которой вы словили проблему
-      placeholder: Версия
+      label: Версия Lantern
+      description: Версия приложения (указана в разделе «О программе» или в заголовке)
+      placeholder: "8.1"
     validations:
       required: true
 
-  - type: textarea
-    id: additions
+  - type: dropdown
+    id: os
     attributes:
-      label: Дополнительные детали
-      description: Дополнительные детали о которых нам нужно знать
+      label: Операционная система
+      description: Ваша версия Windows
+      options:
+        - Windows 11 (23H2 / 24H2 / 25H2)
+        - Windows 10 (21H2 / 22H2)
+        - Другая (укажите в описании)
+    validations:
+      required: true
+
+  - type: input
+    id: isp
+    attributes:
+      label: Интернет-провайдер (ISP) и город
+      description: Провайдер связи и регион (например: Ростелеком / Москва, Дом.ру / СПб, МТС / Казань)
+      placeholder: Ростелеком, Москва
+    validations:
+      required: false
+
+  - type: textarea
+    id: diagnostic
+    attributes:
+      label: Отчёт встроенной диагностики или лог
+      description: Перейдите в раздел **Лог** или **Настройки** и нажмите кнопку **«Диагностика»** (все персональные данные и IP автоматически маскируются). Вставьте скопированный текст сюда.
+      render: shell
+      placeholder: Вставьте сюда текст диагностики...
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Скриншоты
+      description: Перетащите изображения или скриншоты ошибки сюда
+    validations:
+      required: false

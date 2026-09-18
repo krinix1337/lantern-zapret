@@ -755,7 +755,7 @@ namespace ZapretStudio
             catch (Exception ex) { _fail++; Line("FAIL", what + " -> " + ex.GetType().Name + ": " + ex.Message); }
         }
 
-        static void Line(string lvl, string msg) { Log.AppendLine("[" + lvl + "] " + msg); }
+        static void Line(string lvl, string msg) { Log.AppendLine("[" + lvl + "] " + msg); Console.WriteLine("[" + lvl + "] " + msg); }
 
         // Рендер окна в PNG для визуальной проверки и автогенерации документации.
         static void SavePng(MainWindow win, string fullPath)
