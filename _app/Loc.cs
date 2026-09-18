@@ -729,6 +729,7 @@ namespace ZapretStudio
             A("settings.defender.btn",   "Добавить в исключения Windows Defender", "Add to Windows Defender exclusions");
             A("settings.defender.inList","Папка в исключениях", "Folder in exclusions");
             A("settings.defender.notIn", "Не добавлено в исключения", "Not in exclusions");
+            A("settings.defender.disabled", "Отключён / сторонний антивирус", "Disabled / 3rd-party antivirus");
             A("settings.defender.ok",    "Папка приложения успешно добавлена в исключения Windows Defender!", "Application folder successfully added to Windows Defender exclusions!");
             A("settings.defender.fail",  "Не удалось добавить в исключения. Убедитесь, что приложение запущено от имени администратора.", "Failed to add to exclusions. Make sure the application is running as administrator.");
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -31,8 +32,10 @@ namespace ZapretStudio
         {
             Title = Core.AppName;
             try { var wi = Core.AppIconSource(); if (wi != null) Icon = wi; } catch { }
-            Width = 1120; Height = 740;
-            MinWidth = 1000; MinHeight = 680;
+            Width = 1120;
+            Height = Math.Min(740, Math.Max(560, SystemParameters.WorkArea.Height - 30));
+            MinWidth = 1000;
+            MinHeight = Math.Min(580, Math.Max(500, SystemParameters.WorkArea.Height - 40));
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             Background = Theme.BrBgDeep;
             UseLayoutRounding = true;
@@ -73,7 +76,16 @@ namespace ZapretStudio
                 Visibility = Visibility.Hidden;
             }
 
-            SourceInitialized += (s, e) => ApplyRoundedCorners();
+            SourceInitialized += (s, e) =>
+            {
+                ApplyRoundedCorners();
+                try
+                {
+                    var source = System.Windows.Interop.HwndSource.FromHwnd(new System.Windows.Interop.WindowInteropHelper(this).Handle);
+                    if (source != null) source.AddHook(WndProc);
+                }
+                catch { }
+            };
             StateChanged += (s, e) =>
             {
                 if (WindowState == WindowState.Minimized) Core.TrimMemory();
@@ -1691,20 +1703,64 @@ namespace ZapretStudio
                 Add(menu, Loc.T("mw.tray.open"), delegate { Dispatcher.Invoke((Action)ShowWindow); });
                 menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
                 Add(menu, Loc.T("mw.tray.exit"), delegate { Dispatcher.Invoke((Action)delegate { _forceClose = true; Close(); }); });
-                _tray.ContextMenuStrip = menu;
+                _trayClickTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(System.Windows.Forms.SystemInformation.DoubleClickTime) };
+                _trayClickTimer.Tick += (s, e) =>
+                {
+                    _trayClickTimer.Stop();
+                    ToggleTrayWidget();
+                };
                 _tray.MouseClick += (s, e) =>
                 {
                     if (e.Button == System.Windows.Forms.MouseButtons.Left)
-                        Dispatcher.BeginInvoke((Action)ToggleTrayWidget);
+                    {
+                        _trayClickTimer.Stop();
+                        _trayClickTimer.Start();
+                    }
                 };
-                _tray.DoubleClick += (s, e) => Dispatcher.Invoke((Action)ShowWindow);
+                _tray.DoubleClick += (s, e) =>
+                {
+                    _trayClickTimer.Stop();
+                    Dispatcher.Invoke((Action)ShowWindow);
+                };
             }
             catch { }
         }
 
+        DispatcherTimer _trayClickTimer;
         System.Windows.Forms.ToolStripMenuItem _trayStatus;
         TrayStatusWidget _trayWidget;
         bool _forceClose;
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        static extern int RegisterWindowMessage(string message);
+        static readonly int WM_TASKBARCREATED = RegisterWindowMessage("TaskbarCreated");
+
+        IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            if (msg == App.WmShowWindow)
+            {
+                ShowWindow();
+                handled = true;
+            }
+            else if (msg == WM_TASKBARCREATED)
+            {
+                try
+                {
+                    if (_tray != null)
+                    {
+                        _tray.Visible = false;
+                        _tray.Visible = true;
+                    }
+                    else
+                    {
+                        BuildTray();
+                    }
+                }
+                catch { }
+                handled = true;
+            }
+            return IntPtr.Zero;
+        }
 
         void Add(System.Windows.Forms.ContextMenuStrip m, string text, Action act)
         {

@@ -42,6 +42,16 @@ namespace ZapretStudio
         [DllImport("user32.dll")]
         static extern bool EnumDisplaySettings(string deviceName, int modeNum, ref DEVMODE devMode);
 
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        static extern int RegisterWindowMessage(string message);
+
+        [DllImport("user32.dll")]
+        static extern bool PostMessage(IntPtr hwnd, int msg, IntPtr wparam, IntPtr lparam);
+
+        static readonly IntPtr HWND_BROADCAST = new IntPtr(0xffff);
+        internal const string ShowWindowMessageName = "LANTERN_RESTORE_WINDOW_MSG";
+        internal static readonly int WmShowWindow = RegisterWindowMessage(ShowWindowMessageName);
+
         static void OptimizeRendering()
         {
             try
@@ -63,7 +73,17 @@ namespace ZapretStudio
             return;
 #pragma warning disable 0162
 #endif
-            var app = new App();
+            bool createdNew;
+            using (var mutex = new System.Threading.Mutex(true, "Lantern_SingleInstance_Mutex", out createdNew))
+            {
+                if (!createdNew)
+                {
+                    // Сообщаем первому экземпляру развернуться и выйти на передний план
+                    PostMessage(HWND_BROADCAST, WmShowWindow, IntPtr.Zero, IntPtr.Zero);
+                    return;
+                }
+
+                var app = new App();
             Theme.InstallScrollBarStyle();
             app.DispatcherUnhandledException += (s, e) =>
             {
@@ -122,6 +142,7 @@ namespace ZapretStudio
             var win = new MainWindow();
             win.Loaded += (s, e) => Core.EnsureUiFontsInBackground();
             app.Run(win);
+            }
         }
 
         // Сохранить причину падения рядом с профилем пользователя: папка установки

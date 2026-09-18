@@ -31,7 +31,7 @@ namespace ZapretStudio
                     if (ni.OperationalStatus != OperationalStatus.Up) continue;
                     if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
                     if (ni.NetworkInterfaceType == NetworkInterfaceType.Tunnel) continue;
-                    var st = ni.GetIPv4Statistics();
+                    var st = ni.GetIPStatistics();
                     sent += st.BytesSent;
                     recv += st.BytesReceived;
                 }

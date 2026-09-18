@@ -708,10 +708,15 @@ namespace ZapretStudio
             {
                 System.Threading.ThreadPool.QueueUserWorkItem(delegate
                 {
-                    bool isSet = Core.IsDefenderExclusionSet();
+                    var status = Core.GetDefenderExclusionStatus();
                     Dispatcher.Invoke((Action)delegate
                     {
-                        if (isSet)
+                        if (!status.HasValue)
+                        {
+                            pillHost.Child = Pill.Make(Sev.Neutral, Loc.T("settings.defender.disabled"));
+                            btn.IsEnabled = false;
+                        }
+                        else if (status.Value)
                         {
                             pillHost.Child = Pill.Make(Sev.Ok, Loc.T("settings.defender.inList"));
                             btn.IsEnabled = false;

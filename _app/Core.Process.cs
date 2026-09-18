@@ -625,6 +625,25 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
             }
             catch { return false; }
         }
+
+        // Проверка: работает ли служба Защитника Windows (WinDefend).
+        // Если у пользователя установлен сторонний антивирус (Касперский, Dr.Web и т.д.), Защитник отключён.
+        public static bool IsDefenderServiceRunning()
+        {
+            try
+            {
+                string o = Capture("sc", "query WinDefend", 4000);
+                return !string.IsNullOrEmpty(o) && o.IndexOf("RUNNING", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+            catch { return false; }
+        }
+
+        // null = Защитник отключён (сторонний антивирус), true = в исключениях, false = не в исключениях
+        public static bool? GetDefenderExclusionStatus()
+        {
+            if (!IsDefenderServiceRunning()) return null;
+            return IsDefenderExclusionSet();
+        }
         [System.Runtime.InteropServices.DllImport("kernel32.dll")]
         static extern bool SetProcessWorkingSetSize(IntPtr proc, IntPtr min, IntPtr max);
 
