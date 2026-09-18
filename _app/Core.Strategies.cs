@@ -250,7 +250,7 @@ namespace ZapretStudio
                     {
                         if (i == 0)
                         {
-                            string cleaned = Regex.Replace(part, @"--ipset=""?[^""\s]+""?\s*", "");
+                            string cleaned = Regex.Replace(part, @"--ipset=(?:""[^""]*""|\S+)\s*", "");
                             kept.Add(cleaned.Trim());
                         }
                     }

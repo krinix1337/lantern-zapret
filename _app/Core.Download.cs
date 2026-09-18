@@ -186,7 +186,8 @@ namespace ZapretStudio
                         string destPath = Path.Combine(tmp, cleanName);
                         string fullDestPath = Path.GetFullPath(destPath);
                         string fullTmp = Path.GetFullPath(tmp);
-                        if (!fullDestPath.StartsWith(fullTmp.EndsWith(Path.DirectorySeparatorChar.ToString()) ? fullTmp : fullTmp + Path.DirectorySeparatorChar))
+                        string baseDir = fullTmp.EndsWith(Path.DirectorySeparatorChar.ToString()) ? fullTmp : fullTmp + Path.DirectorySeparatorChar;
+                        if (!fullDestPath.StartsWith(baseDir, StringComparison.OrdinalIgnoreCase))
                             continue;
 
                         if (entry.FullName.EndsWith("/") || entry.FullName.EndsWith("\\") || string.IsNullOrEmpty(entry.Name))

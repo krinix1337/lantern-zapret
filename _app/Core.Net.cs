@@ -352,7 +352,13 @@ namespace ZapretStudio
             sw.Stop(); r.Ms = sw.ElapsedMilliseconds;
             if (r.OkCount > 0) { r.Verdict = "ok"; r.Detail = "HTTP " + r.BestCode + " (" + r.OkCount + "/3)"; }
             else if (r.Verdict == "ssl") r.Detail = "SSL/TLS error";
-            else r.Detail = "Connection failed";
+            else
+            {
+                bool isTimeout = false;
+                for (int i = 0; i < exits.Length; i++) if (exits[i] == 28) isTimeout = true;
+                if (isTimeout) r.Detail = "Timeout (" + timeoutSec + "s)";
+                else r.Detail = "Connection failed";
+            }
             return r;
         }
 
@@ -374,16 +380,18 @@ namespace ZapretStudio
                     RedirectStandardOutput = true, RedirectStandardError = true,
                     StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
                 };
-                var sb = new StringBuilder();
+                var stdoutSb = new StringBuilder();
+                var stderrSb = new StringBuilder();
                 using (var p = System.Diagnostics.Process.Start(psi))
                 {
-                    p.OutputDataReceived += delegate(object s, System.Diagnostics.DataReceivedEventArgs e) { if (e.Data != null) lock (sb) sb.Append(e.Data); };
-                    p.ErrorDataReceived += delegate(object s, System.Diagnostics.DataReceivedEventArgs e) { if (e.Data != null) lock (sb) sb.Append(e.Data); };
+                    p.OutputDataReceived += delegate(object s, System.Diagnostics.DataReceivedEventArgs e) { if (e.Data != null) lock (stdoutSb) stdoutSb.Append(e.Data); };
+                    p.ErrorDataReceived += delegate(object s, System.Diagnostics.DataReceivedEventArgs e) { if (e.Data != null) lock (stderrSb) stderrSb.Append(e.Data); };
                     p.BeginOutputReadLine();
                     p.BeginErrorReadLine();
                     if (!p.WaitForExit(15000)) { try { p.Kill(); } catch { } output = "timeout"; return -1; }
                     p.WaitForExit();
-                    lock (sb) output = sb.ToString();
+                    lock (stdoutSb) output = stdoutSb.ToString();
+                    if (string.IsNullOrEmpty(output)) lock (stderrSb) output = stderrSb.ToString();
                     return p.ExitCode;
                 }
             }

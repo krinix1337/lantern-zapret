@@ -1516,13 +1516,23 @@ namespace ZapretStudio
                     if (ok) return;
                     // Текущая стратегия не работает — ищем замену.
                     Dispatcher.Invoke((Action)delegate { Core.Warn(Loc.T("mw.watchdogFail")); });
+                    bool wasService = (Core.ServiceState() == "running");
                     string next = Core.FindWorkingStrategy(_currentStrategyFile, () => false);
                     Dispatcher.Invoke((Action)delegate
                     {
                         if (next != null)
                         {
                             Core.Info(string.Format(Loc.T("mw.watchdogSwitch"), Core.PrettyName(next)));
-                            RunStrategy(next);
+                            if (wasService)
+                            {
+                                Core.InstallService(next);
+                                _currentStrategyFile = next;
+                                Core.Set("last_strategy", next); Core.SaveConfig();
+                            }
+                            else
+                            {
+                                RunStrategy(next);
+                            }
                             Notify(Loc.T("mw.watchdogSwitchTitle"), Core.PrettyName(next));
                         }
                         else
@@ -1532,7 +1542,10 @@ namespace ZapretStudio
                             // Ничего не нашли: возвращаем прежнюю стратегию, чтобы
                             // не оставлять обход выключенным до ручного запуска.
                             if (!string.IsNullOrEmpty(_currentStrategyFile))
-                                RunStrategy(_currentStrategyFile);
+                            {
+                                if (wasService) Core.InstallService(_currentStrategyFile);
+                                else RunStrategy(_currentStrategyFile);
+                            }
                         }
                         // Переключение выполнено — пауза перед следующей проверкой.
                         _watchdogCooldown = 2;

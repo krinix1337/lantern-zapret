@@ -53,7 +53,7 @@ namespace ZapretStudio
             {
                 KillWinws();
                 StartWinws(batFile);
-                Thread.Sleep(600); // 600ms
+                for (int i = 0; i < 20 && (cancel == null || !cancel()); i++) Thread.Sleep(100); // 2000ms прогрев для WinDivert
                 long msSum = 0; int msCount = 0;
                 int ok = 0;
                 var barrier = new WorkBarrier(probes.Count);
@@ -68,7 +68,7 @@ namespace ZapretStudio
                             {
                                 if (tt.Kind == "PING")
                                 {
-                                    var pr = TestPing(tt.Host, 3000);
+                                    var pr = TestPing(tt.Host, 4000);
                                     if (pr.State == "reachable")
                                     {
                                         Interlocked.Increment(ref ok);
@@ -77,7 +77,7 @@ namespace ZapretStudio
                                 }
                                 else
                                 {
-                                    var cr = CurlCheck(tt.Url, 3);
+                                    var cr = CurlCheck(tt.Url, 5);
                                     if (cr.Verdict == "ok")
                                     {
                                         Interlocked.Increment(ref ok);

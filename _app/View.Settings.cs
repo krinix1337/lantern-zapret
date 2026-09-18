@@ -450,20 +450,47 @@ namespace ZapretStudio
             return v;
         }
 
+        static void ParseVerPart(string part, out int num, out string suf)
+        {
+            num = 0;
+            suf = "";
+            if (string.IsNullOrEmpty(part)) return;
+            int i = 0;
+            while (i < part.Length && char.IsDigit(part[i])) i++;
+            if (i > 0) int.TryParse(part.Substring(0, i), out num);
+            if (i < part.Length) suf = part.Substring(i);
+        }
+
         internal static int CompareVersions(string left, string right)
         {
             if (string.IsNullOrEmpty(left) && string.IsNullOrEmpty(right)) return 0;
             if (string.IsNullOrEmpty(left)) return -1;
             if (string.IsNullOrEmpty(right)) return 1;
-            // Срезаем хвостовые ".0" у обеих версий: иначе «5.2» сравнивалась с
-            // «5.2.0» как меньше (у короткой отсутствующий компонент трактуется
-            // как -1 при покомпонентном сравнении Version).
+
             string l = TrimZeroComponents(NormVer(left));
             string r = TrimZeroComponents(NormVer(right));
             if (string.Equals(l, r, StringComparison.OrdinalIgnoreCase)) return 0;
-            Version a, b;
-            if (Version.TryParse(l, out a) && Version.TryParse(r, out b)) return a.CompareTo(b);
-            return string.Compare(l, r, StringComparison.OrdinalIgnoreCase);
+
+            string[] lp = l.Split('.');
+            string[] rp = r.Split('.');
+            int max = Math.Max(lp.Length, rp.Length);
+            for (int i = 0; i < max; i++)
+            {
+                string p1 = i < lp.Length ? lp[i] : "0";
+                string p2 = i < rp.Length ? rp[i] : "0";
+                int n1, n2; string s1, s2;
+                ParseVerPart(p1, out n1, out s1);
+                ParseVerPart(p2, out n2, out s2);
+                if (n1 != n2) return n1.CompareTo(n2);
+                int sc = string.Compare(s1, s2, StringComparison.OrdinalIgnoreCase);
+                if (sc != 0)
+                {
+                    if (string.IsNullOrEmpty(s1)) return -1;
+                    if (string.IsNullOrEmpty(s2)) return 1;
+                    return sc;
+                }
+            }
+            return 0;
         }
 
         static string TrimZeroComponents(string v)

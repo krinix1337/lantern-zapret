@@ -533,12 +533,13 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
                 {
                     FileName = file, Arguments = args, UseShellExecute = false, CreateNoWindow = true,
                     WindowStyle = ProcessWindowStyle.Hidden, RedirectStandardOutput = true, RedirectStandardError = true,
-                    StandardOutputEncoding = System.Text.Encoding.UTF8
+                    StandardOutputEncoding = System.Text.Encoding.UTF8, StandardErrorEncoding = System.Text.Encoding.UTF8
                 };
                 var sb = new System.Text.StringBuilder();
                 using (var p = Process.Start(psi))
                 {
                     p.OutputDataReceived += delegate(object s, DataReceivedEventArgs e) { if (e.Data != null) lock (sb) sb.AppendLine(e.Data); };
+                    p.ErrorDataReceived += delegate(object s, DataReceivedEventArgs e) { if (e.Data != null) lock (sb) sb.AppendLine(e.Data); };
                     p.BeginOutputReadLine();
                     p.BeginErrorReadLine();
                     if (!p.WaitForExit(timeoutMs)) { try { p.Kill(); } catch { } return ""; }
@@ -553,12 +554,14 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
         // Добавление папки приложения в исключения Windows Defender, чтобы антивирус не удалял WinDivert и zapret.exe
         public static bool AddDefenderExclusion()
         {
+            if (string.IsNullOrEmpty(Root)) return false;
             try
             {
+                string cleanRoot = Root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Replace("'", "''");
                 var psi = new ProcessStartInfo
                 {
                     FileName = "powershell.exe",
-                    Arguments = "-NoProfile -ExecutionPolicy Bypass -Command \"Add-MpPreference -ExclusionPath '" + Root.Replace("'", "''") + "'\"",
+                    Arguments = "-NoProfile -ExecutionPolicy Bypass -Command \"Add-MpPreference -ExclusionPath '" + cleanRoot + "'\"",
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
@@ -573,12 +576,14 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
 
         public static bool IsDefenderExclusionSet()
         {
+            if (string.IsNullOrEmpty(Root)) return false;
             try
             {
+                string cleanRoot = Root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Replace("'", "''");
                 var psi = new ProcessStartInfo
                 {
                     FileName = "powershell.exe",
-                    Arguments = "-NoProfile -ExecutionPolicy Bypass -Command \"$p = (Get-MpPreference).ExclusionPath; if ($p -contains '" + Root.Replace("'", "''") + "') { exit 0 } else { exit 1 }\"",
+                    Arguments = "-NoProfile -ExecutionPolicy Bypass -Command \"$p = @((Get-MpPreference).ExclusionPath) | ForEach-Object { $_.TrimEnd('\\') }; if ($p -contains '" + cleanRoot + "') { exit 0 } else { exit 1 }\"",
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };

@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace ZapretStudio
 {
@@ -267,8 +268,9 @@ namespace ZapretStudio
             if (_paused) return;
             try
             {
-                Dispatcher.Invoke((Action)delegate
+                Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
                 {
+                    if (_paused) return;
                     if (!Match(e)) return;
                     AddLine(MakeRow(e));
                     UpdateCount();

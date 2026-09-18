@@ -570,6 +570,15 @@ namespace ZapretStudio
                 if (rr.Sel != null) rr.Sel.IsChecked = on;
         }
 
+        class ProbeReport
+        {
+            public string Name;
+            public string Url;
+            public bool Ok;
+            public string Detail;
+            public long Ms;
+        }
+
         class StratRowRef
         {
             public string File;
@@ -578,6 +587,7 @@ namespace ZapretStudio
             public TextBlock Result;
             public Button Run;
             public CheckBox Sel;
+            public List<ProbeReport> LastReports;
         }
 
         Border StratRow(string file)
@@ -738,48 +748,81 @@ namespace ZapretStudio
 
                     int ok = 0, total = probes.Count;
                     string err = null;
+                    bool isAlreadyRunning = wasRunning && string.Equals(prevStrat, row.File, StringComparison.OrdinalIgnoreCase) && Core.IsWinwsRunning();
+                    var reports = new List<ProbeReport>();
+                    object reportsLock = new object();
                     try
                     {
-                        Core.KillWinws();
-                        Core.StartWinws(row.File);
-                        for (int i = 0; i < 6 && !_stratCancel; i++) Thread.Sleep(100); // 600ms вместо 5000ms
+                        if (!isAlreadyRunning)
+                        {
+                            Core.KillWinws();
+                            if (!Core.StartWinws(row.File)) throw new Exception("winws.exe failed to start");
+                            // Полноценный прогрев WinDivert: 2.0 секунды (как в service.bat)
+                            for (int i = 0; i < 20 && !_stratCancel; i++) Thread.Sleep(100);
+                        }
+                        else
+                        {
+                            Thread.Sleep(200);
+                        }
 
-                        // Параллельная проверка всех целей за 2-3 секунды
+                        // Параллельная проверка всех целей
                         var barrier = new Core.WorkBarrier(probes.Count);
                         foreach (var t in probes)
                         {
                             var tt = t;
                             ThreadPool.QueueUserWorkItem(delegate
                             {
+                                bool isOk = false;
+                                string detail = "";
+                                long ms = -1;
                                 try
                                 {
                                     if (!_stratCancel)
                                     {
                                         if (tt.Kind == "PING")
                                         {
-                                            var res = Core.TestPing(tt.Host, 3000);
-                                            if (res.State == "reachable") Interlocked.Increment(ref ok);
+                                            var res = Core.TestPing(tt.Host, 4000);
+                                            isOk = (res.State == "reachable");
+                                            ms = res.Ms;
+                                            detail = isOk ? (res.Ms + " ms") : (res.Detail ?? "Timeout");
                                         }
                                         else
                                         {
-                                            var cr = Core.CurlCheck(tt.Url, 3);
-                                            if (cr.Verdict == "ok") Interlocked.Increment(ref ok);
+                                            var cr = Core.CurlCheck(tt.Url, 5); // 5 сек таймаут как в service.bat
+                                            isOk = (cr.Verdict == "ok");
+                                            ms = cr.Ms;
+                                            detail = isOk ? (cr.BestCode != null ? "HTTP " + cr.BestCode : "OK") : (cr.Detail ?? "Error");
                                         }
+                                        if (isOk) Interlocked.Increment(ref ok);
                                     }
                                 }
-                                catch { }
-                                finally { barrier.Signal(); }
+                                catch (Exception ex)
+                                {
+                                    detail = ex.Message;
+                                }
+                                finally
+                                {
+                                    lock (reportsLock)
+                                    {
+                                        reports.Add(new ProbeReport { Name = tt.Name, Url = tt.Url, Ok = isOk, Detail = detail, Ms = ms });
+                                    }
+                                    barrier.Signal();
+                                }
                             });
                         }
-                        // Одна проба (CurlCheck с -m 3) укладывается в ~4,5 с —
-                        // прежние 4000 мс истекали раньше, чем пробы отвечали,
-                        // и итог считался по неполным данным.
                         barrier.Wait(9000);
                     }
                     catch (Exception ex) { err = ex.Message; }
-                    finally { try { Core.KillWinws(); } catch { } }
+                    finally
+                    {
+                        if (!isAlreadyRunning)
+                        {
+                            try { Core.KillWinws(); } catch { }
+                        }
+                    }
 
                     int okCount = ok; string error = err;
+                    var repSnapshot = reports;
                     Dispatcher.Invoke((Action)delegate
                     {
                         if (error != null)
@@ -795,11 +838,56 @@ namespace ZapretStudio
                             row.Result.Text = Loc.T("check.strat.cancelled");
                             return;
                         }
+
+                        // Упорядочиваем по исходному порядку зондов
+                        var ordered = new List<ProbeReport>();
+                        foreach (var p in probes)
+                        {
+                            ProbeReport found = null;
+                            foreach (var r in repSnapshot) if (r.Name == p.Name) { found = r; break; }
+                            if (found != null) ordered.Add(found);
+                        }
+
+                        var okParts = new List<string>();
+                        var failParts = new List<string>();
+                        var ttSb = new System.Text.StringBuilder();
+                        ttSb.AppendLine(Core.PrettyName(row.File) + ":");
+
+                        foreach (var rpt in ordered)
+                        {
+                            string mark = rpt.Ok ? "✓" : "✗";
+                            string timeInfo = rpt.Ms >= 0 ? " [" + rpt.Ms + " ms]" : "";
+                            ttSb.AppendLine(string.Format("  {0} {1}: {2}{3}", mark, rpt.Name, rpt.Detail, timeInfo));
+
+                            string shortItem = rpt.Name + (rpt.Detail != null ? " (" + rpt.Detail + ")" : "");
+                            if (rpt.Ok) okParts.Add(shortItem);
+                            else failParts.Add(shortItem);
+                        }
+
                         Sev sev = okCount == total ? Sev.Ok : (okCount > 0 ? Sev.Warn : Sev.Err);
                         string label = okCount == total ? Loc.T("check.strat.pass") : (okCount > 0 ? Loc.T("check.strat.partial") : Loc.T("check.strat.fail"));
                         SetStratPill(row, sev, label);
-                        row.Result.Text = string.Format(Loc.T("check.strat.resultLine"), okCount, total);
-                        Core.Info(string.Format(Loc.T("check.strat.resultLog"), Core.PrettyName(row.File), okCount, total));
+
+                        string summaryText;
+                        if (okCount == total)
+                        {
+                            summaryText = string.Format("Доступно {0}/{1}: {2}", okCount, total, string.Join(", ", okParts.ToArray()));
+                        }
+                        else if (okCount > 0)
+                        {
+                            summaryText = string.Format("Доступно {0}/{1} · Сбой: {2}", okCount, total, string.Join(", ", failParts.ToArray()));
+                        }
+                        else
+                        {
+                            summaryText = string.Format("Не работает (0/{0}) · Все адреса недоступны", total);
+                        }
+
+                        row.Result.Text = summaryText;
+                        string ttStr = ttSb.ToString().TrimEnd();
+                        row.Card.ToolTip = ttStr;
+                        row.Pill.ToolTip = ttStr;
+                        row.LastReports = ordered;
+                        Core.Info(string.Format("[{0}] {1}", Core.PrettyName(row.File), summaryText));
                     });
                 }
 

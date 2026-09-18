@@ -327,25 +327,52 @@ namespace ZapretStudio
             if (data == null || data.Length < 16) return null;
 
             int start = -1;
+            bool isPng = false;
             for (int i = 0; i < data.Length - 4; i++)
             {
                 if (data[i] == 0xFF && data[i + 1] == 0xD8 && data[i + 2] == 0xFF)
                 {
                     start = i;
+                    isPng = false;
                     break;
                 }
                 if (data[i] == 0x89 && data[i + 1] == 0x50 && data[i + 2] == 0x4E && data[i + 3] == 0x47)
                 {
                     start = i;
+                    isPng = true;
                     break;
                 }
             }
 
             if (start < 0) return null;
 
+            int len = data.Length - start;
+            if (isPng)
+            {
+                for (int i = start + 8; i < data.Length - 7; i++)
+                {
+                    if (data[i] == 0x49 && data[i + 1] == 0x45 && data[i + 2] == 0x4E && data[i + 3] == 0x44)
+                    {
+                        len = (i + 8) - start;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                for (int i = start + 2; i < data.Length - 1; i++)
+                {
+                    if (data[i] == 0xFF && data[i + 1] == 0xD9)
+                    {
+                        len = (i + 2) - start;
+                        break;
+                    }
+                }
+            }
+
             try
             {
-                using (var ms = new MemoryStream(data, start, data.Length - start))
+                using (var ms = new MemoryStream(data, start, len))
                 {
                     var bmp = new BitmapImage();
                     bmp.BeginInit();
@@ -600,6 +627,9 @@ namespace ZapretStudio
             {
                 _fadeTimer.Stop();
                 _fadeTimer = null;
+                var prevEnd = _onFadeEnd;
+                _onFadeEnd = null;
+                if (prevEnd != null) prevEnd();
             }
             if (durationMs <= 0 || Math.Abs(from - to) < 0.001)
             {

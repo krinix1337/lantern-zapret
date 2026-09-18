@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (например 7.3)'
+        description: 'Release tag (например 8.0)'
         required: true
 
 # Прежний workflow собирал апстримный zapret на ubuntu-latest: тег сверялся с

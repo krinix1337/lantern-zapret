@@ -161,14 +161,14 @@ namespace ZapretStudio
         {
             lock (_tgLock)
             {
-                try { if (_tgProc != null && !_tgProc.HasExited) _tgProc.Kill(); } catch { }
+                try { if (_tgProc != null && !_tgProc.HasExited) { _tgProc.Kill(); _tgProc.WaitForExit(3000); } } catch { }
                 try { if (_tgProc != null) _tgProc.Dispose(); } catch { }
                 _tgProc = null;
             }
             try
             {
                 var procs = Process.GetProcessesByName("TgWsProxy_windows");
-                try { foreach (var p in procs) try { p.Kill(); } catch { } }
+                try { foreach (var p in procs) try { p.Kill(); p.WaitForExit(2000); } catch { } }
                 finally { foreach (var p in procs) p.Dispose(); }
             }
             catch { }
