@@ -17,12 +17,24 @@ namespace ZapretStudio
         ComboBox _stratPick;
         DispatcherTimer _timer;
 
+        // Элементы управления автозапуском
+        Toggle _appAutoToggle;
+        Toggle _appTrayToggle;
+        Border _appTrayRow;
+        Toggle _tgAutoToggle;
+        Toggle _bypassAppToggle;
+        Toggle _tgAppToggle;
+        Border _bypassAppRow;
+        TextBlock _bypassAppDesc;
+        readonly bool[] _appAutoReady = new bool[1];
+
         public ServicePage(MainWindow win)
         {
             _win = win;
             BuildStatus();
-            BuildAutostart();
-            BuildActions();
+            BuildServiceConfig();
+            BuildWindowsAutostart();
+            BuildAppAutostart();
             BuildAdminNote();
             _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             _timer.Tick += (s, e) => Refresh();
@@ -66,20 +78,17 @@ namespace ZapretStudio
             Body.Children.Add(sp);
         }
 
-        void BuildAutostart()
+        void BuildServiceConfig()
         {
-            Body.Children.Add(SectionLabel(Loc.T("service.sec.autostart")));
+            Body.Children.Add(SectionLabel(Loc.T("service.sec.serviceConfig")));
             _stratPick = Combo(380);
             Ctl.AutomationSetName(_stratPick, Loc.T("service.pick.name"));
             foreach (var f in Core.GetStrategyFiles()) _stratPick.Items.Add(Core.PrettyName(f));
             if (_stratPick.Items.Count > 0) _stratPick.SelectedIndex = 0;
-            Body.Children.Add(Row(Loc.T("service.which"),
-                Loc.T("service.which.desc"), _stratPick));
-        }
+            Body.Children.Add(Row(Loc.T("service.which"), Loc.T("service.which.desc"), _stratPick));
 
-        void BuildActions()
-        {
-            Body.Children.Add(SectionLabel(Loc.T("service.sec.actions")));
+            Body.Children.Add(new Border { Height = 12 });
+
             var wrap = new WrapPanel();
             var install = Ctl.Button(Loc.T("service.install"), Icons.Server, 0);
             install.Margin = new Thickness(0, 0, 10, 10);
@@ -98,6 +107,105 @@ namespace ZapretStudio
             wrap.Children.Add(stop);
             wrap.Children.Add(remove);
             Body.Children.Add(wrap);
+        }
+
+        void BuildWindowsAutostart()
+        {
+            Body.Children.Add(SectionLabel(Loc.T("service.sec.winAutostart")));
+
+            _appAutoToggle = new Toggle(Loc.T("service.appAuto"));
+            _appAutoToggle.Checked += (s, e) =>
+            {
+                if (_appTrayRow != null) _appTrayRow.Visibility = Visibility.Visible;
+                if (_appAutoReady[0])
+                    System.Threading.ThreadPool.QueueUserWorkItem(delegate { Core.SetAppAutostart(true); });
+            };
+            _appAutoToggle.Unchecked += (s, e) =>
+            {
+                if (_appTrayRow != null) _appTrayRow.Visibility = Visibility.Collapsed;
+                if (_appAutoReady[0])
+                    System.Threading.ThreadPool.QueueUserWorkItem(delegate { Core.SetAppAutostart(false); });
+            };
+
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                bool on = Core.AppAutostartEnabled();
+                try
+                {
+                    Dispatcher.BeginInvoke(DispatcherPriority.Normal, (Action)delegate
+                    {
+                        _appAutoToggle.IsChecked = on;
+                        if (_appTrayRow != null) _appTrayRow.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+                        _appAutoReady[0] = true;
+                    });
+                }
+                catch { }
+            });
+
+            Body.Children.Add(Row(Loc.T("service.appAuto"), Loc.T("service.appAuto.desc"), _appAutoToggle));
+
+            Body.Children.Add(new Border { Height = 10 });
+
+            _appTrayToggle = new Toggle(Loc.T("service.appAutoTray"));
+            _appTrayToggle.IsChecked = Core.AppAutostartInTray();
+            _appTrayToggle.Checked += (s, e) => Core.SetAppAutostartInTray(true);
+            _appTrayToggle.Unchecked += (s, e) => Core.SetAppAutostartInTray(false);
+            _appTrayRow = Row(Loc.T("service.appAutoTray"), Loc.T("service.appAutoTray.desc"), _appTrayToggle);
+            _appTrayRow.Visibility = Visibility.Collapsed;
+            Body.Children.Add(_appTrayRow);
+
+            Body.Children.Add(new Border { Height = 10 });
+
+            _tgAutoToggle = new Toggle(Loc.T("service.tgAuto"));
+            bool tgInstalled = Core.TgProxyInstalled();
+            _tgAutoToggle.IsEnabled = tgInstalled;
+            _tgAutoToggle.IsChecked = tgInstalled && Core.TgAutostartEnabled();
+            _tgAutoToggle.Checked += (s, e) => Core.SetTgAutostart(true);
+            _tgAutoToggle.Unchecked += (s, e) => Core.SetTgAutostart(false);
+            string tgDesc = tgInstalled ? Loc.T("service.tgAuto.desc") : Loc.T("service.tgAuto.notInstalled");
+            Body.Children.Add(Row(Loc.T("service.tgAuto"), tgDesc, _tgAutoToggle));
+        }
+
+        void BuildAppAutostart()
+        {
+            Body.Children.Add(SectionLabel(Loc.T("service.sec.appAutostart")));
+
+            _bypassAppToggle = new Toggle(Loc.T("service.bypassAuto"));
+            _bypassAppToggle.IsChecked = Core.GetBool("autostart_run", false);
+            _bypassAppToggle.Checked += (s, e) => { Core.SetBool("autostart_run", true); Core.SaveConfig(); };
+            _bypassAppToggle.Unchecked += (s, e) => { Core.SetBool("autostart_run", false); Core.SaveConfig(); };
+
+            var g = new Grid();
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var left = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            left.Children.Add(UI.T(Loc.T("service.bypassAuto"), Theme.FsBody, Theme.BrText, FontWeights.SemiBold));
+            _bypassAppDesc = new TextBlock
+            {
+                Text = Loc.T("service.bypassAuto.desc"),
+                Foreground = Theme.BrMuted,
+                FontSize = Theme.FsSmall,
+                FontFamily = Theme.UiFont,
+                Margin = new Thickness(0, 3, 0, 0),
+                TextWrapping = TextWrapping.Wrap
+            };
+            left.Children.Add(_bypassAppDesc);
+            Grid.SetColumn(left, 0); g.Children.Add(left);
+            var rc = new ContentControl { Content = _bypassAppToggle, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0) };
+            Grid.SetColumn(rc, 1); g.Children.Add(rc);
+            _bypassAppRow = UI.Card(g, new Thickness(16, 14, 16, 14));
+            Body.Children.Add(_bypassAppRow);
+
+            Body.Children.Add(new Border { Height = 10 });
+
+            _tgAppToggle = new Toggle(Loc.T("service.tgAutoApp"));
+            bool tgInstalled = Core.TgProxyInstalled();
+            _tgAppToggle.IsEnabled = tgInstalled;
+            _tgAppToggle.IsChecked = tgInstalled && Core.TgAutostartAppEnabled;
+            _tgAppToggle.Checked += (s, e) => Core.TgAutostartAppEnabled = true;
+            _tgAppToggle.Unchecked += (s, e) => Core.TgAutostartAppEnabled = false;
+            string tgAppDesc = tgInstalled ? Loc.T("service.tgAutoApp.desc") : Loc.T("service.tgAuto.notInstalled");
+            Body.Children.Add(Row(Loc.T("service.tgAutoApp"), tgAppDesc, _tgAppToggle));
         }
 
         void DoInstall()
@@ -174,6 +282,28 @@ namespace ZapretStudio
             if (!wf) ReplacePill(ref _wdPill, Sev.Err, Loc.T("service.driver.absent"));
             else if (wl) ReplacePill(ref _wdPill, Sev.Ok, Loc.T("service.driver.loaded"));
             else ReplacePill(ref _wdPill, Sev.Info, Loc.T("service.driver.ready"));
+
+            // Согласованность с состоянием службы:
+            if (_bypassAppDesc != null && _bypassAppToggle != null)
+            {
+                if (ss == "running")
+                {
+                    _bypassAppDesc.Text = Loc.T("service.bypassAuto.svcActive");
+                    _bypassAppDesc.Foreground = Theme.BrOk;
+                }
+                else
+                {
+                    _bypassAppDesc.Text = Loc.T("service.bypassAuto.desc");
+                    _bypassAppDesc.Foreground = Theme.BrMuted;
+                }
+            }
+
+            // Доступность TG-Proxy тумблеров:
+            bool tgInstalled = Core.TgProxyInstalled();
+            if (_tgAutoToggle != null && _tgAutoToggle.IsEnabled != tgInstalled)
+                _tgAutoToggle.IsEnabled = tgInstalled;
+            if (_tgAppToggle != null && _tgAppToggle.IsEnabled != tgInstalled)
+                _tgAppToggle.IsEnabled = tgInstalled;
         }
 
         void ReplacePill(ref Border pill, Sev sev, string text)

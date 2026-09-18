@@ -419,6 +419,21 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
             return v;
         }
 
+        public static bool AppAutostartInTray()
+        {
+            return GetBool("autostart_tray", false);
+        }
+
+        public static void SetAppAutostartInTray(bool inTray)
+        {
+            SetBool("autostart_tray", inTray);
+            SaveConfig();
+            if (AppAutostartEnabled())
+            {
+                SetAppAutostart(true);
+            }
+        }
+
         public static void SetAppAutostart(bool enable)
         {
             lock (_autostartLock) _autostartCache = null;
@@ -443,11 +458,14 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
             catch { }
             if (string.IsNullOrEmpty(exe)) { Warn("SetAppAutostart: exe path is unknown"); return; }
 
+            bool inTray = AppAutostartInTray();
+            string taskCmd = "\"" + exe + "\"" + (inTray ? " --tray" : "");
+
             // /RL HIGHEST — запуск с полными правами администратора (без запроса UAC),
             // /SC ONLOGON — при входе пользователя. /RU и /RP не указываем: задача
             // создаётся для текущего пользователя и не требует пароля.
             if (!Run("schtasks", "/Create /F /TN " + Q(AppTaskName) +
-                     " /TR " + Arg("\"" + exe + "\"") + " /SC ONLOGON /RL HIGHEST", 15000, out err))
+                     " /TR " + Arg(taskCmd) + " /SC ONLOGON /RL HIGHEST", 15000, out err))
             {
                 Warn("SetAppAutostart: schtasks failed (" + (err ?? "?") + ")");
                 // Планировщик недоступен — возвращаемся к HKCU\Run как к
@@ -455,7 +473,7 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
                 try
                 {
                     using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunRegistryPath, true))
-                        if (key != null) key.SetValue(AppRunKey, "\"" + exe + "\"");
+                        if (key != null) key.SetValue(AppRunKey, taskCmd);
                 }
                 catch (Exception ex) { Warn("SetAppAutostart: " + ex.Message); }
             }
@@ -473,15 +491,27 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
 
         public static void SetTgAutostart(bool enable)
         {
+            if (enable && !TgProxyInstalled())
+            {
+                Warn("SetTgAutostart: TgWsProxy is not installed");
+                return;
+            }
             try
             {
                 using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunRegistryPath, true))
                 {
                     if (key == null) { Warn("SetTgAutostart: registry key not found"); return; }
                     if (enable)
-                        key.SetValue(TgRunKey, "\"" + TgProxyExe + "\"");
+                    {
+                        // Запуск через cmd.exe start /d задаёт рабочую папку TgToolsDir,
+                        // чтобы прокси корректно находил свои локальные файлы, а не System32.
+                        string cmd = "cmd.exe /c start /d \"" + TgToolsDir + "\" \"\" \"" + Path.GetFileName(TgProxyExe) + "\"";
+                        key.SetValue(TgRunKey, cmd);
+                    }
                     else
+                    {
                         key.DeleteValue(TgRunKey, false);
+                    }
                 }
             }
             catch (Exception ex) { Warn("SetTgAutostart: " + ex.Message); }

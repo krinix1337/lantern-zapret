@@ -173,5 +173,12 @@ namespace ZapretStudio
             }
             catch { }
         }
+
+        // Автозапуск TG-Proxy вместе с Lantern при открытии приложения
+        public static bool TgAutostartAppEnabled
+        {
+            get { return GetBool("tg_autostart_app", false); }
+            set { SetBool("tg_autostart_app", value); SaveConfig(); }
+        }
     }
 }

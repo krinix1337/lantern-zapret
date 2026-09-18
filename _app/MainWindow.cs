@@ -52,8 +52,38 @@ namespace ZapretStudio
             BuildChrome();
             BuildTray();
 
+            bool startInTray = false;
+            foreach (var arg in Environment.GetCommandLineArgs())
+            {
+                if (arg.Equals("--tray", StringComparison.OrdinalIgnoreCase) ||
+                    arg.Equals("-tray", StringComparison.OrdinalIgnoreCase) ||
+                    arg.Equals("--minimized", StringComparison.OrdinalIgnoreCase) ||
+                    arg.Equals("-minimized", StringComparison.OrdinalIgnoreCase) ||
+                    arg.Equals("/tray", StringComparison.OrdinalIgnoreCase))
+                {
+                    startInTray = true;
+                    break;
+                }
+            }
+            if (startInTray)
+            {
+                WindowState = WindowState.Minimized;
+                ShowInTaskbar = false;
+                Visibility = Visibility.Hidden;
+            }
+
             SourceInitialized += (s, e) => ApplyRoundedCorners();
-            Loaded += (s, e) => { Navigate("overview"); if (_overview != null) _overview.StartTimer(); AfterLoad(); };
+            Loaded += (s, e) =>
+            {
+                Navigate("overview");
+                if (_overview != null) _overview.StartTimer();
+                AfterLoad();
+                if (startInTray)
+                {
+                    Hide();
+                    Notify(string.Format(Loc.T("mw.tray.minTitle"), Core.AppName), Loc.T("mw.tray.minBody"));
+                }
+            };
             Closing += OnClosing;
 
             // Смена языка/темы — перестроить интерфейс.
@@ -1447,9 +1477,22 @@ namespace ZapretStudio
             // Проверка всегда выполняется в фоне при каждом входе в приложение.
             // Она ничего сама не скачивает и не показывает модальные окна.
             CheckUpdates();
-            if (Core.GetBool("autostart_run", false) && !string.IsNullOrEmpty(_currentStrategyFile) && Core.IsAdmin())
+            bool isServiceRunning = (Core.ServiceState() == "running");
+            if (isServiceRunning)
+            {
+                Core.Info(Loc.T("service.bypassActiveSvc"));
+            }
+            else if (Core.GetBool("autostart_run", false) && !string.IsNullOrEmpty(_currentStrategyFile) && Core.IsAdmin())
+            {
                 RunStrategy(_currentStrategyFile);
+            }
             RefreshTop();
+            if (Core.TgAutostartAppEnabled && Core.TgProxyInstalled() && !Core.TgProxyRunning())
+            {
+                string tgErr;
+                if (Core.TgProxyStart(out tgErr)) Core.Good(Loc.T("tg.startedOk"));
+                else Core.Fail(string.Format(Loc.T("tg.startErr"), tgErr));
+            }
             if (!Core.IsAdmin())
                 Core.Warn(Loc.T("mw.noAdminWarn"));
             StartWatchdog();
@@ -1612,6 +1655,7 @@ namespace ZapretStudio
 
         void ShowWindow()
         {
+            ShowInTaskbar = true;
             Show(); WindowState = WindowState.Normal; Activate(); Topmost = true; Topmost = false;
         }
 
