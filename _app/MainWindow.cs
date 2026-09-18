@@ -73,6 +73,10 @@ namespace ZapretStudio
             }
 
             SourceInitialized += (s, e) => ApplyRoundedCorners();
+            StateChanged += (s, e) =>
+            {
+                if (WindowState == WindowState.Minimized) Core.TrimMemory();
+            };
             Loaded += (s, e) =>
             {
                 Navigate("overview");
@@ -82,6 +86,7 @@ namespace ZapretStudio
                 {
                     Hide();
                     Notify(string.Format(Loc.T("mw.tray.minTitle"), Core.AppName), Loc.T("mw.tray.minBody"));
+                    Core.TrimMemory();
                 }
             };
             Closing += OnClosing;
@@ -95,6 +100,12 @@ namespace ZapretStudio
         {
             try
             {
+                double savedScroll = 0;
+                if (!string.IsNullOrEmpty(_current) && _pages.ContainsKey(_current))
+                {
+                    try { savedScroll = _pages[_current].ScrollOffset; } catch { }
+                }
+
                 foreach (var p in _pages.Values) { try { p.OnHide(); } catch { } }
                 _pages.Clear();
                 _navButtons.Clear();
@@ -109,16 +120,52 @@ namespace ZapretStudio
                 }
                 BuildChrome();
                 RebuildTray();
-                Navigate(string.IsNullOrEmpty(_current) ? "overview" : _current);
+                Navigate(string.IsNullOrEmpty(_current) ? "overview" : _current, true);
                 if (_overview != null) _overview.StartTimer();
                 RefreshTop();
-                // Плавное проявление всего интерфейса после смены темы/языка.
-                if (Theme.AnimationsEnabled && Content is UIElement)
+
+                // Восстанавливаем скролл, чтобы при смене темы/языка не выбрасывало наверх страницы
+                if (savedScroll > 0 && !string.IsNullOrEmpty(_current) && _pages.ContainsKey(_current))
+                {
+                    var curPage = _pages[_current];
+                    Dispatcher.BeginInvoke(DispatcherPriority.Loaded, (Action)delegate
+                    {
+                        try { curPage.ScrollOffset = savedScroll; } catch { }
+                    });
+                }
+
+                // Единая кинематографичная анимация смены темы и языка (Затухание + Блюр).
+                // При выключенных анимациях (reduce_motion) — мгновенная смена без эффектов.
+                if (Theme.AnimationsEnabled && Content is FrameworkElement)
+                {
+                    var el = (FrameworkElement)Content;
+                    var blur = new System.Windows.Media.Effects.BlurEffect
+                    {
+                        Radius = 6,
+                        RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance
+                    };
+                    el.Effect = blur;
+
+                    var dur = TimeSpan.FromMilliseconds(220);
+                    var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+
+                    var fadeAnim = new DoubleAnimation(0.45, 1.0, dur) { EasingFunction = ease };
+                    var blurAnim = new DoubleAnimation(6.0, 0.0, dur) { EasingFunction = ease };
+
+                    blurAnim.Completed += (s, e) =>
+                    {
+                        el.Effect = null;
+                    };
+
+                    el.BeginAnimation(OpacityProperty, fadeAnim);
+                    blur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, blurAnim);
+                }
+                else if (Content is UIElement)
                 {
                     var el = (UIElement)Content;
-                    var fade = new System.Windows.Media.Animation.DoubleAnimation(0.35, 1, TimeSpan.FromMilliseconds(260))
-                    { EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut } };
-                    el.BeginAnimation(OpacityProperty, fade);
+                    el.BeginAnimation(OpacityProperty, null);
+                    el.Opacity = 1;
+                    if (el is FrameworkElement) ((FrameworkElement)el).Effect = null;
                 }
             }
             catch { }
@@ -855,7 +902,7 @@ namespace ZapretStudio
             return p;
         }
 
-        public void Navigate(string key)
+        public void Navigate(string key, bool isUiSwitch = false)
         {
             // Скрываем предыдущую страницу (останавливаем её таймеры и т.п.).
             if (!string.IsNullOrEmpty(_current) && _pages.ContainsKey(_current) && _current != key)
@@ -872,7 +919,7 @@ namespace ZapretStudio
                     _lastTgLatest, _lastTgLocal, _lastAppLatest, Core.AppVersion);
             PaintNav();
             if (_navPanel != null) _navPanel.UpdateLayout();
-            if (Theme.AnimationsEnabled && !Core.GetBool("reduce_motion", false))
+            if (!isUiSwitch && Theme.AnimationsEnabled && !Core.GetBool("reduce_motion", false))
             {
                 // Аккуратное и плавное появление экрана (Fade + Slide)
                 var fade = new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160))
@@ -1698,6 +1745,7 @@ namespace ZapretStudio
                 e.Cancel = true;
                 Hide();
                 Notify(string.Format(Loc.T("mw.tray.minTitle"), Core.AppName), Loc.T("mw.tray.minBody"));
+                Core.TrimMemory();
                 return;
             }
             try { if (_watchdogTimer != null) _watchdogTimer.Stop(); } catch { }

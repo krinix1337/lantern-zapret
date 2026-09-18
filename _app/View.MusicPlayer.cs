@@ -405,7 +405,7 @@ namespace ZapretStudio
     // Контроллер воспроизведения музыки с мягким кроссфейдом
     public class PeterMusicController
     {
-        readonly MediaPlayer _player = new MediaPlayer();
+        MediaPlayer _player;
         readonly List<string> _playlist = new List<string>();
         readonly DispatcherTimer _progressTimer;
         readonly Random _random = new Random();
@@ -449,7 +449,7 @@ namespace ZapretStudio
             set
             {
                 _volume = Math.Max(0.0, Math.Min(1.0, value));
-                if (_fadeTimer == null) _player.Volume = _volume;
+                if (_fadeTimer == null && _player != null) _player.Volume = _volume;
                 // Ползунок дёргает Volume десятки раз в секунду: сохранение конфига
                 // откладываем (debounce), чтобы не писать файл на каждый шаг.
                 ScheduleVolumeSave();
@@ -480,6 +480,41 @@ namespace ZapretStudio
         public AudioTrackInfo CurrentTrack { get { return _currentTrack; } }
         public int TrackCount { get { return _playlist.Count; } }
 
+        MediaPlayer EnsurePlayer()
+        {
+            if (_player == null)
+            {
+                try
+                {
+                    _player = new MediaPlayer();
+                    _player.MediaOpened += (s, e) =>
+                    {
+                        try
+                        {
+                            if (_isPlaying)
+                            {
+                                AnimateVolume(0, _volume, 240, null);
+                            }
+                        }
+                        catch { }
+                    };
+                    _player.MediaEnded += (s, e) => { try { PlayNext(); } catch { } };
+                    _player.MediaFailed += (s, e) =>
+                    {
+                        try
+                        {
+                            if (_playlist.Count > 1) PlayNext();
+                            else Stop();
+                        }
+                        catch { }
+                    };
+                    _player.Volume = _volume;
+                }
+                catch { }
+            }
+            return _player;
+        }
+
         public PeterMusicController()
         {
             try
@@ -491,37 +526,12 @@ namespace ZapretStudio
             }
             catch { }
 
-            _player.MediaOpened += (s, e) =>
-            {
-                try
-                {
-                    if (_isPlaying)
-                    {
-                        // Когда файл готов к воспроизведению, плавно нарастает громкость
-                        AnimateVolume(0, _volume, 240, null);
-                    }
-                }
-                catch { }
-            };
-
-            _player.MediaEnded += (s, e) => { try { PlayNext(); } catch { } };
-            _player.MediaFailed += (s, e) =>
-            {
-                try
-                {
-                    if (_playlist.Count > 1) PlayNext();
-                    else Stop();
-                }
-                catch { }
-            };
-            try { _player.Volume = _volume; } catch { }
-
             _progressTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
             _progressTimer.Tick += (s, e) =>
             {
                 try
                 {
-                    if (_isPlaying && _player.NaturalDuration.HasTimeSpan)
+                    if (_isPlaying && _player != null && _player.NaturalDuration.HasTimeSpan)
                     {
                         if (ProgressTick != null)
                             ProgressTick(_player.Position, _player.NaturalDuration.TimeSpan);
@@ -633,7 +643,7 @@ namespace ZapretStudio
             }
             if (durationMs <= 0 || Math.Abs(from - to) < 0.001)
             {
-                _player.Volume = to;
+                if (_player != null) _player.Volume = to;
                 if (onComplete != null) onComplete();
                 return;
             }
@@ -653,13 +663,13 @@ namespace ZapretStudio
                 {
                     _fadeTimer.Stop();
                     _fadeTimer = null;
-                    _player.Volume = _fadeTargetVol;
+                    if (_player != null) _player.Volume = _fadeTargetVol;
                     if (_onFadeEnd != null) _onFadeEnd();
                 }
                 else
                 {
                     double curve = Math.Sin(progress * Math.PI / 2);
-                    _player.Volume = _fadeStartVol + (_fadeTargetVol - _fadeStartVol) * curve;
+                    if (_player != null) _player.Volume = _fadeStartVol + (_fadeTargetVol - _fadeStartVol) * curve;
                 }
             };
             _fadeTimer.Start();
@@ -671,7 +681,7 @@ namespace ZapretStudio
             _currentIndex = index;
             string trackPath = _playlist[index];
 
-            if (_isPlaying && _player.Volume > 0.05)
+            if (_isPlaying && _player != null && _player.Volume > 0.05)
             {
                 // Мягкое плавное затухание текущей композиции перед включением следующей
                 AnimateVolume(_player.Volume, 0, 140, () =>
@@ -689,11 +699,13 @@ namespace ZapretStudio
         {
             try
             {
+                var player = EnsurePlayer();
+                if (player == null) { PlayNext(); return; }
                 string fullPath = Path.GetFullPath(trackPath);
                 _currentTrack = AudioTagReader.Read(fullPath, defaultCover);
-                _player.Volume = 0;
-                _player.Open(new Uri(fullPath, UriKind.Absolute));
-                _player.Play();
+                player.Volume = 0;
+                player.Open(new Uri(fullPath, UriKind.Absolute));
+                player.Play();
                 _isPlaying = true;
                 _isPaused = false;
                 _progressTimer.Start();
@@ -734,11 +746,11 @@ namespace ZapretStudio
 
         public void TogglePlayPause()
         {
-            if (_isPlaying)
+            if (_isPlaying && _player != null)
             {
                 AnimateVolume(_player.Volume, 0, 120, () =>
                 {
-                    _player.Pause();
+                    if (_player != null) _player.Pause();
                     _isPlaying = false;
                     _isPaused = true;
                     _progressTimer.Stop();
@@ -747,18 +759,22 @@ namespace ZapretStudio
             }
             else if (_isPaused)
             {
-                _player.Play();
-                _isPlaying = true;
-                _isPaused = false;
-                _progressTimer.Start();
-                AnimateVolume(0, _volume, 200, null);
-                if (StateChanged != null) StateChanged();
+                var player = EnsurePlayer();
+                if (player != null)
+                {
+                    player.Play();
+                    _isPlaying = true;
+                    _isPaused = false;
+                    _progressTimer.Start();
+                    AnimateVolume(0, _volume, 200, null);
+                    if (StateChanged != null) StateChanged();
+                }
             }
         }
 
         public void SeekFraction(double fraction)
         {
-            if (_player.NaturalDuration.HasTimeSpan)
+            if (_player != null && _player.NaturalDuration.HasTimeSpan)
             {
                 double total = _player.NaturalDuration.TimeSpan.TotalSeconds;
                 double target = Math.Max(0, Math.Min(total, total * fraction));
@@ -772,7 +788,10 @@ namespace ZapretStudio
         {
             if (_fadeTimer != null) { _fadeTimer.Stop(); _fadeTimer = null; }
             _progressTimer.Stop();
-            try { _player.Stop(); _player.Close(); } catch { }
+            if (_player != null)
+            {
+                try { _player.Stop(); _player.Close(); } catch { }
+            }
             _isPlaying = false;
             _isPaused = false;
             _currentTrack = null;

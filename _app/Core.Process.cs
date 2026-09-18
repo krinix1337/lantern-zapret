@@ -625,5 +625,18 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
             }
             catch { return false; }
         }
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        static extern bool SetProcessWorkingSetSize(IntPtr proc, IntPtr min, IntPtr max);
+
+        // Освобождение неиспользуемой памяти процесса (тримминг рабочего набора в Windows)
+        public static void TrimMemory()
+        {
+            try
+            {
+                GC.Collect(1, GCCollectionMode.Optimized);
+                SetProcessWorkingSetSize(Process.GetCurrentProcess().Handle, (IntPtr)(-1), (IntPtr)(-1));
+            }
+            catch { }
+        }
     }
 }

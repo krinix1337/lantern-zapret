@@ -11,6 +11,12 @@ namespace ZapretStudio
     abstract class Page : UserControl
     {
         protected StackPanel Body;
+        protected SmoothScrollViewer ScrollHost;
+        public double ScrollOffset
+        {
+            get { return ScrollHost != null ? ScrollHost.VerticalOffset : 0; }
+            set { if (ScrollHost != null) ScrollHost.JumpTo(value); }
+        }
         public abstract string Title { get; }
         public abstract string Subtitle { get; }
         public virtual void OnShow() { }
@@ -33,13 +39,13 @@ namespace ZapretStudio
             root.Children.Add(head);
 
             Body = new StackPanel { Margin = new Thickness(28, 12, 28, 28) };
-            var sv = new SmoothScrollViewer
+            ScrollHost = new SmoothScrollViewer
             {
                 Content = Body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(0)
             };
-            Grid.SetRow(sv, 1);
-            root.Children.Add(sv);
+            Grid.SetRow(ScrollHost, 1);
+            root.Children.Add(ScrollHost);
             Content = root;
         }
 
@@ -274,6 +280,14 @@ namespace ZapretStudio
                 if (!_isAnimating) _targetOffset = VerticalOffset;
             };
             Unloaded += (s, e) => StopAnimation();
+        }
+
+        public void JumpTo(double offset)
+        {
+            StopAnimation();
+            _targetOffset = offset;
+            _lastApplied = offset;
+            ScrollToVerticalOffset(offset);
         }
 
         void StopAnimation()
