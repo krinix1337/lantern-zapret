@@ -73,4 +73,3 @@ jobs:
           files: |
             _installer/Lantern-Setup.exe
             _installer/Lantern-Setup.exe.sha256
-            Lantern.exe
