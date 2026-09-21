@@ -1314,13 +1314,13 @@ namespace ZapretStudio
         bool _haveUpdateResults;
         string _lastZapretLatest, _lastZapretLocal, _lastTgLatest, _lastTgLocal, _lastAppLatest;
 
-        void SetZapretUpdateProgress(string phase, int percent)
+        void SetZapretUpdateProgress(string phase, int percent, long bytesRead = -1, long totalBytes = -1, double speedBps = 0)
         {
             Page updatesPage;
             if (_pages.TryGetValue("updates", out updatesPage))
             {
                 var updates = updatesPage as UpdatesPage;
-                if (updates != null) updates.SetZapretUpdateProgress(phase, percent);
+                if (updates != null) updates.SetZapretUpdateProgress(phase, percent, bytesRead, totalBytes, speedBps);
             }
         }
 
@@ -1476,7 +1476,7 @@ namespace ZapretStudio
                                 _updateLine.Text = Loc.T("mw.updProgress") + " " + Core.HumanSize(p.BytesRead) +
                                     (p.Total > 0 ? " / " + Core.HumanSize(p.Total) : "") + pct;
                                 int progress = p.Total > 0 ? (int)(p.BytesRead * 88 / p.Total) : -1;
-                                SetZapretUpdateProgress(Loc.T("settings.update.downloading"), progress);
+                                SetZapretUpdateProgress(Loc.T("settings.update.downloading"), progress, p.BytesRead, p.Total, p.SpeedBps);
                             });
                         }
                         catch { }
@@ -1642,6 +1642,7 @@ namespace ZapretStudio
                 Add(menu, Loc.T("mw.tray.open"), delegate { Dispatcher.Invoke((Action)ShowWindow); });
                 menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
                 Add(menu, Loc.T("mw.tray.exit"), delegate { Dispatcher.Invoke((Action)delegate { _forceClose = true; Close(); }); });
+                _tray.ContextMenuStrip = menu;
                 _trayClickTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(System.Windows.Forms.SystemInformation.DoubleClickTime) };
                 _trayClickTimer.Tick += (s, e) =>
                 {
@@ -1654,6 +1655,10 @@ namespace ZapretStudio
                     {
                         _trayClickTimer.Stop();
                         _trayClickTimer.Start();
+                    }
+                    else if (e.Button == System.Windows.Forms.MouseButtons.Right)
+                    {
+                        if (_trayWidget != null && _trayWidget.IsVisible) _trayWidget.Hide();
                     }
                 };
                 _tray.DoubleClick += (s, e) =>

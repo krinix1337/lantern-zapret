@@ -162,13 +162,6 @@ namespace ZapretStudio
             finally { foreach (var p in procs) p.Dispose(); }
         }
 
-        // Системные TCP timestamps не нужны для работы winws. Не меняем глобальные
-        // параметры Windows без отдельного действия пользователя.
-[Obsolete]
-        public static void EnableTcpTimestamps()
-        {
-        }
-
         public static bool StartWinws(string batFileName)
         {
             EnsureUserLists();

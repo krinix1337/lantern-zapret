@@ -28,9 +28,13 @@ namespace ZapretStudio
         TextBlock _bypassAppDesc;
         readonly bool[] _appAutoReady = new bool[1];
 
+        Border _foreignCard;
+        TextBlock _foreignDesc;
+
         public ServicePage(MainWindow win)
         {
             _win = win;
+            BuildForeignServiceCard();
             BuildStatus();
             BuildServiceConfig();
             BuildWindowsAutostart();
@@ -272,8 +276,92 @@ namespace ZapretStudio
             Body.Children.Add(card);
         }
 
+        void BuildForeignServiceCard()
+        {
+            var content = new StackPanel();
+
+            var topRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+            var icon = UI.Icon(Icons.Alert, 18, Theme.BrWarn, 1.8);
+            icon.VerticalAlignment = VerticalAlignment.Center;
+            icon.Margin = new Thickness(0, 0, 8, 0);
+            topRow.Children.Add(icon);
+            topRow.Children.Add(UI.T(Loc.T("service.foreign.title"), Theme.FsBody, Theme.BrWarn, FontWeights.SemiBold));
+            content.Children.Add(topRow);
+
+            _foreignDesc = new TextBlock
+            {
+                Text = "",
+                Foreground = Theme.BrMuted,
+                FontSize = Theme.FsSmall,
+                FontFamily = Theme.UiFont,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 12)
+            };
+            content.Children.Add(_foreignDesc);
+
+            var btns = new WrapPanel();
+            var takeoverBtn = Ctl.Button(Loc.T("service.foreign.takeover"), Icons.Bolt, 0);
+            takeoverBtn.Margin = new Thickness(0, 0, 10, 0);
+            takeoverBtn.Click += (s, e) =>
+            {
+                Guarded(Loc.T("service.foreign.takeover"), delegate
+                {
+                    string strat = _stratPick != null && _stratPick.SelectedItem != null ? _stratPick.SelectedItem.ToString() : null;
+                    if (Core.TakeoverForeignService(strat))
+                    {
+                        Core.Good(Loc.T("service.foreign.takeoverOk"));
+                        Dispatcher.Invoke((Action)delegate { Refresh(); });
+                    }
+                    else
+                    {
+                        throw new Exception("Takeover failed");
+                    }
+                });
+            };
+            btns.Children.Add(takeoverBtn);
+
+            var removeBtn = Ctl.Button(Loc.T("service.foreign.remove"), Icons.Trash, 2);
+            removeBtn.Click += (s, e) =>
+            {
+                Guarded(Loc.T("service.foreign.remove"), delegate
+                {
+                    if (Core.RemoveForeignService())
+                    {
+                        Core.Good(Loc.T("service.foreign.removeOk"));
+                        Dispatcher.Invoke((Action)delegate { Refresh(); });
+                    }
+                    else
+                    {
+                        throw new Exception("Remove foreign service failed");
+                    }
+                });
+            };
+            btns.Children.Add(removeBtn);
+
+            content.Children.Add(btns);
+
+            _foreignCard = UI.Card(content, new Thickness(16, 14, 16, 14));
+            _foreignCard.BorderBrush = Theme.BrWarn;
+            _foreignCard.Background = Theme.Alpha(Theme.Warn, 16);
+            _foreignCard.Margin = new Thickness(0, 0, 0, 16);
+            _foreignCard.Visibility = Visibility.Collapsed;
+
+            Body.Children.Add(_foreignCard);
+        }
+
         void Refresh()
         {
+            string foreignPath = Core.GetForeignServiceImagePath();
+            if (!string.IsNullOrEmpty(foreignPath))
+            {
+                _foreignDesc.Text = string.Format(Loc.T("service.foreign.desc"), foreignPath);
+                _foreignCard.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                _foreignCard.Visibility = Visibility.Collapsed;
+            }
+
             string ss = Core.ServiceState();
             Sev sev = ss == "running" ? Sev.Ok : ss == "stopped" ? Sev.Warn : Sev.Neutral;
             string txt = ss == "running" ? Loc.T("service.state.running") : ss == "stopped" ? Loc.T("service.state.stopped") : Loc.T("service.state.absent");

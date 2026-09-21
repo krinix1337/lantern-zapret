@@ -149,6 +149,29 @@ namespace ZapretStudio
             A("check.tab.popular", "Популярные сервисы",     "Popular services");
             A("check.tab.games",   "Игровые сервисы",        "Game services");
             A("check.tab.strats",  "Проверка стратегий",     "Strategy test");
+            A("check.tab.diag",    "Диагностика",            "Diagnostics");
+            A("check.diag.title",  "Диагностика и устранение проблем", "Diagnostics & Troubleshooting");
+            A("check.diag.sub",    "Проверка системного окружения, конфликтов драйверов и тест DPI Freeze", "Check system environment, driver conflicts and DPI Freeze test");
+            A("check.diag.run",    "Проверить систему",      "Check system");
+            A("check.diag.discordCache", "Очистить кэш Discord", "Clear Discord Cache");
+            A("check.diag.discordCacheDesc", "Принудительно закрывает Discord и удаляет кэши сессий (Cache, Code Cache, GPUCache). Устраняет бесконечное «Подключение к голосовому каналу» (RTC Connecting).", "Closes Discord and removes session caches. Fixes endless RTC Connecting.");
+            A("check.diag.discordCacheOk", "Кэш Discord успешно очищен ({0} папок)", "Discord cache cleared ({0} folders)");
+            A("check.diag.wdReset", "Сбросить WinDivert",     "Reset WinDivert");
+            A("check.diag.wdResetDesc", "Принудительно останавливает и удаляет зависший драйвер WinDivert в Windows, освобождая фильтрацию сетевых пакетов.", "Force stops and unloads stuck WinDivert driver, restoring packet filtering.");
+            A("check.diag.wdResetOk", "WinDivert успешно сброшен", "WinDivert reset successfully");
+            A("check.diag.fixTimestamps", "Включить Timestamps", "Enable Timestamps");
+            A("check.diag.fixTimestampsOk", "TCP Timestamps включены", "TCP Timestamps enabled");
+            A("check.diag.fixProxy", "Отключить прокси",     "Disable Proxy");
+            A("check.diag.fixProxyOk", "Системный прокси отключен", "System proxy disabled");
+            A("check.diag.dpiFreeze", "Тест DPI Freeze (потоковые данные)", "DPI Freeze Test (streaming)");
+            A("check.diag.dpiFreezeDesc", "Проверяет устойчивость загрузки потока 64 КБ без блокировок ТСПУ на 16–20 пакетах.", "Tests streaming of 64 KB payload without TSPU blocking on packets 16-20.");
+            A("check.diag.dpiFreezeRun", "Запустить тест DPI Freeze", "Run DPI Freeze test");
+            A("check.diag.dpiFreezeOk", "Поток стабилен (DPI Freeze не обнаружен)", "Stream stable (no DPI freeze detected)");
+            A("check.diag.dpiFreezeOkDetail", "Получено {0} КБ за {1} мс без обрывов потока", "Received {0} KB in {1} ms without stream drop");
+            A("check.diag.dpiFreezeStallDetail", "Поток завис после {0} КБ (вероятен DPI Freeze)", "Stream stalled after {0} KB (probable DPI Freeze)");
+            A("check.diag.dpiFreezeDetectedDetail", "Обрыв после {0} КБ: {1} (активен DPI Freeze)", "Dropped after {0} KB: {1} (DPI Freeze active)");
+            A("check.diag.dpiFreezeNoConn", "Не удалось подключиться: {0}", "Connection failed: {0}");
+            A("check.diag.dpiFreezeTesting", "Тестирование потока...", "Testing stream...");
             A("check.checkAll",    "Проверить все",          "Check all");
             A("check.checkSel",    "Проверить выбранные",    "Check selected");
             A("check.export",      "Экспорт результатов",    "Export results");
@@ -731,6 +754,25 @@ namespace ZapretStudio
             A("diag.v.wdOrphan", "Драйвер загружен, но winws не запущен — возможно, его удерживает другой обход.", "Driver is loaded but winws is not running - another bypass may be holding it.");
             A("diag.n.dohIface", "Зашифрованный DNS на интерфейсах", "Encrypted DNS on interfaces");
             A("diag.v.dohHint", "Не настроен. Включите DNS-over-HTTPS в разделе «Фильтры» или в параметрах сети Windows.", "Not configured. Enable DNS-over-HTTPS on the Filters page or in Windows network settings.");
+            A("diag.n.pathCyrillic", "Путь к папке (кириллица)", "Folder path (Cyrillic)");
+            A("diag.v.pathCyrillic", "Содержит русские буквы — может вызывать сбои в winws", "Contains non-ASCII characters - may cause winws crashes");
+            A("diag.n.pathOneDrive", "Путь к папке (OneDrive)", "Folder path (OneDrive)");
+            A("diag.v.pathOneDrive", "Находится в папке синхронизации OneDrive — возможна блокировка файлов", "Located in OneDrive folder - files may be locked");
+
+            // Чужая служба zapret
+            A("service.foreign.title", "Обнаружена служба zapret из другой папки", "zapret service from another folder detected");
+            A("service.foreign.desc", "В системе зарегистрирована служба zapret, указывающая на другой путь:\n{0}", "A zapret service is registered in Windows pointing to a different folder:\n{0}");
+            A("service.foreign.takeover", "Взять под управление", "Take over service");
+            A("service.foreign.remove", "Удалить чужую службу", "Remove foreign service");
+            A("service.foreign.takeoverOk", "Служба переустановлена и переведена под управление Lantern", "Service reinstalled and taken over by Lantern");
+            A("service.foreign.removeOk", "Чужая служба успешно удалена из системы", "Foreign service removed successfully");
+
+            // Сброс настроек
+            A("settings.sec.maintenance", "Сброс и обслуживание", "Maintenance & Reset");
+            A("settings.reset.btn", "Сброс до заводских настроек", "Reset to factory defaults");
+            A("settings.reset.desc", "Останавливает службу и winws, сбрасывает настройки gui-config.ini к значениям по умолчанию и очищает временные кэши.", "Stops service and winws, resets gui-config.ini to default values, and clears temporary caches.");
+            A("settings.reset.confirm", "Вы действительно хотите сбросить все настройки Lantern до заводских значений? Служба и процессы будут остановлены.", "Are you sure you want to reset all Lantern settings to factory defaults? Service and processes will be stopped.");
+            A("settings.reset.ok", "Настройки успешно сброшены к значениям по умолчанию", "Settings reset to defaults successfully");
 
             // Прочее
             A("tray.widget.live", "РАБОТАЕТ", "LIVE");

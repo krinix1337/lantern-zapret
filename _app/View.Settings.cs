@@ -23,6 +23,7 @@ namespace ZapretStudio
             BuildInterface();
             BuildPrivacy();
             BuildAntivirus();
+            BuildMaintenance();
         }
 
         Toggle Tog(string cfgKey, bool dflt, string accName, Action<bool> onChange)
@@ -306,6 +307,32 @@ namespace ZapretStudio
             row.Children.Add(pillHost);
 
             Body.Children.Add(row);
+        }
+
+        void BuildMaintenance()
+        {
+            Body.Children.Add(SectionLabel(Loc.T("settings.sec.maintenance")));
+            var note = NoteCard(Icons.Alert, Theme.BrWarn, Loc.T("settings.reset.desc"), Sev.Warn);
+            Body.Children.Add(note);
+            Body.Children.Add(space());
+
+            var resetBtn = Ctl.Button(Loc.T("settings.reset.btn"), Icons.Trash, 2);
+            resetBtn.HorizontalAlignment = HorizontalAlignment.Left;
+            resetBtn.Click += (s, e) =>
+            {
+                var res = MessageBox.Show(
+                    Loc.T("settings.reset.confirm"),
+                    Loc.T("settings.reset.btn"),
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+                if (res != MessageBoxResult.Yes) return;
+
+                Core.FactoryReset();
+                _win.ShowToast(Loc.T("settings.reset.ok"), Sev.Ok);
+                Core.Good(Loc.T("settings.reset.ok"));
+                MessageBox.Show(Loc.T("settings.reset.ok"), Loc.T("settings.reset.btn"), MessageBoxButton.OK, MessageBoxImage.Information);
+            };
+            Body.Children.Add(resetBtn);
         }
 
         static UIElement space() { return new Border { Height = 10 }; }

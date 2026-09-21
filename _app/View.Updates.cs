@@ -51,9 +51,22 @@ namespace ZapretStudio
             InitInitialStatus();
         }
 
+        bool _hasInitialData;
         public override void OnShow()
         {
-            InitInitialStatus();
+            if (!_hasInitialData)
+            {
+                InitInitialStatus();
+                _hasInitialData = true;
+            }
+            else
+            {
+                string zLoc = SettingsPage.NormVer(Core.ZapretVersion());
+                if (_zapLocalVer != null) _zapLocalVer.Text = Loc.T("updates.installedTag") + zLoc;
+                bool tgInst = Core.TgProxyInstalled();
+                string tgLoc = tgInst ? SettingsPage.NormVer(Core.TgProxyLocalVersion()) : null;
+                if (_tgLocalVer != null) _tgLocalVer.Text = Loc.T("updates.installedTag") + (tgInst && !string.IsNullOrEmpty(tgLoc) ? tgLoc : "—");
+            }
         }
 
         void BuildHeaderAction()
@@ -546,15 +559,32 @@ namespace ZapretStudio
             return _appProgress;
         }
 
-        void ShowProgress(UpdateProgressBar progress, TextBlock line, string phase, int percent, Brush color)
+        void ShowProgress(UpdateProgressBar progress, TextBlock line, string phase, int percent, Brush color, long bytesRead = -1, long totalBytes = -1, double speedBps = 0)
         {
-            ShowLine(line, percent >= 0 ? phase + " — " + percent + "%" : phase, color);
+            string text;
+            if (bytesRead >= 0 && totalBytes > 0)
+            {
+                string sizePart = Core.HumanSize(bytesRead) + " / " + Core.HumanSize(totalBytes);
+                string speedPart = speedBps > 0 ? " (" + Core.HumanSpeed(speedBps) + ")" : "";
+                text = phase + " — " + sizePart + speedPart + (percent >= 0 ? " · " + percent + "%" : "");
+            }
+            else if (bytesRead >= 0)
+            {
+                string sizePart = Core.HumanSize(bytesRead);
+                string speedPart = speedBps > 0 ? " (" + Core.HumanSpeed(speedBps) + ")" : "";
+                text = phase + " — " + sizePart + speedPart + (percent >= 0 ? " · " + percent + "%" : "");
+            }
+            else
+            {
+                text = percent >= 0 ? phase + " — " + percent + "%" : phase;
+            }
+            ShowLine(line, text, color);
             if (progress != null) progress.Show(phase, percent, color);
         }
 
-        public void SetZapretUpdateProgress(string phase, int percent)
+        public void SetZapretUpdateProgress(string phase, int percent, long bytesRead = -1, long totalBytes = -1, double speedBps = 0)
         {
-            ShowProgress(_zapProgress, _zapStatusLine, phase, percent, Theme.BrAccent);
+            ShowProgress(_zapProgress, _zapStatusLine, phase, percent, Theme.BrAccent, bytesRead, totalBytes, speedBps);
         }
 
         public void FinishZapretUpdate(string text, bool ok)
@@ -566,14 +596,14 @@ namespace ZapretStudio
             }
         }
 
-        void SetTgUpdateProgress(string phase, int percent)
+        void SetTgUpdateProgress(string phase, int percent, long bytesRead = -1, long totalBytes = -1, double speedBps = 0)
         {
-            ShowProgress(_tgProgress, _tgStatusLine, phase, percent, Theme.BrAccent);
+            ShowProgress(_tgProgress, _tgStatusLine, phase, percent, Theme.BrAccent, bytesRead, totalBytes, speedBps);
         }
 
-        void SetAppUpdateProgress(string phase, int percent)
+        void SetAppUpdateProgress(string phase, int percent, long bytesRead = -1, long totalBytes = -1, double speedBps = 0)
         {
-            ShowProgress(_appProgress, _appStatusLine, phase, percent, Theme.BrAccent);
+            ShowProgress(_appProgress, _appStatusLine, phase, percent, Theme.BrAccent, bytesRead, totalBytes, speedBps);
         }
 
         void FinishProgress(UpdateProgressBar progress, TextBlock line, string text, bool ok)
@@ -609,7 +639,7 @@ namespace ZapretStudio
                             Dispatcher.Invoke((Action)delegate
                             {
                                 int pct = p.Total > 0 ? (int)(p.BytesRead * 88 / p.Total) : -1;
-                                SetTgUpdateProgress(Loc.T("settings.update.downloading"), pct);
+                                SetTgUpdateProgress(Loc.T("settings.update.downloading"), pct, p.BytesRead, p.Total, p.SpeedBps);
                             });
                         }
                         catch { }
@@ -662,7 +692,7 @@ namespace ZapretStudio
                             Dispatcher.Invoke((Action)delegate
                             {
                                 int pct = p.Total > 0 ? (int)(p.BytesRead * 92 / p.Total) : -1;
-                                SetAppUpdateProgress(Loc.T("settings.update.downloading"), pct);
+                                SetAppUpdateProgress(Loc.T("settings.update.downloading"), pct, p.BytesRead, p.Total, p.SpeedBps);
                             });
                         }
                         catch { }

@@ -382,6 +382,10 @@ namespace ZapretStudio
         public const string Restore = "M4 4h11v11H4z M8 8h12v12H8z";
         public const string Lantern = "M12 2a5 5 0 0 0-5 5v3a5 5 0 0 0 10 0V7a5 5 0 0 0-5-5z M9 18h6 M10 22h4 M12 7v5";
         public const string Terminal = "M4 17l6-6-6-6 M12 19h8";
+        public const string Trash = "M3 6h18 M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2 M10 11v6 M14 11v6";
+        public const string Tool = "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z";
+        public const string Alert = Warn;
+        public const string Discord = "M18 6h0a14.5 14.5 0 0 0-4-1.3 10.7 10.7 0 0 0-.5 1.1 13.5 13.5 0 0 0-4 0 10.7 10.7 0 0 0-.5-1.1A14.5 14.5 0 0 0 5 6a15.8 15.8 0 0 0-2 10.7 14.8 14.8 0 0 0 4.5 2.3 11 11 0 0 0 1-1.6 9.6 9.6 0 0 1-1.6-.8l.4-.3c3.1 1.5 6.5 1.5 9.6 0l.4.3a9.6 9.6 0 0 1-1.6.8 11 11 0 0 0 1 1.6 14.8 14.8 0 0 0 4.5-2.3A15.8 15.8 0 0 0 19 6z M8.5 14c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5zm7 0c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5z";
     }
 
     static class UI

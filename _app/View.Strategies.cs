@@ -22,16 +22,48 @@ namespace ZapretStudio
         {
             _win = win;
             LoadFav();
-            var hint = NoteCard(Icons.Info, Theme.BrAccent, Loc.T("strat.pickHint"), Sev.Info);
-            hint.Margin = new Thickness(0, 0, 0, 10);
-            Body.Children.Add(hint);
+            var banner = new Border
+            {
+                Background = Theme.BrSurface,
+                BorderBrush = Theme.BrStroke,
+                BorderThickness = new Thickness(1),
+                CornerRadius = Theme.R10,
+                Padding = new Thickness(14, 10, 14, 10),
+                Margin = new Thickness(0, 0, Gap, 14)
+            };
 
-            // Рекомендация по провайдеру
+            var bGrid = new Grid();
+            bGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            bGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var hintSp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            var infoIcon = UI.Icon(Icons.Info, 18, Theme.BrAccent, 1.8);
+            infoIcon.VerticalAlignment = VerticalAlignment.Center;
+            infoIcon.Margin = new Thickness(0, 0, 10, 0);
+            hintSp.Children.Add(infoIcon);
+
+            var hintTb = new TextBlock
+            {
+                Text = Loc.T("strat.pickHint"),
+                Foreground = Theme.BrMuted,
+                FontSize = Theme.FsBody,
+                FontFamily = Theme.UiFont,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextWrapping = TextWrapping.Wrap
+            };
+            hintSp.Children.Add(hintTb);
+            Grid.SetColumn(hintSp, 0);
+            bGrid.Children.Add(hintSp);
+
             var recBtn = Ctl.Button(Loc.T("strat.recommend"), Icons.Bolt, 1);
-            recBtn.HorizontalAlignment = HorizontalAlignment.Left;
-            recBtn.Margin = new Thickness(0, 0, 0, 12);
+            recBtn.VerticalAlignment = VerticalAlignment.Center;
+            recBtn.Margin = new Thickness(14, 0, 0, 0);
             recBtn.Click += (s, e) => DoRecommend();
-            Body.Children.Add(recBtn);
+            Grid.SetColumn(recBtn, 1);
+            bGrid.Children.Add(recBtn);
+
+            banner.Child = bGrid;
+            Body.Children.Add(banner);
 
             _list = new WrapPanel();
             _list.SizeChanged += (s, e) => { if (Math.Abs(e.PreviousSize.Width - e.NewSize.Width) > 1) Relayout(); };

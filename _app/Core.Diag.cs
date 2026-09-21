@@ -252,6 +252,21 @@ namespace ZapretStudio
                 d.Add(new DiagItem { Name = Loc.T("settings.sec.antivirus"), Sev = defEx ? Sev.Ok : Sev.Warn,
                     Value = defEx ? Loc.T("settings.defender.inList") : Loc.T("settings.defender.notIn") });
             }
+
+            // Путь к папке приложения (кириллица и OneDrive могут ломать драйвер winws)
+            string rootPath = Root ?? "";
+            bool hasNonAscii = false;
+            foreach (char ch in rootPath) { if (ch > 127) { hasNonAscii = true; break; } }
+            if (hasNonAscii)
+            {
+                d.Add(new DiagItem { Name = Loc.T("diag.n.pathCyrillic"), Sev = Sev.Warn,
+                    Value = Loc.T("diag.v.pathCyrillic") });
+            }
+            if (rootPath.IndexOf("OneDrive", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                d.Add(new DiagItem { Name = Loc.T("diag.n.pathOneDrive"), Sev = Sev.Warn,
+                    Value = Loc.T("diag.v.pathOneDrive") });
+            }
         }
 
         // Killer / SmartByte / Intel Connectivity: наличие службы по подстроке имени.
@@ -629,6 +644,240 @@ namespace ZapretStudio
                 @"\b(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3}|127\.\d{1,3}\.\d{1,3}\.\d{1,3})\b",
                 "x.x.x.x");
             return text;
+        }
+
+        // ==================== Инструменты быстрого исправления и диагностики ====================
+
+        // Очистка кэша Discord (устраняет бесконечное RTC Connecting при смене стратегий)
+        public static int ClearDiscordCache()
+        {
+            string[] procNames = { "Discord", "DiscordCanary", "DiscordDevelopment", "DiscordPTB" };
+            foreach (var pName in procNames)
+            {
+                try
+                {
+                    foreach (var p in Process.GetProcessesByName(pName))
+                    {
+                        try { p.Kill(); p.WaitForExit(2000); } catch { }
+                        finally { p.Dispose(); }
+                    }
+                }
+                catch { }
+            }
+
+            int deletedFolders = 0;
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string[] discordVariants = { "discord", "discordcanary", "discordptb", "discorddevelopment" };
+            string[] cacheSubDirs = { "Cache", "Code Cache", "GPUCache", "DawnCache" };
+
+            foreach (var variant in discordVariants)
+            {
+                string baseDir = Path.Combine(appData, variant);
+                if (Directory.Exists(baseDir))
+                {
+                    foreach (var sub in cacheSubDirs)
+                    {
+                        string target = Path.Combine(baseDir, sub);
+                        if (Directory.Exists(target))
+                        {
+                            try { DeleteDirSafe(target); deletedFolders++; } catch { }
+                        }
+                    }
+                }
+            }
+            return deletedFolders;
+        }
+
+        // Сброс и удаление зависшего драйвера WinDivert
+        public static bool ResetWinDivertDriver()
+        {
+            try
+            {
+                Capture("sc", "stop windivert", 5000);
+                Capture("sc", "delete windivert", 5000);
+                Capture("sc", "stop windivert14", 5000);
+                Capture("sc", "delete windivert14", 5000);
+                Capture("net", "stop windivert", 5000);
+                InvalidateWinDivertCache();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Fail("ResetWinDivertDriver: " + ex.Message);
+                return false;
+            }
+        }
+
+        // Принудительное включение TCP Timestamps (необходимо для fooling=ts)
+        public static bool EnableTcpTimestamps()
+        {
+            try
+            {
+                string outStr = Capture("netsh", "interface tcp set global timestamps=enabled", 8000);
+                return outStr.IndexOf("Ok", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                       outStr.IndexOf("ОК", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+            catch (Exception ex)
+            {
+                Fail("EnableTcpTimestamps: " + ex.Message);
+                return false;
+            }
+        }
+
+        // Отключение системного прокси
+        public static bool DisableSystemProxy()
+        {
+            try
+            {
+                using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                    @"Software\Microsoft\Windows\CurrentVersion\Internet Settings", true))
+                {
+                    if (k != null)
+                    {
+                        k.SetValue("ProxyEnable", 0, Microsoft.Win32.RegistryValueKind.DWord);
+                    }
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Fail("DisableSystemProxy: " + ex.Message);
+                return false;
+            }
+        }
+
+        // Проверка наличия службы zapret, зарегистрированной из другой папки
+        public static string GetForeignServiceImagePath()
+        {
+            try
+            {
+                using (var k = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\" + ServiceName))
+                {
+                    if (k == null) return null;
+                    var val = k.GetValue("ImagePath");
+                    if (val == null) return null;
+                    string imagePath = val.ToString();
+                    if (string.IsNullOrEmpty(imagePath)) return null;
+
+                    string normRoot = Path.GetFullPath(Root).TrimEnd('\\', '/');
+                    if (imagePath.IndexOf(normRoot, StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        return imagePath;
+                    }
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        public static bool TakeoverForeignService(string strategyFile)
+        {
+            RemoveService();
+            if (string.IsNullOrEmpty(strategyFile))
+            {
+                var files = GetStrategyFiles();
+                strategyFile = files.Count > 0 ? files[0] : "general (ALT)";
+            }
+            return InstallService(strategyFile);
+        }
+
+        public static bool RemoveForeignService()
+        {
+            return RemoveService();
+        }
+
+        // Тест устойчивости к DPI Freeze (зависание потока после 16-20 пакетов)
+        public static void RunDpiFreezeTest(Action<bool, string, int, long> callback)
+        {
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                var sw = Stopwatch.StartNew();
+                string targetUrl = "https://www.youtube.com/s/desktop/28dcbbff/jsbin/desktop_polymer.vflset/desktop_polymer.js";
+                int targetBytes = 65536; // 64 КБ
+                int totalRead = 0;
+                bool success = false;
+                string detail = "";
+
+                try
+                {
+                    ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | (SecurityProtocolType)3072;
+                    var req = (HttpWebRequest)WebRequest.Create(targetUrl);
+                    req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+                    req.Timeout = 8000;
+                    req.ReadWriteTimeout = 6000;
+                    req.AddRange(0, targetBytes - 1);
+
+                    using (var resp = (HttpWebResponse)req.GetResponse())
+                    using (var stream = resp.GetResponseStream())
+                    {
+                        byte[] buf = new byte[4096];
+                        int r;
+                        while ((r = stream.Read(buf, 0, buf.Length)) > 0)
+                        {
+                            totalRead += r;
+                            if (totalRead >= targetBytes) break;
+                        }
+                    }
+
+                    if (totalRead >= 32768)
+                    {
+                        success = true;
+                        detail = string.Format(Loc.T("check.diag.dpiFreezeOkDetail"), totalRead / 1024, sw.ElapsedMilliseconds);
+                    }
+                    else
+                    {
+                        detail = string.Format(Loc.T("check.diag.dpiFreezeStallDetail"), totalRead / 1024);
+                    }
+                }
+                catch (WebException wex)
+                {
+                    if (totalRead > 0)
+                    {
+                        detail = string.Format(Loc.T("check.diag.dpiFreezeDetectedDetail"), totalRead / 1024, wex.Status);
+                    }
+                    else
+                    {
+                        detail = string.Format(Loc.T("check.diag.dpiFreezeNoConn"), wex.Status);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    detail = ex.Message;
+                }
+                finally
+                {
+                    sw.Stop();
+                    if (callback != null) callback(success, detail, totalRead, sw.ElapsedMilliseconds);
+                }
+            });
+        }
+
+        // Сброс до заводских настроек
+        public static void FactoryReset()
+        {
+            try
+            {
+                StopService();
+                KillWinws();
+                if (TgProxyRunning()) TgProxyStop();
+
+                string local = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "gui-config.ini");
+                string utilsCfg = Path.Combine(Root, "utils", "gui-config.ini");
+                try { if (File.Exists(local)) File.Delete(local); } catch { }
+                try { if (File.Exists(utilsCfg)) File.Delete(utilsCfg); } catch { }
+
+                lock (_cfgLock)
+                {
+                    _cfg = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                }
+
+                lock (Log) { Log.Clear(); }
+                Theme.Apply(ThemeMode.Dark);
+            }
+            catch (Exception ex)
+            {
+                Fail("FactoryReset: " + ex.Message);
+            }
         }
     }
 }

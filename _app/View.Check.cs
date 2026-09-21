@@ -66,35 +66,53 @@ namespace ZapretStudio
 
         void BuildTabBar()
         {
-            // WrapPanel, а не StackPanel: на минимальной ширине окна (1000) четыре
-            // вкладки в один ряд не влезают, и последняя («Проверка стратегий»)
-            // обрезалась правым краем страницы. Теперь переносится на вторую строку.
-            _tabBar = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
+            var barContainer = new Border
+            {
+                Background = Theme.BrSurfaceAlt,
+                BorderBrush = Theme.BrStroke,
+                BorderThickness = new Thickness(1),
+                CornerRadius = Theme.R10,
+                Padding = new Thickness(4),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(0, 0, 0, 16)
+            };
+
+            _tabBar = new WrapPanel();
             _tabBar.Children.Add(TabButton("targets", Icons.List, Loc.T("check.tab.targets")));
             _tabBar.Children.Add(TabButton("popular", Icons.Globe, Loc.T("check.tab.popular")));
             _tabBar.Children.Add(TabButton("games", Icons.Game, Loc.T("check.tab.games")));
             _tabBar.Children.Add(TabButton("strats", Icons.Bolt, Loc.T("check.tab.strats")));
-            Body.Children.Add(_tabBar);
+            _tabBar.Children.Add(TabButton("diag", Icons.Tool, Loc.T("check.tab.diag")));
+            barContainer.Child = _tabBar;
+            Body.Children.Add(barContainer);
         }
 
         Button TabButton(string key, string icon, string label)
         {
-            var b = new Button { Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(0, 0, 8, 8) };
+            var b = new Button { Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(0, 0, 4, 0) };
             Ctl.StripChrome(b);
-            var bd = new Border { CornerRadius = Theme.R10, Padding = new Thickness(13, 8, 13, 8),
-                Background = Brushes.Transparent, BorderBrush = Theme.BrStroke, BorderThickness = new Thickness(1) };
+            var bd = new Border { CornerRadius = Theme.R8, Padding = new Thickness(12, 7, 12, 7),
+                Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(0) };
             var sp = new StackPanel { Orientation = Orientation.Horizontal };
-            var ic = UI.Icon(icon, 16, Theme.BrMuted, 1.8);
+            var ic = UI.Icon(icon, 15, Theme.BrMuted, 1.8);
             ic.VerticalAlignment = VerticalAlignment.Center;
             sp.Children.Add(ic);
             var tb = new TextBlock { Text = label, Foreground = Theme.BrMuted, FontSize = Theme.FsBody,
                 FontFamily = Theme.UiFont, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(8, 0, 0, 0) };
+                Margin = new Thickness(7, 0, 0, 0) };
             sp.Children.Add(tb);
             bd.Child = sp;
             b.Content = bd;
             b.Tag = new object[] { bd, ic, tb };
             b.Click += (s, e) => ShowTab(key);
+            b.MouseEnter += (s, e) =>
+            {
+                if (key != _tab) bd.Background = Theme.Alpha(Theme.Text, 14);
+            };
+            b.MouseLeave += (s, e) =>
+            {
+                if (key != _tab) bd.Background = Brushes.Transparent;
+            };
             Ctl.AutomationSetName(b, label);
             _tabButtons[key] = b;
             return b;
@@ -108,7 +126,6 @@ namespace ZapretStudio
                 var bd = (Border)arr[0]; var ic = (System.Windows.Shapes.Path)arr[1]; var tb = (TextBlock)arr[2];
                 bool on = kv.Key == _tab;
                 bd.Background = on ? Theme.BrAccent : Brushes.Transparent;
-                bd.BorderBrush = on ? Theme.BrAccent : Theme.BrStroke;
                 ic.Stroke = on ? Theme.BrOnAccent : Theme.BrMuted;
                 tb.Foreground = on ? Theme.BrOnAccent : Theme.BrMuted;
             }
@@ -118,8 +135,30 @@ namespace ZapretStudio
         {
             _tab = key;
             PaintTabs();
-            if (key == "strats") _tabsHost.Child = BuildStratTab();
-            else _tabsHost.Child = BuildListTab(key);
+            UIElement content;
+            if (key == "strats") content = BuildStratTab();
+            else if (key == "diag") content = BuildDiagTab();
+            else content = BuildListTab(key);
+
+            if (Theme.AnimationsEnabled)
+            {
+                var tt = new TranslateTransform(0, 8);
+                content.RenderTransform = tt;
+                content.Opacity = 0;
+
+                var daFade = new System.Windows.Media.Animation.DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(180))
+                {
+                    EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut }
+                };
+                var daSlide = new System.Windows.Media.Animation.DoubleAnimation(8.0, 0.0, TimeSpan.FromMilliseconds(200))
+                {
+                    EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut }
+                };
+
+                content.BeginAnimation(UIElement.OpacityProperty, daFade);
+                tt.BeginAnimation(TranslateTransform.YProperty, daSlide);
+            }
+            _tabsHost.Child = content;
         }
 
         UIElement BuildListTab(string which)
@@ -1039,6 +1078,265 @@ namespace ZapretStudio
               } catch { }
               finally { Core.EndWinwsOperation(); }
             });
+        }
+
+        UIElement BuildDiagTab()
+        {
+            var panel = new StackPanel();
+
+            // 1. DPI Freeze Test
+            panel.Children.Add(SectionLabel(Loc.T("check.diag.dpiFreeze")));
+            var dpiContent = new StackPanel();
+            dpiContent.Children.Add(new TextBlock
+            {
+                Text = Loc.T("check.diag.dpiFreezeDesc"),
+                Foreground = Theme.BrMuted,
+                FontSize = Theme.FsSmall,
+                FontFamily = Theme.UiFont,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 12)
+            });
+
+            var dpiRow = new Grid();
+            dpiRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            dpiRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
+            dpiRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            dpiRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var dpiBtn = Ctl.Button(Loc.T("check.diag.dpiFreezeRun"), Icons.Bolt, 0);
+            var dpiPillHost = new ContentControl { VerticalAlignment = VerticalAlignment.Center };
+            dpiPillHost.Content = Pill.Make(Sev.Neutral, Loc.T("common.waiting"));
+            var dpiStatusText = new TextBlock
+            {
+                Text = "",
+                Foreground = Theme.BrMuted,
+                FontSize = Theme.FsSmall,
+                FontFamily = Theme.UiFont,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(14, 0, 0, 0)
+            };
+
+            dpiBtn.Click += (s, e) =>
+            {
+                dpiBtn.IsEnabled = false;
+                dpiPillHost.Content = Pill.Make(Sev.Progress, Loc.T("check.diag.dpiFreezeTesting"));
+                dpiStatusText.Text = Loc.T("check.diag.dpiFreezeTesting");
+                Core.RunDpiFreezeTest(delegate (bool ok, string detail, int read, long ms)
+                {
+                    Dispatcher.Invoke((Action)delegate
+                    {
+                        dpiBtn.IsEnabled = true;
+                        dpiPillHost.Content = Pill.Make(ok ? Sev.Ok : Sev.Err, ok ? Loc.T("check.diag.dpiFreezeOk") : Loc.T("check.diag.dpiFreezeFail"));
+                        dpiStatusText.Text = detail;
+                        _win.ShowToast(ok ? Loc.T("check.diag.dpiFreezeOk") : Loc.T("check.diag.dpiFreezeFail"), ok ? Sev.Ok : Sev.Warn);
+                    });
+                });
+            };
+
+            Grid.SetColumn(dpiBtn, 0);
+            Grid.SetColumn(dpiPillHost, 2);
+            Grid.SetColumn(dpiStatusText, 3);
+            dpiRow.Children.Add(dpiBtn);
+            dpiRow.Children.Add(dpiPillHost);
+            dpiRow.Children.Add(dpiStatusText);
+            dpiContent.Children.Add(dpiRow);
+
+            panel.Children.Add(UI.Card(dpiContent, new Thickness(16, 14, 16, 14)));
+
+            panel.Children.Add(new Border { Height = 14 });
+
+            // 2. Инструменты быстрого решения проблем
+            panel.Children.Add(SectionLabel(Loc.T("check.diag.title")));
+            var repairGrid = new Grid();
+            repairGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            repairGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+            repairGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            // Карточка 1: Очистить кэш Discord
+            var dcPanel = new StackPanel();
+            var dcTop = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
+            dcTop.Children.Add(UI.Icon(Icons.Discord, 16, Theme.BrAccent, 1.8));
+            var dcTitle = UI.T(Loc.T("check.diag.discordCache"), Theme.FsBody, Theme.BrText, FontWeights.SemiBold);
+            dcTitle.Margin = new Thickness(8, 0, 0, 0);
+            dcTop.Children.Add(dcTitle);
+            dcPanel.Children.Add(dcTop);
+            dcPanel.Children.Add(new TextBlock
+            {
+                Text = Loc.T("check.diag.discordCacheDesc"),
+                Foreground = Theme.BrMuted,
+                FontSize = Theme.FsSmall,
+                FontFamily = Theme.UiFont,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 12),
+                Height = 48
+            });
+            var dcBtn = Ctl.Button(Loc.T("check.diag.discordCache"), Icons.Trash, 1);
+            dcBtn.HorizontalAlignment = HorizontalAlignment.Left;
+            dcBtn.Click += (s, e) =>
+            {
+                dcBtn.IsEnabled = false;
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                {
+                    int deleted = Core.ClearDiscordCache();
+                    Dispatcher.Invoke((Action)delegate
+                    {
+                        dcBtn.IsEnabled = true;
+                        string msg = string.Format(Loc.T("check.diag.discordCacheOk"), deleted);
+                        _win.ShowToast(msg, Sev.Ok);
+                        Core.Good(msg);
+                    });
+                });
+            };
+            dcPanel.Children.Add(dcBtn);
+            var dcCard = UI.Card(dcPanel, new Thickness(16, 14, 16, 14));
+            Grid.SetColumn(dcCard, 0);
+            repairGrid.Children.Add(dcCard);
+
+            // Карточка 2: Сброс зависшего WinDivert
+            var wdPanel = new StackPanel();
+            var wdTop = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
+            wdTop.Children.Add(UI.Icon(Icons.Refresh, 16, Theme.BrWarn, 1.8));
+            var wdTitle = UI.T(Loc.T("check.diag.wdReset"), Theme.FsBody, Theme.BrText, FontWeights.SemiBold);
+            wdTitle.Margin = new Thickness(8, 0, 0, 0);
+            wdTop.Children.Add(wdTitle);
+            wdPanel.Children.Add(wdTop);
+            wdPanel.Children.Add(new TextBlock
+            {
+                Text = Loc.T("check.diag.wdResetDesc"),
+                Foreground = Theme.BrMuted,
+                FontSize = Theme.FsSmall,
+                FontFamily = Theme.UiFont,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 12),
+                Height = 48
+            });
+            var wdBtn = Ctl.Button(Loc.T("check.diag.wdReset"), Icons.Refresh, 1);
+            wdBtn.HorizontalAlignment = HorizontalAlignment.Left;
+            wdBtn.Click += (s, e) =>
+            {
+                wdBtn.IsEnabled = false;
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                {
+                    bool ok = Core.ResetWinDivertDriver();
+                    Dispatcher.Invoke((Action)delegate
+                    {
+                        wdBtn.IsEnabled = true;
+                        if (ok)
+                        {
+                            _win.ShowToast(Loc.T("check.diag.wdResetOk"), Sev.Ok);
+                            Core.Good(Loc.T("check.diag.wdResetOk"));
+                        }
+                    });
+                });
+            };
+            wdPanel.Children.Add(wdBtn);
+            var wdCard = UI.Card(wdPanel, new Thickness(16, 14, 16, 14));
+            Grid.SetColumn(wdCard, 2);
+            repairGrid.Children.Add(wdCard);
+
+            panel.Children.Add(repairGrid);
+
+            panel.Children.Add(new Border { Height = 14 });
+
+            // 3. Параметры системы и окружения (RunDiagnostics с кнопками авто-исправления)
+            var envHeader = new Grid();
+            envHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            envHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var envLabel = SectionLabel(Loc.T("check.diag.sub"));
+            Grid.SetColumn(envLabel, 0);
+            envHeader.Children.Add(envLabel);
+
+            var diagRefreshBtn = Ctl.Button(Loc.T("check.diag.run"), Icons.Refresh, 1);
+            diagRefreshBtn.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(diagRefreshBtn, 1);
+            envHeader.Children.Add(diagRefreshBtn);
+            panel.Children.Add(envHeader);
+
+            var diagListPanel = new StackPanel();
+            Action refreshDiagList = null;
+            refreshDiagList = delegate
+            {
+                diagListPanel.Children.Clear();
+                var items = Core.RunDiagnostics();
+                foreach (var it in items)
+                {
+                    diagListPanel.Children.Add(DiagRow(it, delegate { if (refreshDiagList != null) refreshDiagList(); }));
+                }
+            };
+            diagRefreshBtn.Click += (s, e) => refreshDiagList();
+            refreshDiagList();
+            panel.Children.Add(diagListPanel);
+
+            return panel;
+        }
+
+        UIElement DiagRow(DiagItem it, Action reload)
+        {
+            var g = new Grid();
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var sp = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            sp.Children.Add(UI.T(it.Name, Theme.FsBody, Theme.BrText, FontWeights.SemiBold));
+            sp.Children.Add(new TextBlock
+            {
+                Text = it.Value,
+                Foreground = it.Sev == Sev.Err ? Theme.BrErr : it.Sev == Sev.Warn ? Theme.BrWarn : Theme.BrMuted,
+                FontSize = Theme.FsSmall,
+                FontFamily = Theme.UiFont,
+                Margin = new Thickness(0, 2, 0, 0),
+                TextWrapping = TextWrapping.Wrap
+            });
+            Grid.SetColumn(sp, 0);
+            g.Children.Add(sp);
+
+            // Кнопки быстрого исправления для специфических параметров
+            if (it.Name == Loc.T("diag.n.tcpTs") && it.Sev == Sev.Warn)
+            {
+                var fixTsBtn = Ctl.Button(Loc.T("check.diag.fixTimestamps"), Icons.Bolt, 0);
+                fixTsBtn.VerticalAlignment = VerticalAlignment.Center;
+                fixTsBtn.Margin = new Thickness(8, 0, 0, 0);
+                fixTsBtn.Click += (s, e) =>
+                {
+                    if (Core.EnableTcpTimestamps())
+                    {
+                        _win.ShowToast(Loc.T("check.diag.fixTimestampsOk"), Sev.Ok);
+                        Core.Good(Loc.T("check.diag.fixTimestampsOk"));
+                        if (reload != null) reload();
+                    }
+                };
+                Grid.SetColumn(fixTsBtn, 1);
+                g.Children.Add(fixTsBtn);
+            }
+            else if (it.Name == Loc.T("diag.n.proxy") && it.Sev == Sev.Warn)
+            {
+                var fixProxyBtn = Ctl.Button(Loc.T("check.diag.fixProxy"), Icons.Trash, 1);
+                fixProxyBtn.VerticalAlignment = VerticalAlignment.Center;
+                fixProxyBtn.Margin = new Thickness(8, 0, 0, 0);
+                fixProxyBtn.Click += (s, e) =>
+                {
+                    if (Core.DisableSystemProxy())
+                    {
+                        _win.ShowToast(Loc.T("check.diag.fixProxyOk"), Sev.Ok);
+                        Core.Good(Loc.T("check.diag.fixProxyOk"));
+                        if (reload != null) reload();
+                    }
+                };
+                Grid.SetColumn(fixProxyBtn, 1);
+                g.Children.Add(fixProxyBtn);
+            }
+
+            var pill = Pill.Make(it.Sev, it.Sev == Sev.Ok ? Loc.T("common.ok") : it.Sev == Sev.Warn ? Loc.T("common.warning") : it.Sev == Sev.Err ? Loc.T("common.error") : Loc.T("common.info"));
+            pill.VerticalAlignment = VerticalAlignment.Center;
+            pill.Margin = new Thickness(12, 0, 0, 0);
+            Grid.SetColumn(pill, 2);
+            g.Children.Add(pill);
+
+            var card = UI.Card(g, new Thickness(14, 10, 14, 10));
+            card.Margin = new Thickness(0, 0, 0, 6);
+            return card;
         }
     }
 }
