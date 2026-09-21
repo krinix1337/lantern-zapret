@@ -19,6 +19,7 @@ namespace ZapretStudio
             A("nav.service",    "Служба",                "Service");
             A("nav.filters",    "Фильтры",               "Filters");
             A("nav.settings",   "Настройки",             "Settings");
+            A("nav.updates",    "Обновления",            "Updates");
             A("nav.log",        "Журнал",                "Log");
             A("nav.about",      "О проекте",             "About");
             A("tools.title",    "Инструменты",           "Tools");
@@ -516,6 +517,23 @@ namespace ZapretStudio
             A("filters.game.all", "TCP и UDP", "TCP and UDP");
             A("filters.game.tcp", "Только TCP", "TCP only");
             A("filters.game.udp", "Только UDP", "UDP only");
+            A("filters.game.portsTcp", "Диапазон портов TCP:", "TCP port ranges:");
+            A("filters.game.portsUdp", "Диапазон портов UDP:", "UDP port ranges:");
+            A("filters.game.excludeRtmp", "Исключить RTMP (1935)", "Exclude RTMP (1935)");
+            A("filters.game.locked", "🔒 Доступно в zapret 1.10.3+", "🔒 Available in zapret 1.10.3+");
+            A("filters.game.updateEngine", "Обновить движок", "Update engine");
+            // Обновления
+            A("updates.title", "Обновления", "Updates");
+            A("updates.sub", "Проверка и установка обновлений компонентов.", "Check and install component updates.");
+            A("updates.check", "Проверить обновления", "Check for updates");
+            A("updates.zapret.title", "Движок zapret (Flowseal)", "zapret engine (Flowseal)");
+            A("updates.tg.title", "Telegram-прокси (TG-WS-Proxy)", "Telegram proxy (TG-WS-Proxy)");
+            A("updates.app.title", "Приложение Lantern", "Lantern application");
+            A("updates.upToDate", "Установлена актуальная версия", "Up to date");
+            A("updates.localNewer", "Локальная версия новее", "Local version is newer");
+            A("updates.checking", "Проверка...", "Checking...");
+            A("updates.latestVersion", "Последняя версия: ", "Latest version: ");
+            A("updates.installed", "Установлен", "Installed");
             A("filters.sec.ipset", "IPSet-фильтр", "IPSet filter");
             A("filters.ipset",     "Использовать список IP (ipset-all.txt)", "Use IP list (ipset-all.txt)");
             A("filters.ipset.on",  "Применять обход к адресам из списка ipset-all.txt.", "Apply the bypass to addresses from ipset-all.txt.");

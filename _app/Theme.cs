@@ -15,6 +15,7 @@ namespace ZapretStudio
     static class Theme
     {
         public static ThemeMode Mode = ThemeMode.Dark;
+        public static string CurrentTheme { get { return Mode.ToString().ToLowerInvariant(); } }
 
         public static Color BgDeep, BgBase, Surface, SurfaceAlt, SurfaceHi, Stroke, StrokeSoft;
         public static Color Text, TextMuted, TextFaint;
@@ -929,10 +930,14 @@ namespace ZapretStudio
     {
         public static Border Make(Sev sev, string text)
         {
-            var color = UI2.SevColor(sev);
+            return Make(UI2.SevColor(sev), text, sev == Sev.Progress);
+        }
+
+        public static Border Make(Color color, string text, bool isProgress = false)
+        {
             var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
 
-            if (sev == Sev.Progress)
+            if (isProgress)
             {
                 var ring = new System.Windows.Shapes.Ellipse
                 {
@@ -956,7 +961,7 @@ namespace ZapretStudio
 
             var bd = new Border
             {
-                Background = Theme.Alpha(color, 28), BorderBrush = Theme.Alpha(color, 90),
+                Background = Theme.Alpha(color, 14), BorderBrush = Theme.Alpha(color, 55),
                 BorderThickness = new Thickness(1), CornerRadius = Theme.R8,
                 Padding = new Thickness(10, 4, 12, 4), Child = sp,
                 HorizontalAlignment = HorizontalAlignment.Left

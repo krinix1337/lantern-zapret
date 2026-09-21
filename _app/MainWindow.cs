@@ -526,6 +526,7 @@ namespace ZapretStudio
             nav.Children.Add(NavItem("service", Icons.Server, Loc.T("nav.service")));
             nav.Children.Add(NavItem("filters", Icons.Filter, Loc.T("nav.filters")));
             nav.Children.Add(NavItem("settings", Icons.Gear, Loc.T("nav.settings")));
+            nav.Children.Add(NavItem("updates", Icons.Download, Loc.T("nav.updates")));
             nav.Children.Add(NavItem("log", Icons.List, Loc.T("nav.log")));
             nav.Children.Add(NavItem("about", Icons.Info, Loc.T("nav.about")));
             var sv = new SmoothScrollViewer { Content = nav, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -821,12 +822,12 @@ namespace ZapretStudio
                 }
             }
             UpdateAppSidebarVersion();
-            Page settingsPage;
-            if (_pages.TryGetValue("settings", out settingsPage))
+            Page updatesPage;
+            if (_pages.TryGetValue("updates", out updatesPage))
             {
-                var settings = settingsPage as SettingsPage;
-                if (settings != null)
-                    settings.SetAutomaticUpdateResults(_lastZapretLatest, _lastZapretLocal,
+                var updates = updatesPage as UpdatesPage;
+                if (updates != null)
+                    updates.SetAutomaticUpdateResults(_lastZapretLatest, _lastZapretLocal,
                         _lastTgLatest, _lastTgLocal, _lastAppLatest, Core.AppVersion);
             }
         }
@@ -925,6 +926,7 @@ namespace ZapretStudio
                 case "service": p = new ServicePage(this); break;
                 case "filters": p = new FiltersPage(this); break;
                 case "settings": p = new SettingsPage(this); break;
+                case "updates": p = new UpdatesPage(this); break;
                 case "log": p = new LogPage(this); break;
                 case "about": p = new AboutPage(this); break;
                 default: p = new OverviewPage(this); break;
@@ -944,9 +946,9 @@ namespace ZapretStudio
             var p = PageFor(key);
             _host.Content = p;
             p.OnShow();
-            var settings = p as SettingsPage;
-            if (settings != null && _haveUpdateResults)
-                settings.SetAutomaticUpdateResults(_lastZapretLatest, _lastZapretLocal,
+            var updates = p as UpdatesPage;
+            if (updates != null && _haveUpdateResults)
+                updates.SetAutomaticUpdateResults(_lastZapretLatest, _lastZapretLocal,
                     _lastTgLatest, _lastTgLocal, _lastAppLatest, Core.AppVersion);
             PaintNav();
             if (_navPanel != null) _navPanel.UpdateLayout();
@@ -1240,11 +1242,11 @@ namespace ZapretStudio
 
         void SetSettingsChecking()
         {
-            Page settingsPage;
-            if (_pages.TryGetValue("settings", out settingsPage))
+            Page updatesPage;
+            if (_pages.TryGetValue("updates", out updatesPage))
             {
-                var settings = settingsPage as SettingsPage;
-                if (settings != null) settings.SetCheckingUpdates();
+                var updates = updatesPage as UpdatesPage;
+                if (updates != null) updates.SetCheckingUpdates();
             }
         }
 
@@ -1314,21 +1316,21 @@ namespace ZapretStudio
 
         void SetZapretUpdateProgress(string phase, int percent)
         {
-            Page settingsPage;
-            if (_pages.TryGetValue("settings", out settingsPage))
+            Page updatesPage;
+            if (_pages.TryGetValue("updates", out updatesPage))
             {
-                var settings = settingsPage as SettingsPage;
-                if (settings != null) settings.SetZapretUpdateProgress(phase, percent);
+                var updates = updatesPage as UpdatesPage;
+                if (updates != null) updates.SetZapretUpdateProgress(phase, percent);
             }
         }
 
         void FinishZapretUpdate(string text, bool ok)
         {
-            Page settingsPage;
-            if (_pages.TryGetValue("settings", out settingsPage))
+            Page updatesPage;
+            if (_pages.TryGetValue("updates", out updatesPage))
             {
-                var settings = settingsPage as SettingsPage;
-                if (settings != null) settings.FinishZapretUpdate(text, ok);
+                var updates = updatesPage as UpdatesPage;
+                if (updates != null) updates.FinishZapretUpdate(text, ok);
             }
         }
 
@@ -1336,6 +1338,7 @@ namespace ZapretStudio
         {
             if (_checkingUpdates) return;
             _checkingUpdates = true;
+            SetSettingsChecking();
             Core.Info(Loc.T("mw.checkVer"));
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
@@ -1410,16 +1413,31 @@ namespace ZapretStudio
                             Core.Info(string.Format(Loc.T("mw.appLocalNewer"), appLv, appLt));
                         UpdateAppSidebarVersion();
 
-                        Page settingsPage;
-                        if (_pages.TryGetValue("settings", out settingsPage))
+                        Page updatesPage;
+                        if (_pages.TryGetValue("updates", out updatesPage))
                         {
-                            var settings = settingsPage as SettingsPage;
-                            if (settings != null)
-                                settings.SetAutomaticUpdateResults(latest, local, tgLatest, tgLocal, appLatest, Core.AppVersion);
+                            var updates = updatesPage as UpdatesPage;
+                            if (updates != null)
+                                updates.SetAutomaticUpdateResults(latest, local, tgLatest, tgLocal, appLatest, Core.AppVersion);
                         }
                     });
                 }
-                catch { }
+                catch
+                {
+                    try
+                    {
+                        Dispatcher.Invoke((Action)delegate
+                        {
+                            Page updatesPage;
+                            if (_pages.TryGetValue("updates", out updatesPage))
+                            {
+                                var updates = updatesPage as UpdatesPage;
+                                if (updates != null) updates.StopSpinAnimation();
+                            }
+                        });
+                    }
+                    catch { }
+                }
                 finally { _checkingUpdates = false; }
             });
         }
@@ -1579,28 +1597,8 @@ namespace ZapretStudio
             }
             if (!Core.IsAdmin())
                 Core.Warn(Loc.T("mw.noAdminWarn"));
-            StartWatchdog();
             StartBypassMonitor();
         }
-
-        // ---------- Автопереключение (watchdog) ----------
-        DispatcherTimer _watchdogTimer;
-        volatile bool _watchdogBusy;
-        int _watchdogCooldown; // тики паузы после автопереключения (анти-флаппинг)
-
-        void StartWatchdog()
-        {
-            if (_watchdogTimer != null) { _watchdogTimer.Stop(); _watchdogTimer = null; }
-            if (!Core.WatchdogEnabled) return;
-            int min = Core.WatchdogIntervalMin;
-            if (min < 1) min = 1;
-            _watchdogTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(min) };
-            _watchdogTimer.Tick += (s, e) => WatchdogTick();
-            _watchdogTimer.Start();
-            Core.Info(string.Format(Loc.T("mw.watchdogOn"), min));
-        }
-
-        public void RestartWatchdog() { StartWatchdog(); }
 
         // ---------- Монитор падения обхода (лёгкий, без переключения) ----------
         DispatcherTimer _bypassMonitor;
@@ -1622,65 +1620,6 @@ namespace ZapretStudio
                 _wasRunning = now;
             };
             _bypassMonitor.Start();
-        }
-
-        void WatchdogTick()
-        {
-            if (_watchdogBusy) return;
-            // Кулдаун: после автопереключения даём сети/стратегии 2 интервала
-            // на стабилизацию, иначе при нестабильном провайдере будет «моргание»
-            // между стратегиями.
-            if (_watchdogCooldown > 0) { _watchdogCooldown--; return; }
-            if (!IsActive2() || string.IsNullOrEmpty(_currentStrategyFile)) return;
-            _watchdogBusy = true;
-            Core.Info(Loc.T("mw.watchdogCheck"));
-
-            System.Threading.ThreadPool.QueueUserWorkItem(delegate
-            {
-                try
-                {
-                    bool ok = Core.QuickCheck();
-                    if (ok) return;
-                    // Текущая стратегия не работает — ищем замену.
-                    Dispatcher.Invoke((Action)delegate { Core.Warn(Loc.T("mw.watchdogFail")); });
-                    bool wasService = (Core.ServiceState() == "running");
-                    string next = Core.FindWorkingStrategy(_currentStrategyFile, () => false);
-                    Dispatcher.Invoke((Action)delegate
-                    {
-                        if (next != null)
-                        {
-                            Core.Info(string.Format(Loc.T("mw.watchdogSwitch"), Core.PrettyName(next)));
-                            if (wasService)
-                            {
-                                Core.InstallService(next);
-                                _currentStrategyFile = next;
-                                Core.Set("last_strategy", next); Core.SaveConfig();
-                            }
-                            else
-                            {
-                                RunStrategy(next);
-                            }
-                            Notify(Loc.T("mw.watchdogSwitchTitle"), Core.PrettyName(next));
-                        }
-                        else
-                        {
-                            Core.Fail(Loc.T("mw.watchdogNone"));
-                            Notify(Loc.T("mw.watchdogNoneTitle"), Loc.T("mw.watchdogNone"));
-                            // Ничего не нашли: возвращаем прежнюю стратегию, чтобы
-                            // не оставлять обход выключенным до ручного запуска.
-                            if (!string.IsNullOrEmpty(_currentStrategyFile))
-                            {
-                                if (wasService) Core.InstallService(_currentStrategyFile);
-                                else RunStrategy(_currentStrategyFile);
-                            }
-                        }
-                        // Переключение выполнено — пауза перед следующей проверкой.
-                        _watchdogCooldown = 2;
-                    });
-                }
-                catch { }
-                finally { _watchdogBusy = false; }
-            });
         }
 
         // ---------- Системный трей ----------
@@ -1829,7 +1768,6 @@ namespace ZapretStudio
                 Core.TrimMemory();
                 return;
             }
-            try { if (_watchdogTimer != null) _watchdogTimer.Stop(); } catch { }
             try { if (_bypassMonitor != null) _bypassMonitor.Stop(); } catch { }
             StopPeterSong();
             foreach (var p in _pages.Values) { try { p.OnHide(); } catch { } }

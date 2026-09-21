@@ -12,6 +12,7 @@ namespace ZapretStudio
     {
         protected StackPanel Body;
         protected SmoothScrollViewer ScrollHost;
+        protected ContentControl HeaderActionSlot;
         public double ScrollOffset
         {
             get { return ScrollHost != null ? ScrollHost.VerticalOffset : 0; }
@@ -29,14 +30,25 @@ namespace ZapretStudio
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-            var head = new StackPanel { Margin = new Thickness(28, 24, 28, 8) };
+            var headGrid = new Grid { Margin = new Thickness(28, 24, 28, 8) };
+            headGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            headGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var head = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             head.Children.Add(UI.T(Title, Theme.FsH1, Theme.BrText, FontWeights.SemiBold));
             if (!string.IsNullOrEmpty(Subtitle))
                 head.Children.Add(new TextBlock { Text = Subtitle, Foreground = Theme.BrMuted,
                     FontSize = Theme.FsBody, FontFamily = Theme.UiFont, Margin = new Thickness(0, 4, 0, 0),
                     TextWrapping = TextWrapping.Wrap });
-            Grid.SetRow(head, 0);
-            root.Children.Add(head);
+            Grid.SetColumn(head, 0);
+            headGrid.Children.Add(head);
+
+            HeaderActionSlot = new ContentControl { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0) };
+            Grid.SetColumn(HeaderActionSlot, 1);
+            headGrid.Children.Add(HeaderActionSlot);
+
+            Grid.SetRow(headGrid, 0);
+            root.Children.Add(headGrid);
 
             Body = new StackPanel { Margin = new Thickness(28, 12, 28, 28) };
             ScrollHost = new SmoothScrollViewer
@@ -116,11 +128,8 @@ namespace ZapretStudio
             Grid.SetColumn(t, 1);
             g.Children.Add(t);
 
-            Color c = tint == Sev.Ok ? Theme.Ok : tint == Sev.Warn ? Theme.Warn
-                    : tint == Sev.Err ? Theme.Err : Theme.AccentMain;
-            Brush bg = tint == Sev.Neutral ? Theme.BrSurface : Theme.Alpha(c, 16);
-            var card = UI.Card(g, new Thickness(16, 12, 16, 12), Theme.R10, bg);
-            if (tint != Sev.Neutral) card.BorderBrush = Theme.Alpha(c, 70);
+            var card = UI.Card(g, new Thickness(16, 12, 16, 12), Theme.R10, Theme.BrSurface);
+            card.BorderBrush = Theme.BrStroke;
             return card;
         }
 

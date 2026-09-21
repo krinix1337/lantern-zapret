@@ -67,8 +67,18 @@ namespace ZapretStudio
                 try
                 {
                     if (!File.Exists(GameFlag)) return "off";
+                    string[] lines = File.ReadAllLines(GameFlag);
+                    foreach (var line in lines)
+                    {
+                        var t = line.Trim();
+                        if (t.StartsWith("mode=", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string m = t.Substring(5).Trim().ToLowerInvariant();
+                            if (m == "all" || m == "tcp" || m == "udp" || m == "off") return m;
+                        }
+                    }
                     string v = File.ReadAllText(GameFlag).Trim().ToLowerInvariant();
-                    if (v == "all" || v == "tcp" || v == "udp") return v;
+                    if (v == "all" || v == "tcp" || v == "udp" || v == "off") return v;
                     return "udp";
                 }
                 catch { return "off"; }
@@ -77,11 +87,86 @@ namespace ZapretStudio
             {
                 try
                 {
-                    if (value == "off") { if (File.Exists(GameFlag)) File.Delete(GameFlag); }
-                    else File.WriteAllText(GameFlag, value);
+                    SaveGameFilter(value, GameFilterTcpPorts, GameFilterUdpPorts);
                 }
                 catch { }
             }
+        }
+
+        public static string GameFilterTcpPorts
+        {
+            get
+            {
+                try
+                {
+                    if (!File.Exists(GameFlag)) return "1024-65535";
+                    string[] lines = File.ReadAllLines(GameFlag);
+                    foreach (var line in lines)
+                    {
+                        var t = line.Trim();
+                        if (t.StartsWith("tcp=", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string p = t.Substring(4).Trim();
+                            if (!string.IsNullOrEmpty(p)) return p;
+                        }
+                    }
+                }
+                catch { }
+                return "1024-65535";
+            }
+            set
+            {
+                SaveGameFilter(GameMode, value, GameFilterUdpPorts);
+            }
+        }
+
+        public static string GameFilterUdpPorts
+        {
+            get
+            {
+                try
+                {
+                    if (!File.Exists(GameFlag)) return "1024-65535";
+                    string[] lines = File.ReadAllLines(GameFlag);
+                    foreach (var line in lines)
+                    {
+                        var t = line.Trim();
+                        if (t.StartsWith("udp=", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string p = t.Substring(4).Trim();
+                            if (!string.IsNullOrEmpty(p)) return p;
+                        }
+                    }
+                }
+                catch { }
+                return "1024-65535";
+            }
+            set
+            {
+                SaveGameFilter(GameMode, GameFilterTcpPorts, value);
+            }
+        }
+
+        public static void SaveGameFilter(string mode, string tcpPorts, string udpPorts)
+        {
+            try
+            {
+                string m = string.IsNullOrEmpty(mode) ? "off" : mode.Trim().ToLowerInvariant();
+                string tcp = string.IsNullOrEmpty(tcpPorts) ? "1024-65535" : tcpPorts.Trim();
+                string udp = string.IsNullOrEmpty(udpPorts) ? "1024-65535" : udpPorts.Trim();
+                if (m == "off")
+                {
+                    if (tcp == "1024-65535" && udp == "1024-65535")
+                    {
+                        if (File.Exists(GameFlag)) File.Delete(GameFlag);
+                        return;
+                    }
+                }
+                string dir = Path.GetDirectoryName(GameFlag);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                File.WriteAllText(GameFlag, "mode=" + m + "\r\ntcp=" + tcp + "\r\nudp=" + udp + "\r\n");
+            }
+            catch { }
         }
 
         public static string GameModeLabel()
@@ -97,12 +182,16 @@ namespace ZapretStudio
 
         static void GameValues(out string tcp, out string udp)
         {
+            string customTcp = GameFilterTcpPorts;
+            if (string.IsNullOrEmpty(customTcp)) customTcp = "1024-65535";
+            string customUdp = GameFilterUdpPorts;
+            if (string.IsNullOrEmpty(customUdp)) customUdp = "1024-65535";
             switch (GameMode)
             {
-                case "all": tcp = "1024-65535"; udp = "1024-65535"; break;
-                case "tcp": tcp = "1024-65535"; udp = "12";         break;
-                case "udp": tcp = "12";         udp = "1024-65535"; break;
-                default:    tcp = "12";         udp = "12";         break;
+                case "all": tcp = customTcp; udp = customUdp; break;
+                case "tcp": tcp = customTcp; udp = "12";      break;
+                case "udp": tcp = "12";      udp = customUdp; break;
+                default:    tcp = "12";      udp = "12";      break;
             }
         }
 
@@ -232,7 +321,8 @@ namespace ZapretStudio
             cmd = cmd.Replace("%BIN%", Bin)
                      .Replace("%LISTS%", Lists)
                      .Replace("%GameFilterTCP%", tcp)
-                     .Replace("%GameFilterUDP%", udp);
+                     .Replace("%GameFilterUDP%", udp)
+                     .Replace("%GameFilter%", GameMode == "tcp" ? tcp : udp);
 
             cmd = UnescapeCaret(cmd);
             if (!IpsetEnabled)

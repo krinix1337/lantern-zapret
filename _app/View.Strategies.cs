@@ -345,7 +345,7 @@ namespace ZapretStudio
             badgeRow.Children.Add(CatBadge(cat));
             if (isCurrent)
             {
-                var cur = Pill.Make(Sev.Ok, Loc.T("strat.current"));
+                var cur = Pill.Make(Sev.Info, Loc.T("strat.current"));
                 cur.Margin = new Thickness(8, 0, 0, 0);
                 cur.VerticalAlignment = VerticalAlignment.Center;
                 badgeRow.Children.Add(cur);
@@ -363,8 +363,8 @@ namespace ZapretStudio
             var cardScale = new ScaleTransform(1, 1);
             card.RenderTransform = cardScale;
 
-            Brush normalBackground = isCurrent ? Theme.Alpha(Theme.Ok, 14) : Theme.BrSurface;
-            Brush normalBorder = isCurrent ? Theme.Alpha(Theme.Ok, 90) : Theme.BrStroke;
+            Brush normalBackground = isCurrent ? Theme.Alpha(Theme.AccentMain, 14) : Theme.BrSurface;
+            Brush normalBorder = isCurrent ? Theme.BrAccent : Theme.BrStroke;
             card.BorderBrush = normalBorder;
             card.Background = normalBackground;
 
@@ -372,15 +372,15 @@ namespace ZapretStudio
             card.MouseEnter += (s, e) =>
             {
                 if (selecting) return;
-                card.Background = isCurrent ? Theme.Alpha(Theme.Ok, 24) : Theme.BrSurfaceHi;
-                card.BorderBrush = isCurrent ? Theme.BrOk : Theme.BrAccent;
+                card.Background = isCurrent ? Theme.Alpha(Theme.AccentMain, 24) : Theme.BrSurfaceHi;
+                card.BorderBrush = Theme.BrAccent;
                 AnimateCardScale(cardScale, 1.018, 120);
             };
             card.MouseLeave += (s, e) =>
             {
                 if (selecting) return;
-                card.Background = isCurrent ? Theme.Alpha(Theme.Ok, 14) : Theme.BrSurface;
-                card.BorderBrush = isCurrent ? Theme.Alpha(Theme.Ok, 90) : Theme.BrStroke;
+                card.Background = isCurrent ? Theme.Alpha(Theme.AccentMain, 14) : Theme.BrSurface;
+                card.BorderBrush = isCurrent ? Theme.BrAccent : Theme.BrStroke;
                 AnimateCardScale(cardScale, 1, 140);
             };
             card.MouseLeftButtonDown += (s, e) =>

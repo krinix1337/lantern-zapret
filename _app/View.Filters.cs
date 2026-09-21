@@ -14,8 +14,8 @@ namespace ZapretStudio
         public override string Subtitle { get { return Loc.T("filters.sub"); } }
 
         readonly MainWindow _win;
-        Toggle _doh;
         ComboBox _gameMode, _ipsetMode;
+        TextBox _gameTcpPorts, _gameUdpPorts;
         bool _syncing;
         Border _restartBar;
 
@@ -30,7 +30,6 @@ namespace ZapretStudio
             _win = win;
             BuildGame();
             BuildIpset();
-            BuildDoh();
             BuildListEditor();
             BuildRestartBar();
         }
@@ -40,6 +39,20 @@ namespace ZapretStudio
         void BuildGame()
         {
             Body.Children.Add(SectionLabel(Loc.T("filters.sec.game")));
+
+            var cardPanel = new StackPanel();
+
+            var topRow = new Grid();
+            topRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            topRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var left = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            left.Children.Add(UI.T(Loc.T("filters.game"), Theme.FsBody, Theme.BrText, FontWeights.SemiBold));
+            left.Children.Add(new TextBlock { Text = Loc.T("filters.game.desc"), Foreground = Theme.BrMuted,
+                FontSize = Theme.FsSmall, FontFamily = Theme.UiFont, Margin = new Thickness(0, 3, 0, 0),
+                TextWrapping = TextWrapping.Wrap });
+            Grid.SetColumn(left, 0); topRow.Children.Add(left);
+
             _gameMode = Combo(185);
             _gameMode.Items.Add(Loc.T("filters.game.off"));
             _gameMode.Items.Add(Loc.T("filters.game.all"));
@@ -51,9 +64,83 @@ namespace ZapretStudio
                 Core.GameMode = _gameMode.SelectedIndex == 1 ? "all" : _gameMode.SelectedIndex == 2 ? "tcp" : _gameMode.SelectedIndex == 3 ? "udp" : "off";
                 MarkDirty();
             };
-            Body.Children.Add(Row(Loc.T("filters.game"),
-                Loc.T("filters.game.desc"),
-                _gameMode));
+            var modeWrap = new ContentControl { Content = _gameMode, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0) };
+            Grid.SetColumn(modeWrap, 1); topRow.Children.Add(modeWrap);
+            cardPanel.Children.Add(topRow);
+
+            // Порты и версионный гейтинг (zapret 1.10.3+)
+            bool isGated = SettingsPage.CompareVersions(Core.ZapretVersion(), "1.10.3") < 0;
+
+            var portsSection = new StackPanel { Margin = new Thickness(0, 16, 0, 0) };
+            if (isGated)
+            {
+                var lockSp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 0, 10) };
+                lockSp.Children.Add(new TextBlock
+                {
+                    Text = Loc.T("filters.game.locked"),
+                    Foreground = Theme.BrWarn,
+                    FontSize = Theme.FsSmall,
+                    FontFamily = Theme.UiFont,
+                    FontWeight = FontWeights.SemiBold,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                var updBtn = Ctl.Button(Loc.T("filters.game.updateEngine"), Icons.Download, 1);
+                updBtn.Margin = new Thickness(10, 0, 0, 0);
+                updBtn.Click += (s, e) => _win.Navigate("updates");
+                lockSp.Children.Add(updBtn);
+                portsSection.Children.Add(lockSp);
+            }
+
+            var portsGrid = new Grid { Opacity = isGated ? 0.5 : 1.0, IsEnabled = !isGated };
+            portsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            portsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var tcpSp = new StackPanel { Margin = new Thickness(0, 0, 10, 0) };
+            tcpSp.Children.Add(new TextBlock { Text = Loc.T("filters.game.portsTcp"), Foreground = Theme.BrMuted,
+                FontSize = Theme.FsSmall, FontFamily = Theme.UiFont, Margin = new Thickness(0, 0, 0, 4) });
+            _gameTcpPorts = new TextBox
+            {
+                Height = 32, Background = Theme.BrSurfaceAlt, BorderBrush = Theme.BrStroke,
+                BorderThickness = new Thickness(1), Foreground = Theme.BrText, CaretBrush = Theme.BrText,
+                FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont,
+                VerticalContentAlignment = VerticalAlignment.Center, Padding = new Thickness(8, 0, 8, 0),
+                Text = Core.GameFilterTcpPorts
+            };
+            _gameTcpPorts.TextChanged += (s, e) => { if (!_syncing) { Core.GameFilterTcpPorts = _gameTcpPorts.Text.Trim(); MarkDirty(); } };
+            tcpSp.Children.Add(_gameTcpPorts);
+            Grid.SetColumn(tcpSp, 0); portsGrid.Children.Add(tcpSp);
+
+            var udpSp = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
+            udpSp.Children.Add(new TextBlock { Text = Loc.T("filters.game.portsUdp"), Foreground = Theme.BrMuted,
+                FontSize = Theme.FsSmall, FontFamily = Theme.UiFont, Margin = new Thickness(0, 0, 0, 4) });
+            _gameUdpPorts = new TextBox
+            {
+                Height = 32, Background = Theme.BrSurfaceAlt, BorderBrush = Theme.BrStroke,
+                BorderThickness = new Thickness(1), Foreground = Theme.BrText, CaretBrush = Theme.BrText,
+                FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont,
+                VerticalContentAlignment = VerticalAlignment.Center, Padding = new Thickness(8, 0, 8, 0),
+                Text = Core.GameFilterUdpPorts
+            };
+            _gameUdpPorts.TextChanged += (s, e) => { if (!_syncing) { Core.GameFilterUdpPorts = _gameUdpPorts.Text.Trim(); MarkDirty(); } };
+            udpSp.Children.Add(_gameUdpPorts);
+            Grid.SetColumn(udpSp, 1); portsGrid.Children.Add(udpSp);
+
+            portsSection.Children.Add(portsGrid);
+
+            var presetRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0),
+                Opacity = isGated ? 0.5 : 1.0, IsEnabled = !isGated };
+            var rtmpBtn = Ctl.Button(Loc.T("filters.game.excludeRtmp"), Icons.Filter, 3);
+            rtmpBtn.Click += (s, e) =>
+            {
+                _gameTcpPorts.Text = "1024-1934,1936-65535";
+                Core.GameFilterTcpPorts = "1024-1934,1936-65535";
+                MarkDirty();
+            };
+            presetRow.Children.Add(rtmpBtn);
+            portsSection.Children.Add(presetRow);
+
+            cardPanel.Children.Add(portsSection);
+            Body.Children.Add(UI.Card(cardPanel, new Thickness(16, 14, 16, 14)));
         }
 
         void BuildIpset()
@@ -68,13 +155,10 @@ namespace ZapretStudio
                 if (_syncing) return;
                 Core.SetIpsetMode(_ipsetMode.SelectedIndex == 1 ? "none" : _ipsetMode.SelectedIndex == 2 ? "any" : "loaded");
                 MarkDirty();
-                // Фактическое состояние могло не измениться (например, «Загруженный»
-                // без резервной копии) — показываем реальное значение, а не выбранное.
                 ResyncCombos();
             };
             Body.Children.Add(Row(Loc.T("filters.ipset"), Loc.T("filters.ipset.on"), _ipsetMode));
 
-            // Кнопка обновления списков с GitHub
             var updBtn = Ctl.Button(Loc.T("filters.updateLists"), Icons.Refresh, 1);
             updBtn.HorizontalAlignment = HorizontalAlignment.Left;
             updBtn.Margin = new Thickness(0, 10, 0, 0);
@@ -101,17 +185,6 @@ namespace ZapretStudio
                 });
               } catch { }
             });
-        }
-
-        void BuildDoh()
-        {
-            Body.Children.Add(SectionLabel(Loc.T("filters.sec.doh")));
-            _doh = new Toggle(Loc.T("filters.doh"));
-            _doh.Checked += (s, e) => { if (_syncing) return; Core.DohMode = 1; Core.Info(Loc.T("doh.enabled")); };
-            _doh.Unchecked += (s, e) => { if (_syncing) return; Core.DohMode = 0; Core.Info(Loc.T("doh.disabled")); };
-            Body.Children.Add(Row(Loc.T("filters.doh"),
-                Loc.T("filters.doh.desc"),
-                _doh));
         }
 
         // ---------- Визуальный редактор списков ----------
@@ -289,12 +362,10 @@ namespace ZapretStudio
             try
             {
                 _gameMode.SelectedIndex = Core.GameMode == "all" ? 1 : Core.GameMode == "tcp" ? 2 : Core.GameMode == "udp" ? 3 : 0;
+                if (_gameTcpPorts != null) _gameTcpPorts.Text = Core.GameFilterTcpPorts;
+                if (_gameUdpPorts != null) _gameUdpPorts.Text = Core.GameFilterUdpPorts;
                 string ipset = Core.IpsetStatus();
                 _ipsetMode.SelectedIndex = ipset == "none" ? 1 : ipset == "any" ? 2 : 0;
-                // Тумблер DoH выставляем ТОЛЬКО под _syncing: программная установка
-                // IsChecked поднимает Checked/Unchecked, а те пишут реестр и дёргают
-                // flushdns — побочный эффект при простом открытии страницы.
-                _doh.IsChecked = Core.DohMode > 0;
             }
             finally { _syncing = false; }
             ReloadList();

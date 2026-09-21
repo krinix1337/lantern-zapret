@@ -74,7 +74,7 @@ namespace ZapretStudio
             win.Show();
             Pump();
 
-            string[] pages = { "overview", "strategies", "check", "service", "filters", "settings", "log", "about" };
+            string[] pages = { "overview", "strategies", "check", "service", "filters", "settings", "updates", "log", "about" };
 
             // 1) Навигация по всем страницам в тёмной теме
             foreach (var key in pages) NavCheck(win, key);
@@ -132,6 +132,7 @@ namespace ZapretStudio
             NavCheck(win, "service"); ForceLayout(win); Shot(win, "section-service");
             NavCheck(win, "filters"); ForceLayout(win); Shot(win, "section-filters");
             NavCheck(win, "settings"); ForceLayout(win); Shot(win, "section-settings");
+            NavCheck(win, "updates"); ForceLayout(win); Shot(win, "section-updates");
             NavCheck(win, "log"); ForceLayout(win); Shot(win, "section-log");
             NavCheck(win, "about"); ForceLayout(win); Shot(win, "section-about");
 
@@ -174,13 +175,13 @@ namespace ZapretStudio
                         NavCheck(win, key);
                         layoutIssues += LayoutAudit(win, lang + " " + w.ToString("0") + " " + key);
                         if (key == "check") layoutIssues += AuditCheckTabs(win, lang + " " + w.ToString("0"));
-                        if (key == "settings")
+                        if (key == "updates")
                         {
-                            var sp = FillSettingsProgress(win);
-                            if (sp != null)
+                            var up = FillUpdatesProgress(win);
+                            if (up != null)
                             {
-                                layoutIssues += LayoutAudit(win, lang + " " + w.ToString("0") + " settings progress");
-                                sp.HideDemoProgress();
+                                layoutIssues += LayoutAudit(win, lang + " " + w.ToString("0") + " updates progress");
+                                up.HideDemoProgress();
                                 Pump(); ForceLayout(win);
                             }
                         }
@@ -196,33 +197,34 @@ namespace ZapretStudio
             NavCheck(win, "overview"); Shot(win, "min-overview");
             ScrollEnd(win); Shot(win, "min-overview-bottom"); ScrollHome(win);
             NavCheck(win, "settings"); Shot(win, "min-settings");
+            NavCheck(win, "updates"); Shot(win, "min-updates");
             // Полоса загрузки обновления: дорожка во всю ширину карточки, на 0 %
             // остаётся видимый кусочек, при неизвестном размере — вся дорожка.
             Try("update progress bar", delegate
             {
-                var sp = FillSettingsProgress(win);
-                Assert(sp != null);
-                sp.CheckDemoProgress();
+                var up = FillUpdatesProgress(win);
+                Assert(up != null);
+                up.CheckDemoProgress();
             });
             {
-                var sp = FindPage(win) as SettingsPage;
-                if (sp != null) { sp.ScrollProgressIntoView(); Pump(); ForceLayout(win); }
+                var up = FindPage(win) as UpdatesPage;
+                if (up != null) { up.ScrollProgressIntoView(); Pump(); ForceLayout(win); }
             }
-            Shot(win, "min-settings-progress");
+            Shot(win, "min-updates-progress");
             {
-                var sp = FindPage(win) as SettingsPage;
-                if (sp != null) { sp.HideDemoProgress(); Pump(); ForceLayout(win); }
+                var up = FindPage(win) as UpdatesPage;
+                if (up != null) { up.HideDemoProgress(); Pump(); ForceLayout(win); }
             }
             // Карточки версий: строка и кнопка «Обновить» появляются только когда
             // обновление действительно есть, иначе карточка молчит.
             Try("update notices only when needed", delegate
             {
-                var sp = FindPage(win) as SettingsPage;
-                Assert(sp != null);
-                sp.CheckUpdateNotices();
+                var up = FindPage(win) as UpdatesPage;
+                Assert(up != null);
+                up.CheckUpdateNotices();
                 Pump(); ForceLayout(win);
             });
-            Shot(win, "min-settings-uptodate");
+            Shot(win, "min-updates-uptodate");
             NavCheck(win, "check"); Shot(win, "min-check");
             ClickTab(win, Loc.T("check.tab.popular"));
             FillCheck(win); Shot(win, "min-check-filled");
@@ -550,15 +552,15 @@ namespace ZapretStudio
             Pump(); ForceLayout(win);
         }
 
-        // Показать полосы прогресса обновления на открытых настройках: в покое
+        // Показать полосы прогресса обновления на открытой странице обновлений: в покое
         // они скрыты, и аудит их геометрию не проверял.
-        static SettingsPage FillSettingsProgress(MainWindow win)
+        static UpdatesPage FillUpdatesProgress(MainWindow win)
         {
-            var sp = FindPage(win) as SettingsPage;
-            if (sp == null) return null;
-            sp.ShowDemoProgress();
+            var up = FindPage(win) as UpdatesPage;
+            if (up == null) return null;
+            up.ShowDemoProgress();
             Pump(); ForceLayout(win);
-            return sp;
+            return up;
         }
 
         static int AuditCheckTabs(MainWindow win, string tag)
@@ -1022,6 +1024,45 @@ namespace ZapretStudio
                     Assert(!argsNoIpset.Contains("--ipset=") && argsNoIpset.Contains("--dpi-desync=fake"));
                 });
                 Core.SetBool("ipset_enabled", ipsetWas);
+
+                // Тестирование многострочного game_filter.enabled
+                Directory.CreateDirectory(Path.Combine(root, "utils"));
+                string flagFile = Path.Combine(root, "utils", "game_filter.enabled");
+
+                // 1) mode=off с кастомными портами не должен возвращать udp
+                File.WriteAllText(flagFile, "mode=off\r\ntcp=1024-1934,1936-65535\r\nudp=1024-50000\r\n");
+                Try("gamefilter mode off with custom ports", delegate
+                {
+                    Assert(Core.GameMode == "off");
+                    Assert(Core.GameFilterTcpPorts == "1024-1934,1936-65535");
+                    Assert(Core.GameFilterUdpPorts == "1024-50000");
+                    string a = Core.BuildArgs("t.bat");
+                    Assert(a.Contains("--wf-tcp=443,12"));
+                    Assert(a.Contains("--filter-tcp=12"));
+                });
+
+                // 2) Изменение портов при mode=off не должно включать фильтр
+                Core.GameFilterTcpPorts = "1024-1934,1936-60000";
+                Try("gamefilter preserve mode off on port edit", delegate
+                {
+                    Assert(Core.GameMode == "off");
+                    Assert(Core.GameFilterTcpPorts == "1024-1934,1936-60000");
+                });
+
+                // 3) mode=all подставляет кастомные порты в параметры запуска
+                Core.GameMode = "all";
+                Try("gamefilter mode all custom ports", delegate
+                {
+                    Assert(Core.GameMode == "all");
+                    string a = Core.BuildArgs("t.bat");
+                    Assert(a.Contains("--wf-tcp=443,1024-1934,1936-60000"));
+                    Assert(a.Contains("--filter-tcp=1024-50000"));
+                });
+
+                // 4) Сброс в исходное состояние
+                Core.GameMode = "off";
+                Core.GameFilterTcpPorts = "1024-65535";
+                Core.GameFilterUdpPorts = "1024-65535";
             }
             finally
             {
