@@ -40,19 +40,6 @@ namespace ZapretStudio
         {
             Body.Children.Add(SectionLabel(Loc.T("filters.sec.game")));
 
-            var cardPanel = new StackPanel();
-
-            var topRow = new Grid();
-            topRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            topRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-            var left = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            left.Children.Add(UI.T(Loc.T("filters.game"), Theme.FsBody, Theme.BrText, FontWeights.SemiBold));
-            left.Children.Add(new TextBlock { Text = Loc.T("filters.game.desc"), Foreground = Theme.BrMuted,
-                FontSize = Theme.FsSmall, FontFamily = Theme.UiFont, Margin = new Thickness(0, 3, 0, 0),
-                TextWrapping = TextWrapping.Wrap });
-            Grid.SetColumn(left, 0); topRow.Children.Add(left);
-
             _gameMode = Combo(185);
             _gameMode.Items.Add(Loc.T("filters.game.off"));
             _gameMode.Items.Add(Loc.T("filters.game.all"));
@@ -64,83 +51,182 @@ namespace ZapretStudio
                 Core.GameMode = _gameMode.SelectedIndex == 1 ? "all" : _gameMode.SelectedIndex == 2 ? "tcp" : _gameMode.SelectedIndex == 3 ? "udp" : "off";
                 MarkDirty();
             };
-            var modeWrap = new ContentControl { Content = _gameMode, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0) };
-            Grid.SetColumn(modeWrap, 1); topRow.Children.Add(modeWrap);
-            cardPanel.Children.Add(topRow);
+            Body.Children.Add(Row(Loc.T("filters.game"), Loc.T("filters.game.desc"), _gameMode));
+            Body.Children.Add(new Border { Height = 10 });
 
             // Порты и версионный гейтинг (zapret 1.10.3+)
             bool isGated = SettingsPage.CompareVersions(Core.ZapretVersion(), "1.10.3") < 0;
 
-            var portsSection = new StackPanel { Margin = new Thickness(0, 16, 0, 0) };
+            var portsCard = new StackPanel();
+
             if (isGated)
             {
-                var lockSp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 0, 10) };
-                lockSp.Children.Add(new TextBlock
+                var lockGrid = new Grid();
+                lockGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                lockGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var left = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                left.Children.Add(UI.T(Loc.T("filters.game.portsTitle"), Theme.FsBody, Theme.BrText, FontWeights.SemiBold));
+                left.Children.Add(new TextBlock
                 {
                     Text = Loc.T("filters.game.locked"),
                     Foreground = Theme.BrWarn,
                     FontSize = Theme.FsSmall,
                     FontFamily = Theme.UiFont,
                     FontWeight = FontWeights.SemiBold,
-                    VerticalAlignment = VerticalAlignment.Center
+                    Margin = new Thickness(0, 4, 0, 0),
+                    TextWrapping = TextWrapping.Wrap
                 });
+                Grid.SetColumn(left, 0);
+                lockGrid.Children.Add(left);
+
                 var updBtn = Ctl.Button(Loc.T("filters.game.updateEngine"), Icons.Download, 1);
-                updBtn.Margin = new Thickness(10, 0, 0, 0);
                 updBtn.Click += (s, e) => _win.Navigate("updates");
-                lockSp.Children.Add(updBtn);
-                portsSection.Children.Add(lockSp);
+                var rc = new ContentControl { Content = updBtn, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0) };
+                Grid.SetColumn(rc, 1);
+                lockGrid.Children.Add(rc);
+
+                portsCard.Children.Add(lockGrid);
+            }
+            else
+            {
+                var headerGrid = new Grid();
+                headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var titleBox = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                titleBox.Children.Add(UI.T(Loc.T("filters.game.portsTitle"), Theme.FsBody, Theme.BrText, FontWeights.SemiBold));
+                titleBox.Children.Add(new TextBlock
+                {
+                    Text = Loc.T("filters.game.portsDesc"),
+                    Foreground = Theme.BrMuted,
+                    FontSize = Theme.FsSmall,
+                    FontFamily = Theme.UiFont,
+                    Margin = new Thickness(0, 3, 0, 0),
+                    TextWrapping = TextWrapping.Wrap
+                });
+                Grid.SetColumn(titleBox, 0);
+                headerGrid.Children.Add(titleBox);
+
+                var rtmpBtn = Ctl.Button(Loc.T("filters.game.excludeRtmp"), Icons.Filter, 3);
+                rtmpBtn.VerticalAlignment = VerticalAlignment.Center;
+                var rtmpBorder = rtmpBtn.Content as Border;
+                if (rtmpBorder != null)
+                {
+                    rtmpBorder.Height = 32;
+                    rtmpBorder.CornerRadius = Theme.R8;
+                    rtmpBorder.Padding = new Thickness(12, 0, 12, 0);
+                    var sp = rtmpBorder.Child as StackPanel;
+                    if (sp != null)
+                    {
+                        foreach (var ch in sp.Children)
+                        {
+                            var tb = ch as TextBlock;
+                            if (tb != null) { tb.FontSize = Theme.FsSmall; tb.VerticalAlignment = VerticalAlignment.Center; }
+                        }
+                    }
+                }
+                rtmpBtn.Click += (s, e) =>
+                {
+                    _gameTcpPorts.Text = "1024-1934,1936-65535";
+                    Core.GameFilterTcpPorts = "1024-1934,1936-65535";
+                    MarkDirty();
+                };
+                var btnHost = new ContentControl { Content = rtmpBtn, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0) };
+                Grid.SetColumn(btnHost, 1);
+                headerGrid.Children.Add(btnHost);
+
+                portsCard.Children.Add(headerGrid);
+
+                var inputsGrid = new Grid { Margin = new Thickness(0, 14, 0, 0) };
+                inputsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                inputsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
+                inputsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+                var tcpCol = new StackPanel();
+                tcpCol.Children.Add(new TextBlock
+                {
+                    Text = Loc.T("filters.game.portsTcp"),
+                    Foreground = Theme.BrMuted,
+                    FontSize = Theme.FsSmall,
+                    FontFamily = Theme.UiFont,
+                    FontWeight = FontWeights.SemiBold,
+                    Margin = new Thickness(0, 0, 0, 6)
+                });
+                _gameTcpPorts = new TextBox
+                {
+                    Height = 32,
+                    Background = Brushes.Transparent,
+                    BorderThickness = new Thickness(0),
+                    Foreground = Theme.BrText,
+                    CaretBrush = Theme.BrText,
+                    FontSize = Theme.FsSmall,
+                    FontFamily = Theme.MonoFont,
+                    TextAlignment = TextAlignment.Left,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    Padding = new Thickness(10, 0, 10, 0),
+                    Text = Core.GameFilterTcpPorts
+                };
+                _gameTcpPorts.TextChanged += (s, e) => { if (!_syncing) { Core.GameFilterTcpPorts = _gameTcpPorts.Text.Trim(); MarkDirty(); } };
+                var tcpBox = new Border
+                {
+                    Height = 32,
+                    Background = Theme.BrSurfaceAlt,
+                    BorderBrush = Theme.BrStroke,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = Theme.R6,
+                    Child = _gameTcpPorts
+                };
+                _gameTcpPorts.GotFocus += (s, e) => tcpBox.BorderBrush = Theme.BrAccent;
+                _gameTcpPorts.LostFocus += (s, e) => tcpBox.BorderBrush = Theme.BrStroke;
+                tcpCol.Children.Add(tcpBox);
+                Grid.SetColumn(tcpCol, 0);
+                inputsGrid.Children.Add(tcpCol);
+
+                var udpCol = new StackPanel();
+                udpCol.Children.Add(new TextBlock
+                {
+                    Text = Loc.T("filters.game.portsUdp"),
+                    Foreground = Theme.BrMuted,
+                    FontSize = Theme.FsSmall,
+                    FontFamily = Theme.UiFont,
+                    FontWeight = FontWeights.SemiBold,
+                    Margin = new Thickness(0, 0, 0, 6)
+                });
+                _gameUdpPorts = new TextBox
+                {
+                    Height = 32,
+                    Background = Brushes.Transparent,
+                    BorderThickness = new Thickness(0),
+                    Foreground = Theme.BrText,
+                    CaretBrush = Theme.BrText,
+                    FontSize = Theme.FsSmall,
+                    FontFamily = Theme.MonoFont,
+                    TextAlignment = TextAlignment.Left,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    Padding = new Thickness(10, 0, 10, 0),
+                    Text = Core.GameFilterUdpPorts
+                };
+                _gameUdpPorts.TextChanged += (s, e) => { if (!_syncing) { Core.GameFilterUdpPorts = _gameUdpPorts.Text.Trim(); MarkDirty(); } };
+                var udpBox = new Border
+                {
+                    Height = 32,
+                    Background = Theme.BrSurfaceAlt,
+                    BorderBrush = Theme.BrStroke,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = Theme.R6,
+                    Child = _gameUdpPorts
+                };
+                _gameUdpPorts.GotFocus += (s, e) => udpBox.BorderBrush = Theme.BrAccent;
+                _gameUdpPorts.LostFocus += (s, e) => udpBox.BorderBrush = Theme.BrStroke;
+                udpCol.Children.Add(udpBox);
+                Grid.SetColumn(udpCol, 2);
+                inputsGrid.Children.Add(udpCol);
+
+                portsCard.Children.Add(inputsGrid);
             }
 
-            var portsGrid = new Grid { Opacity = isGated ? 0.5 : 1.0, IsEnabled = !isGated };
-            portsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            portsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-            var tcpSp = new StackPanel { Margin = new Thickness(0, 0, 10, 0) };
-            tcpSp.Children.Add(new TextBlock { Text = Loc.T("filters.game.portsTcp"), Foreground = Theme.BrMuted,
-                FontSize = Theme.FsSmall, FontFamily = Theme.UiFont, Margin = new Thickness(0, 0, 0, 4) });
-            _gameTcpPorts = new TextBox
-            {
-                Height = 32, Background = Theme.BrSurfaceAlt, BorderBrush = Theme.BrStroke,
-                BorderThickness = new Thickness(1), Foreground = Theme.BrText, CaretBrush = Theme.BrText,
-                FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont,
-                VerticalContentAlignment = VerticalAlignment.Center, Padding = new Thickness(8, 0, 8, 0),
-                Text = Core.GameFilterTcpPorts
-            };
-            _gameTcpPorts.TextChanged += (s, e) => { if (!_syncing) { Core.GameFilterTcpPorts = _gameTcpPorts.Text.Trim(); MarkDirty(); } };
-            tcpSp.Children.Add(_gameTcpPorts);
-            Grid.SetColumn(tcpSp, 0); portsGrid.Children.Add(tcpSp);
-
-            var udpSp = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
-            udpSp.Children.Add(new TextBlock { Text = Loc.T("filters.game.portsUdp"), Foreground = Theme.BrMuted,
-                FontSize = Theme.FsSmall, FontFamily = Theme.UiFont, Margin = new Thickness(0, 0, 0, 4) });
-            _gameUdpPorts = new TextBox
-            {
-                Height = 32, Background = Theme.BrSurfaceAlt, BorderBrush = Theme.BrStroke,
-                BorderThickness = new Thickness(1), Foreground = Theme.BrText, CaretBrush = Theme.BrText,
-                FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont,
-                VerticalContentAlignment = VerticalAlignment.Center, Padding = new Thickness(8, 0, 8, 0),
-                Text = Core.GameFilterUdpPorts
-            };
-            _gameUdpPorts.TextChanged += (s, e) => { if (!_syncing) { Core.GameFilterUdpPorts = _gameUdpPorts.Text.Trim(); MarkDirty(); } };
-            udpSp.Children.Add(_gameUdpPorts);
-            Grid.SetColumn(udpSp, 1); portsGrid.Children.Add(udpSp);
-
-            portsSection.Children.Add(portsGrid);
-
-            var presetRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0),
-                Opacity = isGated ? 0.5 : 1.0, IsEnabled = !isGated };
-            var rtmpBtn = Ctl.Button(Loc.T("filters.game.excludeRtmp"), Icons.Filter, 3);
-            rtmpBtn.Click += (s, e) =>
-            {
-                _gameTcpPorts.Text = "1024-1934,1936-65535";
-                Core.GameFilterTcpPorts = "1024-1934,1936-65535";
-                MarkDirty();
-            };
-            presetRow.Children.Add(rtmpBtn);
-            portsSection.Children.Add(presetRow);
-
-            cardPanel.Children.Add(portsSection);
-            Body.Children.Add(UI.Card(cardPanel, new Thickness(16, 14, 16, 14)));
+            Body.Children.Add(UI.Card(portsCard, new Thickness(16, 14, 16, 14)));
         }
 
         void BuildIpset()

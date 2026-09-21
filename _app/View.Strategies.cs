@@ -14,21 +14,25 @@ namespace ZapretStudio
         public override string Subtitle { get { return Loc.T("strategies.sub"); } }
 
         readonly MainWindow _win;
-        TextBox _search;
         WrapPanel _list;
-        string _filterCat = "all";
         HashSet<string> _fav = new HashSet<string>();
         const double MinCardW = 250, Gap = 12;
-        StackPanel _catBar;
 
         public StrategiesPage(MainWindow win)
         {
             _win = win;
             LoadFav();
             var hint = NoteCard(Icons.Info, Theme.BrAccent, Loc.T("strat.pickHint"), Sev.Info);
-            hint.Margin = new Thickness(0, 0, 0, 12);
+            hint.Margin = new Thickness(0, 0, 0, 10);
             Body.Children.Add(hint);
-            BuildToolbar();
+
+            // Рекомендация по провайдеру
+            var recBtn = Ctl.Button(Loc.T("strat.recommend"), Icons.Bolt, 1);
+            recBtn.HorizontalAlignment = HorizontalAlignment.Left;
+            recBtn.Margin = new Thickness(0, 0, 0, 12);
+            recBtn.Click += (s, e) => DoRecommend();
+            Body.Children.Add(recBtn);
+
             _list = new WrapPanel();
             _list.SizeChanged += (s, e) => { if (Math.Abs(e.PreviousSize.Width - e.NewSize.Width) > 1) Relayout(); };
             Body.Children.Add(_list);
@@ -145,96 +149,10 @@ namespace ZapretStudio
             });
         }
 
-        void BuildToolbar()
-        {
-            var g = new Grid { Margin = new Thickness(0, 0, 0, 8) };
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-            // поиск
-            var sb = new Border { Background = Theme.BrSurface, BorderBrush = Theme.BrStroke,
-                BorderThickness = new Thickness(1), CornerRadius = Theme.R10, Padding = new Thickness(12, 0, 12, 0) };
-            // Grid, а не StackPanel с фиксированной шириной поля: на узком окне
-            // (1000 px) поле ввода в 260 px не влезало в свою колонку, и правый
-            // край поля вместе с текстом обрезался рамкой.
-            var sg = new Grid();
-            sg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            sg.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            var sicon = UI.Icon(Icons.Search, 16, Theme.BrMuted, 1.8);
-            Grid.SetColumn(sicon, 0);
-            sg.Children.Add(sicon);
-            _search = new TextBox { BorderThickness = new Thickness(0), Background = Brushes.Transparent,
-                Foreground = Theme.BrText, CaretBrush = Theme.BrText, FontSize = Theme.FsBody, FontFamily = Theme.UiFont,
-                MinWidth = 80, VerticalContentAlignment = VerticalAlignment.Center, Height = 38, Margin = new Thickness(8, 0, 0, 0) };
-            Grid.SetColumn(_search, 1);
-            Ctl.AutomationSetName(_search, Loc.T("strat.search"));
-            _search.TextChanged += (s, e) => Rebuild();
-            _search.GotFocus += (s, e) => sb.BorderBrush = Theme.BrAccent;
-            _search.LostFocus += (s, e) => sb.BorderBrush = Theme.BrStroke;
-            sb.MouseEnter += (s, e) => { if (!_search.IsFocused) sb.BorderBrush = Theme.BrSurfaceHi; };
-            sb.MouseLeave += (s, e) => { if (!_search.IsFocused) sb.BorderBrush = Theme.BrStroke; };
-            sg.Children.Add(_search);
-            sb.Child = sg;
-            Grid.SetColumn(sb, 0);
-            g.Children.Add(sb);
-
-            // фильтр по категории — внутренний ключ + локализованная подпись
-            var cats = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            cats.Children.Add(CatChip("all", Loc.T("strat.all")));
-            cats.Children.Add(CatChip("General", "General"));
-            cats.Children.Add(CatChip("ALT", "ALT"));
-            cats.Children.Add(CatChip("FAKE", "FAKE"));
-            cats.Children.Add(CatChip("SIMPLE", "SIMPLE"));
-            cats.Children.Add(CatChip("fav", Loc.T("strat.favorites")));
-            _catBar = cats;
-            Grid.SetColumn(cats, 1);
-            g.Children.Add(cats);
-            Body.Children.Add(g);
-
-            // Рекомендация по провайдеру
-            var recBtn = Ctl.Button(Loc.T("strat.recommend"), Icons.Bolt, 1);
-            recBtn.Margin = new Thickness(0, 0, 0, 10);
-            recBtn.Click += (s, e) => DoRecommend();
-            Body.Children.Add(recBtn);
-        }
-
-        Button CatChip(string cat, string label)
-        {
-            var b = new Button { Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(6, 0, 0, 0) };
-            Ctl.StripChrome(b);
-            var bd = new Border { CornerRadius = Theme.R8, Padding = new Thickness(12, 6, 12, 6),
-                BorderThickness = new Thickness(1) };
-            var tb = new TextBlock { Text = label, FontSize = Theme.FsSmall, FontFamily = Theme.UiFont, FontWeight = FontWeights.SemiBold };
-            bd.Child = tb;
-            b.Content = bd;
-            Action paint = delegate {
-                bool on = _filterCat == cat;
-                bd.Background = on ? Theme.BrAccent : Theme.BrSurface;
-                bd.BorderBrush = on ? Theme.BrAccent : Theme.BrStroke;
-                tb.Foreground = on ? Theme.BrOnAccent : Theme.BrMuted;
-            };
-            paint();
-            b.Tag = paint;
-            b.Click += (s, e) => { _filterCat = cat; RepaintChips(); Rebuild(); };
-            Ctl.AutomationSetName(b, Loc.T("strat.filterPrefix") + label);
-            return b;
-        }
-
-        void RepaintChips()
-        {
-            if (_catBar == null) return;
-            foreach (var child in _catBar.Children)
-            {
-                var b = child as Button;
-                if (b != null && b.Tag is Action) ((Action)b.Tag)();
-            }
-        }
-
         public void Rebuild()
         {
             _list.Children.Clear();
             var files = Core.GetStrategyFiles();
-            string q = (_search.Text ?? "").Trim().ToLowerInvariant();
             string current = _win.CurrentStrategyFile();
             int shown = 0;
 
@@ -242,9 +160,6 @@ namespace ZapretStudio
             {
                 string name = Core.PrettyName(f);
                 string cat = Core.CategoryOf(f);
-                if (_filterCat == "fav" && !_fav.Contains(f)) continue;
-                else if (_filterCat != "all" && _filterCat != "fav" && cat != _filterCat) continue;
-                if (q.Length > 0 && name.ToLowerInvariant().IndexOf(q) < 0) continue;
                 _list.Children.Add(StrategyCard(f, name, cat, f == current));
                 shown++;
             }
@@ -449,10 +364,29 @@ namespace ZapretStudio
         Border CatBadge(string cat)
         {
             Color c = cat == "FAKE" ? Theme.AccentMain : cat == "ALT" ? Theme.Warn : Theme.TextMuted;
-            var tb = new TextBlock { Text = cat, FontSize = Theme.FsTiny, FontFamily = Theme.UiFont,
-                FontWeight = FontWeights.SemiBold, Foreground = Theme.Frozen(c) };
-            return new Border { Background = Theme.Alpha(c, 26), BorderBrush = Theme.Alpha(c, 80),
-                BorderThickness = new Thickness(1), CornerRadius = Theme.R6, Padding = new Thickness(8, 2, 8, 2), Child = tb };
+            var tb = new TextBlock
+            {
+                Text = cat,
+                FontSize = Theme.FsTiny,
+                FontFamily = Theme.UiFont,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Theme.Frozen(c),
+                VerticalAlignment = VerticalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
+                LineHeight = double.NaN,
+                Margin = new Thickness(0, 2, 0, 0)
+            };
+            return new Border
+            {
+                Background = Theme.Alpha(c, 26),
+                BorderBrush = Theme.Alpha(c, 80),
+                BorderThickness = new Thickness(1),
+                CornerRadius = Theme.R6,
+                Height = 20,
+                Padding = new Thickness(8, 0, 8, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = tb
+            };
         }
     }
 }

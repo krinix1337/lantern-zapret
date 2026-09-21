@@ -826,7 +826,7 @@ namespace ZapretStudio
             if (_pages.TryGetValue("updates", out updatesPage))
             {
                 var updates = updatesPage as UpdatesPage;
-                if (updates != null)
+                if (updates != null && _haveUpdateResults)
                     updates.SetAutomaticUpdateResults(_lastZapretLatest, _lastZapretLocal,
                         _lastTgLatest, _lastTgLocal, _lastAppLatest, Core.AppVersion);
             }
