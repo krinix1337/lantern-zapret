@@ -73,17 +73,18 @@ namespace ZapretStudio
                 BorderThickness = new Thickness(1),
                 CornerRadius = Theme.R10,
                 Padding = new Thickness(4),
-                HorizontalAlignment = HorizontalAlignment.Left,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
                 Margin = new Thickness(0, 0, 0, 16)
             };
 
             _tabBar = new WrapPanel();
-            _tabBar.Children.Add(TabButton("targets", Icons.List, Loc.T("check.tab.targets")));
-            _tabBar.Children.Add(TabButton("popular", Icons.Globe, Loc.T("check.tab.popular")));
-            _tabBar.Children.Add(TabButton("games", Icons.Game, Loc.T("check.tab.games")));
-            _tabBar.Children.Add(TabButton("strats", Icons.Bolt, Loc.T("check.tab.strats")));
-            _tabBar.Children.Add(TabButton("diag", Icons.Tool, Loc.T("check.tab.diag")));
-            barContainer.Child = _tabBar;
+            var tabs = new StackPanel { Orientation = Orientation.Horizontal };
+            tabs.Children.Add(TabButton("targets", Icons.List, Loc.T("check.tab.targets")));
+            tabs.Children.Add(TabButton("popular", Icons.Globe, Loc.T("check.tab.popular")));
+            tabs.Children.Add(TabButton("games", Icons.Game, Loc.T("check.tab.games")));
+            tabs.Children.Add(TabButton("strats", Icons.Bolt, Loc.T("check.tab.strats")));
+            tabs.Children.Add(TabButton("diag", Icons.Tool, Loc.T("check.tab.diag")));
+            barContainer.Child = tabs;
             Body.Children.Add(barContainer);
         }
 
@@ -165,26 +166,26 @@ namespace ZapretStudio
         {
             var panel = new StackPanel();
 
-            // Панель инструментов
-            var wrap = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
+            // Панель инструментов — единая строка
+            var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
             _btnAll = Ctl.Button(Loc.T("check.checkAll"), Icons.Pulse, 0);
-            _btnAll.Margin = new Thickness(0, 0, 10, 10);
+            _btnAll.Margin = new Thickness(0, 0, 8, 0);
             _btnAll.Click += (s, e) => Start(false);
             _btnSel = Ctl.Button(Loc.T("check.checkSel"), Icons.Check, 1);
-            _btnSel.Margin = new Thickness(0, 0, 10, 10);
+            _btnSel.Margin = new Thickness(0, 0, 8, 0);
             _btnSel.Click += (s, e) => Start(true);
             _btnStop = Ctl.Button(Loc.T("common.stop"), Icons.Stop, 2);
-            _btnStop.Margin = new Thickness(0, 0, 10, 10);
+            _btnStop.Margin = new Thickness(0, 0, 8, 0);
             _btnStop.IsEnabled = false;
             _btnStop.Click += (s, e) => { _stop = true; };
-            _btnExport = Ctl.Button(Loc.T("check.export"), Icons.Save, 3);
-            _btnExport.Margin = new Thickness(0, 0, 10, 10);
+            _btnExport = Ctl.Button(Loc.T("check.export"), Icons.Save, 1);
+            _btnExport.Margin = new Thickness(0);
             _btnExport.Click += (s, e) => Export();
-            wrap.Children.Add(_btnAll);
-            wrap.Children.Add(_btnSel);
-            wrap.Children.Add(_btnStop);
-            wrap.Children.Add(_btnExport);
-            panel.Children.Add(wrap);
+            toolbar.Children.Add(_btnAll);
+            toolbar.Children.Add(_btnSel);
+            toolbar.Children.Add(_btnStop);
+            toolbar.Children.Add(_btnExport);
+            panel.Children.Add(toolbar);
 
             _groups = new StackPanel();
             panel.Children.Add(_groups);
@@ -1239,7 +1240,7 @@ namespace ZapretStudio
 
             panel.Children.Add(new Border { Height = 14 });
 
-            // 3. Параметры системы и окружения (RunDiagnostics с кнопками авто-исправления)
+            // 3. Параметры системы и окружения — загружаем АСИНХРОННО, чтобы вкладка открывалась мгновенно
             var envHeader = new Grid();
             envHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             envHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -1254,18 +1255,63 @@ namespace ZapretStudio
             panel.Children.Add(envHeader);
 
             var diagListPanel = new StackPanel();
+
+            // Плейсхолдер загрузки
+            var loadingText = new TextBlock
+            {
+                Text = Loc.T("check.diag.loading"),
+                Foreground = Theme.BrMuted,
+                FontSize = Theme.FsBody,
+                FontFamily = Theme.UiFont,
+                Margin = new Thickness(2, 4, 0, 12)
+            };
+            diagListPanel.Children.Add(loadingText);
+
+            // Асинхронная загрузка диагностики
             Action refreshDiagList = null;
             refreshDiagList = delegate
             {
                 diagListPanel.Children.Clear();
-                var items = Core.RunDiagnostics();
-                foreach (var it in items)
+                var spinner = new TextBlock
                 {
-                    diagListPanel.Children.Add(DiagRow(it, delegate { if (refreshDiagList != null) refreshDiagList(); }));
-                }
+                    Text = Loc.T("check.diag.loading"),
+                    Foreground = Theme.BrMuted,
+                    FontSize = Theme.FsBody,
+                    FontFamily = Theme.UiFont,
+                    Margin = new Thickness(2, 4, 0, 12)
+                };
+                diagListPanel.Children.Add(spinner);
+                diagRefreshBtn.IsEnabled = false;
+                ThreadPool.QueueUserWorkItem(delegate
+                {
+                    var items = Core.RunDiagnostics();
+                    Dispatcher.Invoke((Action)delegate
+                    {
+                        diagListPanel.Children.Clear();
+                        foreach (var it in items)
+                        {
+                            diagListPanel.Children.Add(DiagRow(it, delegate { if (refreshDiagList != null) refreshDiagList(); }));
+                        }
+                        diagRefreshBtn.IsEnabled = true;
+                    });
+                });
             };
             diagRefreshBtn.Click += (s, e) => refreshDiagList();
-            refreshDiagList();
+
+            // Первая загрузка — асинхронно
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                var items = Core.RunDiagnostics();
+                Dispatcher.Invoke((Action)delegate
+                {
+                    diagListPanel.Children.Clear();
+                    foreach (var it in items)
+                    {
+                        diagListPanel.Children.Add(DiagRow(it, delegate { if (refreshDiagList != null) refreshDiagList(); }));
+                    }
+                });
+            });
+
             panel.Children.Add(diagListPanel);
 
             return panel;
