@@ -78,23 +78,28 @@ namespace ZapretStudio
             };
 
             _tabBar = new WrapPanel();
-            var tabs = new StackPanel { Orientation = Orientation.Horizontal };
-            tabs.Children.Add(TabButton("targets", Icons.List, Loc.T("check.tab.targets")));
-            tabs.Children.Add(TabButton("popular", Icons.Globe, Loc.T("check.tab.popular")));
-            tabs.Children.Add(TabButton("games", Icons.Game, Loc.T("check.tab.games")));
-            tabs.Children.Add(TabButton("strats", Icons.Bolt, Loc.T("check.tab.strats")));
-            tabs.Children.Add(TabButton("diag", Icons.Tool, Loc.T("check.tab.diag")));
+            var tabs = new Grid();
+            for (int i = 0; i < 5; i++)
+                tabs.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var t0 = TabButton("targets", Icons.List, Loc.T("check.tab.targets")); Grid.SetColumn(t0, 0); tabs.Children.Add(t0);
+            var t1 = TabButton("popular", Icons.Globe, Loc.T("check.tab.popular")); Grid.SetColumn(t1, 1); tabs.Children.Add(t1);
+            var t2 = TabButton("games", Icons.Game, Loc.T("check.tab.games"));      Grid.SetColumn(t2, 2); tabs.Children.Add(t2);
+            var t3 = TabButton("strats", Icons.Bolt, Loc.T("check.tab.strats"));    Grid.SetColumn(t3, 3); tabs.Children.Add(t3);
+            var t4 = TabButton("diag", Icons.Tool, Loc.T("check.tab.diag"));        Grid.SetColumn(t4, 4); tabs.Children.Add(t4);
+
             barContainer.Child = tabs;
             Body.Children.Add(barContainer);
         }
 
         Button TabButton(string key, string icon, string label)
         {
-            var b = new Button { Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(0, 0, 4, 0) };
+            var b = new Button { Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(0, 0, 4, 0),
+                HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
             Ctl.StripChrome(b);
             var bd = new Border { CornerRadius = Theme.R8, Padding = new Thickness(12, 7, 12, 7),
                 Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(0) };
-            var sp = new StackPanel { Orientation = Orientation.Horizontal };
+            var sp = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
             var ic = UI.Icon(icon, 15, Theme.BrMuted, 1.8);
             ic.VerticalAlignment = VerticalAlignment.Center;
             sp.Children.Add(ic);
