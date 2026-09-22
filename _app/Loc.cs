@@ -42,6 +42,10 @@ namespace ZapretStudio
             A("common.settings",  "Настройки",    "Settings");
             A("common.checkUpdates","Проверить обновления","Check for updates");
             A("common.button",    "кнопка",       "button");
+            A("common.ok",        "В норме",      "OK");
+            A("common.warning",   "Внимание",     "Warning");
+            A("common.error",     "Ошибка",       "Error");
+            A("common.info",      "Инфо",         "Info");
             A("mw.verLine",     "Версия zapret: {0}",  "zapret version: {0}");
             A("mw.verCurrent",  "Версия zapret: {0} — актуально", "zapret version: {0} — up to date");
             A("mw.verUpdate",   "Версия zapret: {0} — есть обновление", "zapret version: {0} — update available");

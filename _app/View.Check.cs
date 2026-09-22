@@ -1246,18 +1246,12 @@ namespace ZapretStudio
             panel.Children.Add(new Border { Height = 14 });
 
             // 3. Параметры системы и окружения — загружаем АСИНХРОННО, чтобы вкладка открывалась мгновенно
-            var envHeader = new Grid();
-            envHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            envHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var envLabel = SectionLabel(Loc.T("check.diag.sub"));
-            Grid.SetColumn(envLabel, 0);
-            envHeader.Children.Add(envLabel);
+            panel.Children.Add(SectionLabel(Loc.T("check.diag.sub")));
 
             var diagRefreshBtn = Ctl.Button(Loc.T("check.diag.run"), Icons.Refresh, 1);
-            diagRefreshBtn.VerticalAlignment = VerticalAlignment.Center;
-            Grid.SetColumn(diagRefreshBtn, 1);
-            envHeader.Children.Add(diagRefreshBtn);
-            panel.Children.Add(envHeader);
+            diagRefreshBtn.HorizontalAlignment = HorizontalAlignment.Left;
+            diagRefreshBtn.Margin = new Thickness(0, 0, 0, 12);
+            panel.Children.Add(diagRefreshBtn);
 
             var diagListPanel = new StackPanel();
 
@@ -1304,6 +1298,7 @@ namespace ZapretStudio
             diagRefreshBtn.Click += (s, e) => refreshDiagList();
 
             // Первая загрузка — асинхронно
+            diagRefreshBtn.IsEnabled = false;
             ThreadPool.QueueUserWorkItem(delegate
             {
                 var items = Core.RunDiagnostics();
@@ -1314,6 +1309,7 @@ namespace ZapretStudio
                     {
                         diagListPanel.Children.Add(DiagRow(it, delegate { if (refreshDiagList != null) refreshDiagList(); }));
                     }
+                    diagRefreshBtn.IsEnabled = true;
                 });
             });
 
