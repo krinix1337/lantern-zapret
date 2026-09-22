@@ -173,9 +173,9 @@ namespace ZapretStudio
             A("check.diag.dpiFreezeDetectedDetail", "Обрыв после {0} КБ: {1} (активен DPI Freeze)", "Dropped after {0} KB: {1} (DPI Freeze active)");
             A("check.diag.dpiFreezeNoConn", "Не удалось подключиться: {0}", "Connection failed: {0}");
             A("check.diag.dpiFreezeTesting", "Тестирование потока...", "Testing stream...");
-            A("check.checkAll",    "Проверить все",          "Check all");
-            A("check.checkSel",    "Проверить выбранные",    "Check selected");
-            A("check.export",      "Экспорт результатов",    "Export results");
+            A("check.checkAll",    "Проверить все",     "Check all");
+            A("check.checkSel",    "Выбранные",         "Selected");
+            A("check.export",      "Экспорт",           "Export");
             A("check.strat.run",   "Проверить эту стратегию","Test this strategy");
             A("check.strat.hint",  "Каждая стратегия запускается на короткое время, затем проверяется доступность выбранных адресов. Требуются права администратора.", "Each strategy is started briefly, then the chosen hosts are re-checked. Administrator rights required.");
             A("settings.theme",       "Тема оформления", "Theme");

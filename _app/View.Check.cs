@@ -171,20 +171,20 @@ namespace ZapretStudio
         {
             var panel = new StackPanel();
 
-            // Панель инструментов — единая строка
-            var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
+            // Панель инструментов
+            var toolbar = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
             _btnAll = Ctl.Button(Loc.T("check.checkAll"), Icons.Pulse, 0);
-            _btnAll.Margin = new Thickness(0, 0, 8, 0);
+            _btnAll.Margin = new Thickness(0, 0, 8, 6);
             _btnAll.Click += (s, e) => Start(false);
             _btnSel = Ctl.Button(Loc.T("check.checkSel"), Icons.Check, 1);
-            _btnSel.Margin = new Thickness(0, 0, 8, 0);
+            _btnSel.Margin = new Thickness(0, 0, 8, 6);
             _btnSel.Click += (s, e) => Start(true);
             _btnStop = Ctl.Button(Loc.T("common.stop"), Icons.Stop, 2);
-            _btnStop.Margin = new Thickness(0, 0, 8, 0);
+            _btnStop.Margin = new Thickness(0, 0, 8, 6);
             _btnStop.IsEnabled = false;
             _btnStop.Click += (s, e) => { _stop = true; };
             _btnExport = Ctl.Button(Loc.T("check.export"), Icons.Save, 1);
-            _btnExport.Margin = new Thickness(0);
+            _btnExport.Margin = new Thickness(0, 0, 0, 6);
             _btnExport.Click += (s, e) => Export();
             toolbar.Children.Add(_btnAll);
             toolbar.Children.Add(_btnSel);
