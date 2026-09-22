@@ -73,7 +73,7 @@ namespace ZapretStudio
                 BorderThickness = new Thickness(1),
                 CornerRadius = Theme.R10,
                 Padding = new Thickness(4),
-                HorizontalAlignment = HorizontalAlignment.Left,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
                 Margin = new Thickness(0, 0, 0, 16)
             };
 

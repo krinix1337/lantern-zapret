@@ -654,15 +654,16 @@ namespace ZapretStudio
     static class Ctl
     {
         // kind: 0=primary,1=ghost,2=danger,3=subtle
+        // Единый фон для всех — различия только в цвете текста/иконки и рамки.
         public static Button Button(string text, string iconData, int kind)
         {
-            Brush bg, fg, brd;
+            Brush bg = Theme.Alpha(Theme.Text, 8);
+            Brush fg, brd;
             switch (kind)
             {
-                case 0: bg = Theme.Alpha(Theme.AccentMain, 18); fg = Theme.BrAccent; brd = Theme.Alpha(Theme.AccentMain, 90); break;
-                case 2: bg = Theme.Alpha(Theme.Err, 14); fg = Theme.BrErr; brd = Theme.Alpha(Theme.Err, 70); break;
-                case 3: bg = Theme.BrSurfaceAlt; fg = Theme.BrText; brd = Theme.BrStroke; break;
-                default: bg = Theme.Alpha(Theme.Text, 8); fg = Theme.BrText; brd = Theme.BrStroke; break;
+                case 0:  fg = Theme.BrAccent; brd = Theme.BrStroke; break;
+                case 2:  fg = Theme.BrErr;    brd = Theme.BrStroke; break;
+                default: fg = Theme.BrText;   brd = Theme.BrStroke; break;
             }
 
             var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center,
@@ -790,13 +791,7 @@ namespace ZapretStudio
 
         static Brush Hover(Brush baseBg, int kind)
         {
-            switch (kind)
-            {
-                case 0: return Theme.Alpha(Theme.AccentMain, 38);
-                case 2: return Theme.Alpha(Theme.Err, 32);
-                case 3: return Theme.BrSurfaceHi;
-                default: return Theme.Alpha(Theme.Text, 20);
-            }
+            return Theme.Alpha(Theme.Text, 20);
         }
 
         public static void StripChrome(Button b)
