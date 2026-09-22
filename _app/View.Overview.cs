@@ -278,8 +278,8 @@ namespace ZapretStudio
             // запуску», «Не установлена») обрезалась. Теперь при нехватке места
             // строка переносится на два ряда по две карточки.
             var g = new CellRow { MinCell = 178, Gap = 12 };
-            _cDiscord = MiniCard("Discord", Icons.Dot);
-            _cYouTube = MiniCard("YouTube", Icons.Play);
+            _cDiscord = MiniCard("Discord", Icons.Discord);
+            _cYouTube = MiniCard("YouTube", Icons.YouTube);
             _cDivert = MiniCard("WinDivert", Icons.Shield);
             _cService = MiniCard(Loc.T("ov.card.service"), Icons.Server);
             g.Children.Add(_cDiscord); g.Children.Add(_cYouTube); g.Children.Add(_cDivert); g.Children.Add(_cService);
