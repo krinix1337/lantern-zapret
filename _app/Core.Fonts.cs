@@ -126,21 +126,29 @@ namespace ZapretStudio
         public static bool ConfigureUiFontsFromCache()
         {
             if (string.IsNullOrEmpty(Root)) return false;
-            if (!FamilyFilesMatch(DefaultFontFamily)) return false;
             var active = ResolveUiFontFamily();
+            // Выбранный шрифт уже на диске — применяем сразу, даже если дефолтное
+            // семейство почему-то отсутствует. Раньше проверка дефолта стояла
+            // первой, и при его неполном кэше интерфейс до докачки оставался
+            // системным, хотя выбранный шрифт лежал рядом.
+            if (active.Key != DefaultFontFamily.Key && FamilyFilesMatch(active))
+                return Theme.ConfigureDownloadedFonts(FontsDir, active.Title);
+            if (!FamilyFilesMatch(DefaultFontFamily)) return false;
             // Выбранного семейства нет на диске (снесли utils\fonts) — до докачки
             // показываем дефолт; фоном его вернёт EnsureUiFonts.
-            if (active.Key != DefaultFontFamily.Key && !FamilyFilesMatch(active))
-                active = DefaultFontFamily;
-            return Theme.ConfigureDownloadedFonts(FontsDir, active.Title);
+            return Theme.ConfigureDownloadedFonts(FontsDir, DefaultFontFamily.Title);
         }
 
         public static void EnsureUiFontsInBackground()
         {
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
-                try { EnsureUiFonts(); }
-                catch (Exception ex) { Fail("EnsureUiFontsInBackground: " + ex.Message); }
+                for (int attempt = 0; attempt < 2; attempt++)
+                {
+                    try { if (EnsureUiFonts()) return; }
+                    catch (Exception ex) { Fail("EnsureUiFontsInBackground: " + ex.Message); }
+                    if (attempt == 0) System.Threading.Thread.Sleep(3000);
+                }
             });
         }
 
@@ -159,62 +167,104 @@ namespace ZapretStudio
                 try { Directory.CreateDirectory(FontsDir); }
                 catch { return false; }
 
-                // Качаем сразу все семейства: выбор в настройках потом
-                // применяется мгновенно, без фоновой докачки.
-                bool allReady = true;
-                foreach (var fam in FontFamilies)
+                bool downloaded = false;
+                var requested = ResolveUiFontFamily();
+
+                // Сначала — только то семейство, которое нужно показать сейчас.
+                // Раньше качались все 5 семейств, и интерфейс оставался системным,
+                // пока не докачается последний файл: на первом запуске это заметно.
+                var first = requested;
+                bool firstReady = FamilyFilesMatch(first);
+                bool needApply = false;
+                if (!firstReady)
                 {
-                    foreach (var asset in fam.Assets)
+                    if (DownloadFamily(first, ref downloaded) && FamilyFilesMatch(first))
                     {
-                        string destination = Path.Combine(FontsDir, asset.Name);
-                        if (FileMatches(destination, asset.Sha256)) continue;
-
-                        allReady = false;
-                        try { if (File.Exists(destination)) File.Delete(destination); }
-                        catch { return false; }
-
-                        if (!DownloadFile(asset.Url, destination, null, null) || !FileMatches(destination, asset.Sha256))
+                        firstReady = true;
+                        needApply = true;
+                    }
+                    else if (first.Key != DefaultFontFamily.Key)
+                    {
+                        first = DefaultFontFamily;
+                        firstReady = FamilyFilesMatch(first);
+                        if (!firstReady && DownloadFamily(first, ref downloaded) && FamilyFilesMatch(first))
                         {
-                            try { if (File.Exists(destination)) File.Delete(destination); }
-                            catch { }
-                            Warn(string.Format(Loc.T("fonts.dlFail"), asset.Name));
-                            return false;
+                            firstReady = true;
+                            needApply = true;
                         }
                     }
                 }
+                if (!firstReady) return false;
 
-                // Активное семейство могли переключить, пока качалось: применяем
-                // то, что стоит в конфиге сейчас (недоступное — дефолт).
-                var cur = ResolveUiFontFamily();
-                if (!FamilyFilesMatch(cur)) cur = DefaultFontFamily;
-                string curTitle = cur.Title;
+                bool configured = true;
+                if (needApply) configured = ApplyFamilyOnUi(first);
 
-                bool configured = false;
+                // Остальные семейства — фоном, чтобы переключение в настройках
+                // потом было мгновенным; их сбой не отменяет уже показанный шрифт.
+                foreach (var fam in FontFamilies)
+                {
+                    if (fam.Key == first.Key) continue;
+                    if (FamilyFilesMatch(fam)) continue;
+                    DownloadFamily(fam, ref downloaded);
+                }
+
+                // Пока качали, выбранное семейство могло догрузиться после
+                // временного фолбэка на дефолт — применяем уже его.
+                if (requested.Key != first.Key && FamilyFilesMatch(requested))
+                    configured = ApplyFamilyOnUi(requested) || configured;
+
+                if (configured && downloaded) Info(Loc.T("fonts.downloaded"));
+                // Если удалось показать только дефолт вместо выбранного шрифта,
+                // возвращаем false: фоновый вызов повторит загрузку выбранного.
+                return configured && FamilyFilesMatch(requested);
+            }
+        }
+
+        static bool DownloadFamily(UiFontFamily family, ref bool downloaded)
+        {
+            if (family == null) return false;
+            foreach (var asset in family.Assets)
+            {
+                string destination = Path.Combine(FontsDir, asset.Name);
+                if (FileMatches(destination, asset.Sha256)) continue;
+
+                downloaded = true;
+                try { if (File.Exists(destination)) File.Delete(destination); }
+                catch { return false; }
+
+                if (!DownloadFile(asset.Url, destination, null, null) || !FileMatches(destination, asset.Sha256))
+                {
+                    try { if (File.Exists(destination)) File.Delete(destination); }
+                    catch { }
+                    Warn(string.Format(Loc.T("fonts.dlFail"), asset.Name));
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        static bool ApplyFamilyOnUi(UiFontFamily family)
+        {
+            bool configured = false;
+            try
+            {
                 var app = System.Windows.Application.Current;
                 if (app != null && app.Dispatcher != null)
                 {
-                    // №59 осознанно оставлен синхронный Invoke, а не BeginInvoke, как
-                    // предлагало ТЗ: результат ConfigureDownloadedFonts возвращается
-                    // наружу, а FontFamily пересоздаётся в диспетчере из-за аффинитети
-                    // UI-объектов. Deadlock при этом невозможен: из UI-потока Invoke
-                    // выполняется inline (CheckAccess == true), а фоновый поток,
-                    // дождавшийся ответа, ничему в UI не блокирует.
+                    // №59: синхронный Invoke — FontFamily создаётся в UI-потоке.
                     app.Dispatcher.Invoke((Action)delegate
                     {
-                        configured = Theme.ConfigureDownloadedFonts(FontsDir, curTitle);
-                        if (configured && !allReady)
-                        {
-                            Theme.Apply(Theme.Mode);
-                        }
+                        configured = Theme.ConfigureDownloadedFonts(FontsDir, family.Title);
+                        if (configured) Theme.Apply(Theme.Mode);
                     });
                 }
                 else
                 {
-                    configured = Theme.ConfigureDownloadedFonts(FontsDir, curTitle);
+                    configured = Theme.ConfigureDownloadedFonts(FontsDir, family.Title);
                 }
-                if (configured && !allReady) Info(Loc.T("fonts.downloaded"));
-                return configured;
             }
+            catch (Exception ex) { Warn("font apply: " + ex.Message); }
+            return configured;
         }
 
         // Смена шрифта интерфейса из настроек: пишем конфиг; если файлы уже на

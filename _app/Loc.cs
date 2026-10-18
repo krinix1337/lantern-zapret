@@ -559,6 +559,10 @@ namespace ZapretStudio
             A("updates.history", "История обновлений", "Release history");
             A("updates.history.loading", "Загрузка релизов...", "Loading releases...");
             A("updates.history.unavailable", "GitHub не отвечает: вероятно, исчерпан лимит запросов или перекрыт api.github.com. Откройте страницу релизов в браузере.", "GitHub is not responding - the API rate limit may be exhausted or api.github.com is blocked. Open the releases page in a browser.");
+            A("updates.apiLimit", "GitHub временно ограничил запросы (лимит API).", "GitHub temporarily rate-limited requests (API limit).");
+            A("updates.apiLimitUntil", "GitHub ограничил запросы до {0}.", "GitHub rate-limited requests until {0}.");
+            A("updates.apiHttp", "GitHub ответил HTTP {0}.", "GitHub returned HTTP {0}.");
+            A("updates.apiUnavailable", "GitHub не отвечает — проверьте сеть.", "GitHub is not responding - check the network.");
             A("updates.history.empty", "Последних релизов нет.", "No recent releases.");
             A("updates.history.noNotes", "Без описания.", "No description.");
             A("updates.history.all", "Показать все релизы", "Show all releases");
@@ -566,6 +570,7 @@ namespace ZapretStudio
             A("updates.installed", "Установлен", "Installed");
             A("updates.downloadNow", "Скачать", "Download");
             A("updates.status.unknown", "Не определено", "Unknown");
+            A("updates.checkUnavailable", "Проверка недоступна", "Check unavailable");
             A("updates.notInstalled.engine", "Компоненты zapret не найдены", "zapret components not found");
             A("updates.notInstalled.app", "Приложение не найдено", "App not found");
             A("updates.integrity.check", "Проверить файлы", "Check files");
@@ -642,8 +647,9 @@ namespace ZapretStudio
             A("about.sec.integrity","Проверка целостности", "Integrity check");
             A("about.verify",     "Проверить SHA-256", "Verify SHA-256");
             A("about.checksums",  "Контрольные суммы файлов", "File checksums");
-            A("about.checksums.desc","Сверяет ключевые файлы с SHA256SUMS.txt из поставки. Помогает убедиться, что файлы не подменены.", "Compares key files against the bundled SHA256SUMS.txt. Helps confirm files were not tampered with.");
+            A("about.checksums.desc","Проверяет обязательные файлы движка; если в поставке есть SHA256SUMS.txt, сверяет и хэши bin/.", "Checks required engine files; if the package includes SHA256SUMS.txt, also verifies bin/ hashes.");
             A("about.sums.absent","Файл SHA256SUMS.txt не найден в папке zapret.", "SHA256SUMS.txt not found in the zapret folder.");
+            A("about.sums.noManifest","SHA256SUMS.txt не входит в поставку Flowseal — проверены обязательные файлы движка (проблем: {0}).", "SHA256SUMS.txt is not included by Flowseal — required engine files were checked (problems: {0}).");
             A("about.sums.missing","файл отсутствует", "file missing");
             A("about.sums.match", "совпадает", "matches");
             A("about.sums.mismatch","НЕ совпадает", "does NOT match");

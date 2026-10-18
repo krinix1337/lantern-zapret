@@ -252,7 +252,17 @@ namespace ZapretStudio
             string sumsFile = System.IO.Path.Combine(Core.Root, "SHA256SUMS.txt");
             if (!System.IO.File.Exists(sumsFile))
             {
-                _sumResult.Children.Add(Warn(Loc.T("about.sums.absent")));
+                // Апстрим Flowseal не кладёт SHA256SUMS.txt в архив движка:
+                // скачанный ZIP проверяется по digest GitHub. Поэтому вместо
+                // ложного «файл не найден» проверяем обязательные файлы bin/.
+                var issues = Core.EngineIntegrityIssues();
+                _sumResult.Children.Add(UI.T(
+                    string.Format(Loc.T("about.sums.noManifest"), issues.Count),
+                    Theme.FsBody, issues.Count == 0 ? Theme.BrOk : Theme.BrWarn,
+                    FontWeights.SemiBold));
+                foreach (string issue in issues)
+                    _sumResult.Children.Add(Warn(issue));
+                Ctl.SetButton(_verifyBtn, Loc.T("common.close"), Icons.Cross, 1);
                 return;
             }
             _verifying = true;

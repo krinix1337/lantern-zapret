@@ -47,7 +47,15 @@ namespace ZapretStudio
             MinWidth = 760;
             Height = Math.Min(740, Math.Max(MinHeight, waH - 30));
             Width = Math.Min(1120, Math.Max(MinWidth, waW - 60));
+            // Пользовательский размер переживает перезапуск. Кламп по рабочей
+            // области обязателен: сохранённые габариты с другого монитора иначе
+            // открыли бы окно за краем экрана.
+            int savedW = Core.GetInt("window_width", 0);
+            int savedH = Core.GetInt("window_height", 0);
+            if (savedW >= MinWidth) Width = Math.Min(savedW, waW);
+            if (savedH >= MinHeight) Height = Math.Min(savedH, waH);
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            if (Core.GetBool("window_maximized", false)) WindowState = WindowState.Maximized;
             Background = Theme.BrBgDeep;
             UseLayoutRounding = true;
             TextOptions.SetTextFormattingMode(this, TextFormattingMode.Ideal);
@@ -2954,8 +2962,30 @@ namespace ZapretStudio
             else _trayWidget.ShowAtCursor();
         }
 
+        // Сохраняем пользовательский размер окна. При maximized берём
+        // RestoreBounds — иначе при следующем запуске окно открылось бы
+        // развёрнутым на весь экран с потерянным обычным размером.
+        void SaveWindowState()
+        {
+            try
+            {
+                Rect b = WindowState == WindowState.Normal
+                    ? new Rect(Left, Top, ActualWidth, ActualHeight)
+                    : RestoreBounds;
+                if (b.Width >= MinWidth && b.Height >= MinHeight)
+                {
+                    Core.SetInt("window_width", (int)Math.Round(b.Width));
+                    Core.SetInt("window_height", (int)Math.Round(b.Height));
+                }
+                Core.SetBool("window_maximized", WindowState == WindowState.Maximized);
+                Core.SaveConfig();
+            }
+            catch { }
+        }
+
         void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
         {
+            SaveWindowState();
             // №61: App.ForceShutdown ставится перед Application.Shutdown() (перезапуск
             // с правами администратора). Без него при tray_on_close = true закрытие
             // превращалось в сворачивание в трей, Shutdown() молча отменялся, и после

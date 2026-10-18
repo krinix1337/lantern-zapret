@@ -484,16 +484,13 @@ namespace ZapretStudio
 
         public static string FetchLatestTag(string releaseApi, string fallbackReleasePage, string fallbackRawUrl = null)
         {
-            // 1. Попытка через официальный GitHub API
+            // 1. Официальный GitHub API через общий кэш: один запрос на URL,
+            //    ETag/304 и запасная копия при исчерпанном лимите.
             try
             {
-                var req = (HttpWebRequest)WebRequest.Create(releaseApi);
-                req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-                req.Timeout = 8000;
-                using (var resp = (HttpWebResponse)req.GetResponse())
-                using (var reader = new StreamReader(resp.GetResponseStream(), System.Text.Encoding.UTF8))
+                string json = FetchReleaseJson(releaseApi);
+                if (!string.IsNullOrEmpty(json))
                 {
-                    string json = reader.ReadToEnd();
                     var m = System.Text.RegularExpressions.Regex.Match(json, "\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
                     if (m.Success)
                     {
@@ -592,19 +589,184 @@ namespace ZapretStudio
         // JSON последнего релиза из GitHub API или null.
         // Это единственный источник контрольных сумм чужих релизов: digest
         // публикуется на каждый ассет, отдельных SHA256SUMS-файлов там нет.
-        public static string FetchReleaseJson(string releaseApi)
+        //
+        // Анонимный api.github.com даёт 60 запросов в час на IP, а приложение
+        // проверяет три компонента плюс историю релизов. Поэтому:
+        //  - свежий ответ живёт 10 минут в памяти и в LocalAppData;
+        //  - повторный запрос идёт с If-None-Match и 304 не тратит лимит;
+        //  - при 403/429/сети возвращается последняя удачная копия, а не ошибка.
+        class ApiCacheEntry
+        {
+            public string Json;
+            public string ETag;
+            public DateTime FetchedUtc;
+        }
+
+        static readonly Dictionary<string, ApiCacheEntry> ApiCache =
+            new Dictionary<string, ApiCacheEntry>(StringComparer.Ordinal);
+        static readonly object ApiCacheLock = new object();
+        static readonly TimeSpan ApiCacheFresh = TimeSpan.FromMinutes(10);
+        public static string LastApiError { get; private set; }
+
+        static string ApiCachePath(string url, string extension)
         {
             try
             {
-                using (var wc = new TimedWebClient { TimeoutMilliseconds = 20000 })
+                byte[] hash;
+                using (var sha = System.Security.Cryptography.SHA256.Create())
+                    hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(url ?? ""));
+                string key = BitConverter.ToString(hash).Replace("-", "").Substring(0, 24);
+                string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    AppName, "api-cache");
+                Directory.CreateDirectory(dir);
+                return Path.Combine(dir, key + extension);
+            }
+            catch { return null; }
+        }
+
+        static ApiCacheEntry LoadApiCache(string url)
+        {
+            try
+            {
+                string jsonFile = ApiCachePath(url, ".json");
+                if (jsonFile == null || !File.Exists(jsonFile)) return null;
+                string json = File.ReadAllText(jsonFile, System.Text.Encoding.UTF8);
+                if (string.IsNullOrEmpty(json)) return null;
+                string etagFile = ApiCachePath(url, ".etag");
+                string etag = null;
+                if (etagFile != null && File.Exists(etagFile))
                 {
-                    wc.Encoding = System.Text.Encoding.UTF8;
-                    wc.Headers.Add("User-Agent", "Lantern");
-                    wc.Headers.Add("Accept", "application/vnd.github+json");
-                    return wc.DownloadString(releaseApi);
+                    try { etag = File.ReadAllText(etagFile, System.Text.Encoding.UTF8).Trim(); } catch { }
+                }
+                return new ApiCacheEntry
+                {
+                    Json = json,
+                    ETag = etag,
+                    FetchedUtc = File.GetLastWriteTimeUtc(jsonFile)
+                };
+            }
+            catch { return null; }
+        }
+
+        static void SaveApiCache(string url, ApiCacheEntry entry)
+        {
+            try
+            {
+                string jsonFile = ApiCachePath(url, ".json");
+                if (jsonFile != null) File.WriteAllText(jsonFile, entry.Json, System.Text.Encoding.UTF8);
+                string etagFile = ApiCachePath(url, ".etag");
+                if (etagFile != null) File.WriteAllText(etagFile, entry.ETag ?? "", System.Text.Encoding.UTF8);
+            }
+            catch { }
+        }
+
+        static string DescribeApiError(HttpWebResponse response)
+        {
+            if (response == null) return Loc.T("updates.apiUnavailable");
+            int code = (int)response.StatusCode;
+            if (code == 403 || code == 429)
+            {
+                string reset = null;
+                try { reset = response.Headers["X-RateLimit-Reset"]; } catch { }
+                long seconds;
+                if (!string.IsNullOrEmpty(reset) && long.TryParse(reset, out seconds) && seconds > 0)
+                {
+                    DateTime until = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                        .AddSeconds(seconds).ToLocalTime();
+                    return string.Format(Loc.T("updates.apiLimitUntil"), until.ToString("HH:mm"));
+                }
+                return Loc.T("updates.apiLimit");
+            }
+            return string.Format(Loc.T("updates.apiHttp"), code);
+        }
+
+        public static string FetchReleaseJson(string releaseApi)
+        {
+            if (string.IsNullOrEmpty(releaseApi)) return null;
+
+            ApiCacheEntry cached;
+            lock (ApiCacheLock)
+            {
+                if (!ApiCache.TryGetValue(releaseApi, out cached))
+                {
+                    cached = LoadApiCache(releaseApi);
+                    if (cached != null) ApiCache[releaseApi] = cached;
                 }
             }
-            catch (Exception ex) { Warn("release api " + releaseApi + ": " + Short(ex.Message)); return null; }
+            if (cached != null && DateTime.UtcNow - cached.FetchedUtc < ApiCacheFresh)
+            {
+                LastApiError = null;
+                return cached.Json;
+            }
+
+            try
+            {
+                var req = (HttpWebRequest)WebRequest.Create(releaseApi);
+                req.UserAgent = "Lantern";
+                req.Accept = "application/vnd.github+json";
+                req.Timeout = 15000;
+                req.ReadWriteTimeout = 15000;
+                req.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
+                if (cached != null && !string.IsNullOrEmpty(cached.ETag))
+                    req.Headers[HttpRequestHeader.IfNoneMatch] = cached.ETag;
+
+                using (var resp = (HttpWebResponse)req.GetResponse())
+                {
+                    // Некоторые версии .NET отдают 304 без исключения.
+                    if (resp.StatusCode == HttpStatusCode.NotModified && cached != null)
+                    {
+                        cached.FetchedUtc = DateTime.UtcNow;
+                        SaveApiCache(releaseApi, cached);
+                        LastApiError = null;
+                        return cached.Json;
+                    }
+                    using (var reader = new StreamReader(resp.GetResponseStream(), System.Text.Encoding.UTF8))
+                    {
+                        string json = reader.ReadToEnd();
+                        var entry = new ApiCacheEntry
+                        {
+                            Json = json,
+                            ETag = resp.Headers["ETag"],
+                            FetchedUtc = DateTime.UtcNow
+                        };
+                        lock (ApiCacheLock) ApiCache[releaseApi] = entry;
+                        SaveApiCache(releaseApi, entry);
+                        LastApiError = null;
+                        return json;
+                    }
+                }
+            }
+            catch (WebException ex)
+            {
+                var resp = ex.Response as HttpWebResponse;
+                if (resp != null && resp.StatusCode == HttpStatusCode.NotModified && cached != null)
+                {
+                    cached.FetchedUtc = DateTime.UtcNow;
+                    SaveApiCache(releaseApi, cached);
+                    LastApiError = null;
+                    return cached.Json;
+                }
+                string friendly = DescribeApiError(resp);
+                LastApiError = friendly;
+                if (cached != null)
+                {
+                    Warn("release api " + releaseApi + ": " + friendly + " — используется кэш");
+                    return cached.Json;
+                }
+                Warn("release api " + releaseApi + ": " + friendly);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                LastApiError = Loc.T("updates.apiUnavailable");
+                if (cached != null)
+                {
+                    Warn("release api " + releaseApi + ": " + Short(ex.Message) + " — используется кэш");
+                    return cached.Json;
+                }
+                Warn("release api " + releaseApi + ": " + Short(ex.Message));
+                return null;
+            }
         }
 
         // Последние релизы для кнопки «Что обновлялось». null — API недоступен
@@ -739,14 +901,21 @@ namespace ZapretStudio
         // Пользовательские .bat, списки и настройки не считаются повреждением.
         public static List<string> EngineIntegrityIssues()
         {
+            return EngineIntegrityIssuesAt(Root);
+        }
+
+        // Отдельная точка входа для самопроверки: можно проверить каталог без
+        // манифеста, не трогая реальную папку zapret.
+        internal static List<string> EngineIntegrityIssuesAt(string root)
+        {
             var issues = new List<string>();
-            if (string.IsNullOrEmpty(Root))
+            if (string.IsNullOrEmpty(root))
             {
                 issues.Add(string.Format(Loc.T("updates.integrity.missingFile"), "bin/winws.exe"));
                 return issues;
             }
 
-            string manifest = Path.Combine(Root, "SHA256SUMS.txt");
+            string manifest = Path.Combine(root, "SHA256SUMS.txt");
             var checkedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (File.Exists(manifest))
             {
@@ -765,7 +934,7 @@ namespace ZapretStudio
                         if (!rel.StartsWith("bin" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
                         string shown = rel.Replace(Path.DirectorySeparatorChar, '/');
                         checkedPaths.Add(rel);
-                        string full = Path.Combine(Root, rel);
+                        string full = Path.Combine(root, rel);
                         if (!File.Exists(full))
                         {
                             issues.Add(string.Format(Loc.T("updates.integrity.missingFile"), shown));
@@ -788,16 +957,16 @@ namespace ZapretStudio
                     issues.Add(string.Format(Loc.T("updates.integrity.manifestUnreadable"), Short(ex.Message)));
                 }
             }
-            else
-            {
-                issues.Add(Loc.T("updates.integrity.manifestMissing"));
-            }
+            // Flowseal не публикует SHA256SUMS.txt в релизах движка: архив
+            // проверяется по digest GitHub при скачивании. Отсутствие манифеста —
+            // не повреждение; ниже всё равно проверяются обязательные файлы bin/.
+            // Сам манифест, если он когда-нибудь появится в поставке, сверяется выше.
 
             string[] required = { Path.Combine("bin", "winws.exe"), Path.Combine("bin", "WinDivert64.sys"), Path.Combine("bin", "WinDivert.dll") };
             foreach (string rel in required)
             {
                 if (checkedPaths.Contains(rel)) continue;
-                if (File.Exists(Path.Combine(Root, rel))) continue;
+                if (File.Exists(Path.Combine(root, rel))) continue;
                 issues.Add(string.Format(Loc.T("updates.integrity.missingFile"), rel.Replace(Path.DirectorySeparatorChar, '/')));
             }
             return issues;

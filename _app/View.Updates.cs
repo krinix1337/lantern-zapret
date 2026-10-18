@@ -834,7 +834,12 @@ namespace ZapretStudio
                     }
                     else
                     {
-                        statusPillWrap.Content = Pill.Make(Sev.Err, Loc.T("mw.verFail"));
+                        // Лимит GitHub API — не поломка компонента. Показываем
+                        // короткую плашку, а причину — строкой под ней.
+                        statusPillWrap.Content = Pill.Make(Sev.Warn, Loc.T("updates.checkUnavailable"));
+                        string why = string.IsNullOrEmpty(Core.LastApiError)
+                            ? Loc.T("mw.verFail") : Core.LastApiError;
+                        ShowLine(line, why, Theme.BrWarn);
                     }
                 }
                 return;

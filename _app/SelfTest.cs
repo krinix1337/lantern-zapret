@@ -156,7 +156,32 @@ namespace ZapretStudio
             // 0) Чистая логика без UI — версии, парсеры, кодировки, буферы.
             PureTests();
 
+            // Flowseal не публикует SHA256SUMS.txt: его отсутствие не повреждение.
+            Try("integrity optional manifest", delegate
+            {
+                string dir = Path.Combine(Path.GetTempPath(), "lantern-integrity-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(dir);
+                try
+                {
+                    var issues = Core.EngineIntegrityIssuesAt(dir);
+                    foreach (string issue in issues)
+                        Assert(issue.IndexOf("SHA256SUMS", StringComparison.OrdinalIgnoreCase) < 0,
+                            "отсутствие SHA256SUMS.txt записано как повреждение: " + issue);
+                    Assert(issues.Count >= 1, "пустой каталог движка не дал ни одной проблемы");
+                }
+                finally { try { Directory.Delete(dir, true); } catch { } }
+            });
+
+            // Сохранённый размер окна должен восстанавливаться при старте.
+            Core.SetInt("window_width", 800);
+            Core.SetInt("window_height", 500);
+            Core.SetBool("window_maximized", false);
             var win = new MainWindow();
+            Try("window size restore", delegate
+            {
+                Assert(Math.Abs(win.Width - 800) <= 1.0 && Math.Abs(win.Height - 500) <= 1.0,
+                    "размер окна не восстановлен: " + win.Width.ToString("0") + "x" + win.Height.ToString("0"));
+            });
             win.Width = 1200; win.Height = 800;
             win.WindowStartupLocation = WindowStartupLocation.Manual;
             win.Left = -4000; win.Top = -4000;      // за пределами экрана
