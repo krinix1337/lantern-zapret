@@ -1,8 +1,6 @@
 MIT License
 
-Copyright (c) 2025-2026 krinix1337 (Lantern GUI)
-Copyright (c) 2016-2026 bol-van
-Copyright (c) 2024-2026 Flowseal
+Copyright (c) 2026 krinix1337
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -32,17 +30,35 @@ does Lantern-Setup.exe: the engine (winws.exe, WinDivert64.sys, curl.exe, the
 strategy .bat files and the domain/IP lists) is downloaded on first run from the
 release page of https://github.com/Flowseal/zapret-discord-youtube.
 
-That engine originates from the project by bol-van,
-available at https://github.com/bol-van/zapret/ (licensed under the MIT
-License), and it ships WinDivert (https://github.com/basil00/WinDivert), which
-is licensed under your choice of:
+---
 
-1. The GNU Lesser General Public License (LGPL) Version 3, or
-2. The GNU General Public License (GPL) Version 2.
+Third-party components and their licenses:
 
-WinDivert binaries obtained at run time are used as-is, without modification.
-The corresponding source code and license terms for WinDivert are available at
-https://github.com/basil00/WinDivert.
+1. zapret (bol-van) — MIT License
+   https://github.com/bol-van/zapret
+
+2. zapret-discord-youtube (Flowseal) — MIT License
+   https://github.com/Flowseal/zapret-discord-youtube
+
+3. WinDivert (basil00) — LGPLv3 / GPLv2 (user's choice)
+   https://github.com/basil00/WinDivert
+   WinDivert binaries obtained at run time are used as-is, without modification.
+
+4. tg-ws-proxy (Flowseal) — MIT License
+   https://github.com/Flowseal/tg-ws-proxy
+
+5. Lucide Icons — ISC License
+   https://github.com/lucide-icons/lucide
+
+6. Google Sans / Google Sans Code — Apache License 2.0
+   Downloaded at run time from Google Fonts CDN.
+
+7. curl — MIT-like License (curl License)
+   https://curl.se/docs/copyright.html
+   Distributed as part of the zapret engine package.
+
+8. System24 theme (refact0r) — MIT License
+   https://github.com/refact0r/system24
 
 ---
 

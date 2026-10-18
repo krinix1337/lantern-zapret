@@ -12,6 +12,9 @@ service.bat
 SHA256SUMS.txt
 update.md
 
+# какашка
+/musor/
+
 # Old GUI
 _gui/
 
@@ -25,7 +28,6 @@ _app/*.bak
 _app/*.ps1
 _app/*.png
 _app/*.txt
-_app/_*.manifest
 
 # Installer output (собирается workflow-ом Release; контрольная сумма
 # публикуется как ассет релиза, а не хранится в репозитории)
@@ -39,3 +41,4 @@ Desktop.ini
 # Runtime outputs
 /connection-check.txt
 /zapret-gui-log.txt
+_shot_*.png

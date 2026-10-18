@@ -38,13 +38,25 @@ namespace ZapretStudio
         {
             try
             {
+                string exe;
+                using (var cur = Process.GetCurrentProcess())
+                    exe = cur.MainModule.FileName;
+
                 var psi = new ProcessStartInfo
                 {
-                    FileName = Process.GetCurrentProcess().MainModule.FileName,
+                    FileName = exe,
+                    // №62: новый экземпляр стартует раньше, чем этот отпустит мьютекс,
+                    // поэтому он должен дождаться его, а не «огонить и забыть».
+                    Arguments = "--tookover",
                     UseShellExecute = true,
                     Verb = "runas"
                 };
                 Process.Start(psi);
+                // Порядок важен: сначала освобождаем мьютекс, затем гасим окно.
+                // ForceShutdown нужен, чтобы OnClosing не свернул окно в трей и
+                // не отменил Shutdown() (№61).
+                App.ForceShutdown = true;
+                App.ReleaseMutexForRestart();
                 System.Windows.Application.Current.Shutdown();
                 return true;
             }
@@ -139,7 +151,12 @@ namespace ZapretStudio
             d.Add(new DiagItem { Name = Loc.T("diag.n.strats"), Sev = strat > 0 ? Sev.Ok : Sev.Err,
                 Value = strat > 0 ? string.Format(Loc.T("diag.v.stratCount"), strat) : Loc.T("diag.v.stratNone") });
 
-            d.Add(new DiagItem { Name = Loc.T("diag.n.gameFilter"), Sev = Sev.Info, Value = GameModeLabel() });
+            string gmLabel = GameModeLabel();
+            bool gameInactiveDueToIpset = !IpsetEnabled && GameMode != "off";
+            if (gameInactiveDueToIpset)
+                d.Add(new DiagItem { Name = Loc.T("diag.n.gameFilter"), Sev = Sev.Warn, Value = gmLabel + " (" + Loc.T("filters.ipset.off.hidesGame") + ")" });
+            else
+                d.Add(new DiagItem { Name = Loc.T("diag.n.gameFilter"), Sev = Sev.Info, Value = gmLabel });
             d.Add(new DiagItem { Name = Loc.T("diag.n.ipset"), Sev = Sev.Info, Value = IpsetStatusLabel() });
 
             bool tgt = File.Exists(TargetsFile);
@@ -157,10 +174,21 @@ namespace ZapretStudio
         }
 
         // Служба установлена и работает?
+        // №2a: через ServiceController, а не разбором `sc query` — на русской
+        // Windows метки локализованы, вывод идёт в CP866, и заодно не нужен
+        // запуск внешнего процесса на каждую проверку.
         static bool ServiceRunningNamed(string name)
         {
-            string o = Capture("sc", "query " + name, 8000);
-            return o.IndexOf("RUNNING", StringComparison.OrdinalIgnoreCase) >= 0;
+            try
+            {
+                using (var sc = new System.ServiceProcess.ServiceController(name))
+                {
+                    var st = sc.Status;
+                    return st == System.ServiceProcess.ServiceControllerStatus.Running
+                        || st == System.ServiceProcess.ServiceControllerStatus.StartPending;
+                }
+            }
+            catch { return false; }
         }
 
         static bool ProcessRunning(string imageWithoutExt)
@@ -285,7 +313,11 @@ namespace ZapretStudio
                 Value = found ? Loc.T("diag.v.found") : Loc.T("diag.v.clean") });
         }
 
-        // sc query по всем службам — один вызов вместо перебора имён.
+        // №2b: список служб берём через ServiceController, а не разбором
+        // `sc query state= all`. Прежний код искал английскую метку
+        // «SERVICE_NAME:», которой на русской Windows нет («Имя_службы:»),
+        // вызов занимал до 20 секунд и на время запроса сбрасывал кэш в
+        // DateTime.MinValue — второй поток шёл параллельно тем же путём (№45).
         static string _svcListCache;
         static DateTime _svcListAt;
         static readonly object _svcListLock = new object();
@@ -302,60 +334,102 @@ namespace ZapretStudio
             {
                 if (_svcListCache != null && (DateTime.Now - _svcListAt).TotalSeconds < 10)
                     return _svcListCache;
-                // Запрос вне лока нельзя: два потока дублировали бы дорогой вызов.
-                _svcListAt = DateTime.MinValue; // на время запроса
             }
-            string o = Capture("sc", "query state= all", 20000);
-            lock (_svcListLock)
+            var sb = new System.Text.StringBuilder();
+            try
             {
-                _svcListCache = o;
-                _svcListAt = DateTime.Now;
+                foreach (var s in System.ServiceProcess.ServiceController.GetServices())
+                {
+                    try { sb.Append(s.ServiceName).Append('\n').Append(s.DisplayName).Append('\n'); }
+                    catch { }
+                    finally { s.Dispose(); }
+                }
             }
+            catch { }
+            string o = sb.ToString();
+            lock (_svcListLock) { _svcListCache = o; _svcListAt = DateTime.Now; }
             return o;
         }
 
         static string VpnServicesList()
         {
-            string list = ServiceList();
-            if (string.IsNullOrEmpty(list)) return null;
             var names = new List<string>();
-            string current = null;
-            foreach (var line in list.Split('\n'))
+            try
             {
-                string t = line.Trim();
-                if (t.StartsWith("SERVICE_NAME:", StringComparison.OrdinalIgnoreCase))
-                    current = t.Substring("SERVICE_NAME:".Length).Trim();
-                else if (t.IndexOf("VPN", StringComparison.OrdinalIgnoreCase) >= 0 && current != null)
+                foreach (var s in System.ServiceProcess.ServiceController.GetServices())
                 {
-                    if (!names.Contains(current)) names.Add(current);
-                    current = null;
+                    try
+                    {
+                        string n = (s.ServiceName ?? "") + " " + (s.DisplayName ?? "");
+                        if (n.IndexOf("VPN", StringComparison.OrdinalIgnoreCase) >= 0 && !names.Contains(s.ServiceName))
+                            names.Add(s.ServiceName);
+                    }
+                    catch { }
+                    finally { s.Dispose(); }
                 }
             }
+            catch { }
             return names.Count > 0 ? string.Join(", ", names.ToArray()) : null;
         }
 
         // GoodbyeDPI / другие winws-инстансы, конфликтующие за драйвер.
+        // №2a: существование службы — через ServiceController. Поиск «STATE» в
+        // выводе sc.exe не срабатывал на русской Windows («Состояние : 4 RUNNING»),
+        // а основной реальный конфликт (GoodbyeDPI) — процесс, а не служба.
         static string ConflictingBypasses()
         {
             string[] names = { "GoodbyeDPI", "discordfix_zapret", "winws1", "winws2" };
             var found = new List<string>();
             foreach (var n in names)
             {
-                string o = Capture("sc", "query " + n, 5000);
-                if (o.IndexOf("STATE", StringComparison.OrdinalIgnoreCase) >= 0) found.Add(n);
+                try
+                {
+                    using (var sc = new System.ServiceProcess.ServiceController(n))
+                    {
+                        var st = sc.Status;   // InvalidOperationException, если службы нет
+                        found.Add(n + " (" + st + ")");
+                    }
+                }
+                catch { }
             }
+            if (ProcessRunning("GoodbyeDPI") && !AnyStartsWith(found, "GoodbyeDPI"))
+                found.Add("GoodbyeDPI (process)");
+            // чужой winws из другой папки zapret держит тот же WinDivert
+            try
+            {
+                foreach (var p in Process.GetProcessesByName("winws"))
+                {
+                    try { if (!IsRootWinws(p)) found.Add("winws (pid " + p.Id + ", foreign path)"); }
+                    finally { p.Dispose(); }
+                }
+            }
+            catch { }
             return found.Count > 0 ? string.Join(", ", found.ToArray()) : null;
         }
 
+        static bool AnyStartsWith(List<string> items, string prefix)
+        {
+            foreach (var s in items)
+                if (s != null && s.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        // №2c: netsh печатает «Метки времени RFC 1323 : allowed» — метка
+        // локализована, а прежнее условие требовало подстроки «timestamp» и
+        // «enabled», поэтому карточка вечно горела жёлтой при работающих метках.
+        // Строку ищем по номеру RFC (он не локализуется), значение — ASCII.
         static bool TcpTimestampsEnabled()
         {
-            string o = Capture("netsh", "interface tcp show global", 10000);
+            string o = CaptureUtf8("netsh", "interface tcp show global", 10000);
             foreach (var line in o.Split('\n'))
             {
-                if (line.IndexOf("timestamp", StringComparison.OrdinalIgnoreCase) >= 0
-                    && line.IndexOf("enabled", StringComparison.OrdinalIgnoreCase) >= 0
-                    && line.IndexOf("disabled", StringComparison.OrdinalIgnoreCase) < 0)
-                    return true;
+                if (line.IndexOf("1323", StringComparison.Ordinal) < 0) continue;
+                int colon = line.LastIndexOf(':');
+                if (colon < 0) continue;
+                string val = line.Substring(colon + 1).Trim().ToLowerInvariant();
+                if (val.Length == 0) continue;
+                // «disabled» — единственный вариант «выключено»; enabled/allowed работают
+                return val != "disabled";
             }
             return false;
         }
@@ -413,7 +487,6 @@ namespace ZapretStudio
             // 1. Попытка через официальный GitHub API
             try
             {
-                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | (SecurityProtocolType)3072;
                 var req = (HttpWebRequest)WebRequest.Create(releaseApi);
                 req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
                 req.Timeout = 8000;
@@ -502,25 +575,64 @@ namespace ZapretStudio
         public static void AppUpdateAssets(out string installerUrl, out string sha256Url)
         {
             installerUrl = null; sha256Url = null;
-            try
+            string json = FetchReleaseJson(AppReleaseApi);
+            if (!string.IsNullOrEmpty(json))
             {
-                ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072 /*Tls12*/ | (SecurityProtocolType)12288 /*Tls13*/;
-                using (var wc = new WebClient())
-                {
-                    wc.Encoding = System.Text.Encoding.UTF8;
-                    wc.Headers.Add("User-Agent", "Lantern");
-                    string json = wc.DownloadString(AppReleaseApi);
-                    installerUrl = Endpoints.ReleaseAssetUrl(json, Endpoints.AppInstallerAsset);
-                    sha256Url = Endpoints.ReleaseAssetUrl(json, Endpoints.AppInstallerSha256Asset);
-                }
+                installerUrl = Endpoints.ReleaseAssetUrl(json, Endpoints.AppInstallerAsset);
+                sha256Url = Endpoints.ReleaseAssetUrl(json, Endpoints.AppInstallerSha256Asset);
             }
-            catch { }
 
             // API мог быть недоступен (лимит запросов, блокировка api.github.com) —
             // тогда берём прямую ссылку «последний релиз». Хеш при этом остаётся
             // неизвестным: SelfUpdate предупредит, но не станет выдумывать URL.
             if (string.IsNullOrEmpty(installerUrl))
                 installerUrl = Endpoints.AppInstallerLatestUrl;
+        }
+
+        // JSON последнего релиза из GitHub API или null.
+        // Это единственный источник контрольных сумм чужих релизов: digest
+        // публикуется на каждый ассет, отдельных SHA256SUMS-файлов там нет.
+        public static string FetchReleaseJson(string releaseApi)
+        {
+            try
+            {
+                using (var wc = new TimedWebClient { TimeoutMilliseconds = 20000 })
+                {
+                    wc.Encoding = System.Text.Encoding.UTF8;
+                    wc.Headers.Add("User-Agent", "Lantern");
+                    wc.Headers.Add("Accept", "application/vnd.github+json");
+                    return wc.DownloadString(releaseApi);
+                }
+            }
+            catch (Exception ex) { Warn("release api " + releaseApi + ": " + Short(ex.Message)); return null; }
+        }
+
+        // Последние релизы для кнопки «Что обновлялось». null — API недоступен
+        // (лимит запросов, блокировка), пустой список — релизов нет. UI обязан
+        // различать эти два случая, а не показывать пустое окно.
+        public static List<Endpoints.ReleaseInfo> FetchReleaseList(string releasesApi)
+        {
+            string json = FetchReleaseJson(releasesApi);
+            if (string.IsNullOrEmpty(json)) return null;
+            return Endpoints.Releases(json);
+        }
+
+        // Сверка файла с ожидаемой суммой. Ожидаемый хеш обязателен: без него
+        // проверка невозможна, и вызывающий код должен решить, что делать сам.
+        public static bool VerifySha256(string file, string expected, out string error)
+        {
+            error = null;
+            string actual;
+            try { actual = Sha256OfFile(file); }
+            catch (Exception ex) { error = Short(ex.Message); return false; }
+            if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
+            {
+                error = string.Format(Loc.T("dl.hashMismatch"), expected, actual);
+                Warn(error);
+                return false;
+            }
+            Info(Loc.T("dl.hashOk"));
+            return true;
         }
 
         // Обратная совместимость: только адрес установщика.
@@ -556,8 +668,7 @@ namespace ZapretStudio
                 {
                     try
                     {
-                        ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
-                        using (var wc = new WebClient())
+                        using (var wc = new TimedWebClient { TimeoutMilliseconds = 10000 })
                         {
                             wc.Encoding = System.Text.Encoding.UTF8;
                             wc.Headers.Add("User-Agent", "Lantern");
@@ -583,9 +694,11 @@ namespace ZapretStudio
                 }
                 else
                 {
-                    // Релиз без опубликованной суммы — предупредим, но не блокируем
-                    // обновление целиком (иначе приложение никогда не обновится).
-                    Warn(Loc.T("appupd.hashMissing"));
+                    // Релиз без опубликованной суммы — блокируем обновление,
+                    // чтобы не запускать непроверенный установщик от администратора.
+                    FailUpdate(file);
+                    error = Loc.T("appupd.hashMissing");
+                    return false;
                 }
 
                 Process.Start(new ProcessStartInfo { FileName = file, UseShellExecute = true });
@@ -615,16 +728,79 @@ namespace ZapretStudio
         {
             try
             {
-                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
-                using (var wc = new WebClient())
-                {
-                    wc.Encoding = System.Text.Encoding.UTF8;
-                    wc.Headers.Add("User-Agent", "Lantern");
-                    return Endpoints.ReleaseNotes(wc.DownloadString(AppReleaseApi));
-                }
+                string json = FetchReleaseJson(AppReleaseApi);
+                if (!string.IsNullOrEmpty(json)) return Endpoints.ReleaseNotes(json);
             }
             catch { }
             return null;
+        }
+
+        // Проверка обязательных файлов движка по манифесту SHA256SUMS.txt.
+        // Пользовательские .bat, списки и настройки не считаются повреждением.
+        public static List<string> EngineIntegrityIssues()
+        {
+            var issues = new List<string>();
+            if (string.IsNullOrEmpty(Root))
+            {
+                issues.Add(string.Format(Loc.T("updates.integrity.missingFile"), "bin/winws.exe"));
+                return issues;
+            }
+
+            string manifest = Path.Combine(Root, "SHA256SUMS.txt");
+            var checkedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (File.Exists(manifest))
+            {
+                try
+                {
+                    foreach (string raw in File.ReadAllLines(manifest))
+                    {
+                        string line = raw.Trim();
+                        if (line.Length == 0 || line.StartsWith("#")) continue;
+                        int sp = line.IndexOf(' ');
+                        if (sp <= 0) continue;
+                        string hash = line.Substring(0, sp).Trim().ToLowerInvariant();
+                        string rel = line.Substring(sp).Trim().TrimStart('*').Trim();
+                        if (rel.StartsWith("./")) rel = rel.Substring(2);
+                        rel = rel.Replace('/', Path.DirectorySeparatorChar);
+                        if (!rel.StartsWith("bin" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
+                        string shown = rel.Replace(Path.DirectorySeparatorChar, '/');
+                        checkedPaths.Add(rel);
+                        string full = Path.Combine(Root, rel);
+                        if (!File.Exists(full))
+                        {
+                            issues.Add(string.Format(Loc.T("updates.integrity.missingFile"), shown));
+                            continue;
+                        }
+                        try
+                        {
+                            string actual = Sha256OfFile(full);
+                            if (!string.Equals(actual, hash, StringComparison.OrdinalIgnoreCase))
+                                issues.Add(string.Format(Loc.T("updates.integrity.corruptFile"), shown));
+                        }
+                        catch (Exception ex)
+                        {
+                            issues.Add(string.Format(Loc.T("updates.integrity.unreadableFile"), shown, Short(ex.Message)));
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    issues.Add(string.Format(Loc.T("updates.integrity.manifestUnreadable"), Short(ex.Message)));
+                }
+            }
+            else
+            {
+                issues.Add(Loc.T("updates.integrity.manifestMissing"));
+            }
+
+            string[] required = { Path.Combine("bin", "winws.exe"), Path.Combine("bin", "WinDivert64.sys"), Path.Combine("bin", "WinDivert.dll") };
+            foreach (string rel in required)
+            {
+                if (checkedPaths.Contains(rel)) continue;
+                if (File.Exists(Path.Combine(Root, rel))) continue;
+                issues.Add(string.Format(Loc.T("updates.integrity.missingFile"), rel.Replace(Path.DirectorySeparatorChar, '/')));
+            }
+            return issues;
         }
 
         // ---- Маскирование для диагностики (имя пользователя, пути, локальные IP) ----
@@ -688,23 +864,49 @@ namespace ZapretStudio
             return deletedFolders;
         }
 
-        // Сброс и удаление зависшего драйвера WinDivert
-        public static bool ResetWinDivertDriver()
+        // Сброс и удаление зависшего драйвера WinDivert.
+        // №19: раньше возвращал true безусловно — кнопка всегда рапортовала «успешно»,
+        // даже когда драйвер оставался в памяти и требовал перезагрузки.
+        public static bool ResetWinDivertDriver(out string error)
         {
+            error = null;
+            if (!TryBeginWinwsOperation())
+            {
+                error = Loc.T("mw.busy");
+                Warn(error);
+                return false;
+            }
             try
             {
-                Capture("sc", "stop windivert", 5000);
-                Capture("sc", "delete windivert", 5000);
-                Capture("sc", "stop windivert14", 5000);
-                Capture("sc", "delete windivert14", 5000);
-                Capture("net", "stop windivert", 5000);
+                if (IsWinwsRunning()) KillWinws();
+                if (ServiceState() == "running") { StopService(); WaitServiceStopped(4000); }
+
+                string err;
+                Run("sc", "stop windivert", 5000, out err);
+                Run("sc", "stop windivert14", 5000, out err);
+                Run("net", "stop windivert", 5000, out err);
+
+                Run("sc", "delete windivert", 5000, out err);
+                Run("sc", "delete windivert14", 5000, out err);
+
                 InvalidateWinDivertCache();
+                if (WinDivertLoaded())
+                {
+                    error = Loc.T("check.diag.wdResetBusy");
+                    Warn(error);
+                    return false;
+                }
                 return true;
             }
             catch (Exception ex)
             {
-                Fail("ResetWinDivertDriver: " + ex.Message);
+                error = Short(ex.Message);
+                Fail("ResetWinDivertDriver: " + error);
                 return false;
+            }
+            finally
+            {
+                EndWinwsOperation();
             }
         }
 
@@ -713,7 +915,7 @@ namespace ZapretStudio
         {
             try
             {
-                string outStr = Capture("netsh", "interface tcp set global timestamps=enabled", 8000);
+                string outStr = CaptureUtf8("netsh", "interface tcp set global timestamps=enabled", 8000);
                 return outStr.IndexOf("Ok", StringComparison.OrdinalIgnoreCase) >= 0 ||
                        outStr.IndexOf("ОК", StringComparison.OrdinalIgnoreCase) >= 0;
             }
@@ -772,12 +974,28 @@ namespace ZapretStudio
 
         public static bool TakeoverForeignService(string strategyFile)
         {
-            RemoveService();
+            // №1: сначала убеждаемся, что есть чем заменить службу, и только потом
+            // её снимаем. Прежний порядок (RemoveService первой строкой) при
+            // неверном имени файла оставлял систему без службы вообще: вызывающая
+            // сторона передавала отображаемое имя без «.bat» («general (ALT)»),
+            // InstallService падал на FileNotFoundException, а служба уже удалена.
             if (string.IsNullOrEmpty(strategyFile))
             {
                 var files = GetStrategyFiles();
-                strategyFile = files.Count > 0 ? files[0] : "general (ALT)";
+                if (files.Count == 0)
+                {
+                    Fail("Takeover: no strategy files in " + SafeRoot);
+                    return false;
+                }
+                strategyFile = files[0];
             }
+            else if (!File.Exists(Path.Combine(SafeRoot, strategyFile)))
+            {
+                // SafeRoot, а не Root: Root == null бросил бы ArgumentNullException
+                Fail("Takeover: strategy file not found: " + strategyFile);
+                return false;
+            }
+            RemoveService();
             return InstallService(strategyFile);
         }
 
@@ -800,7 +1018,6 @@ namespace ZapretStudio
 
                 try
                 {
-                    ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | (SecurityProtocolType)3072;
                     var req = (HttpWebRequest)WebRequest.Create(targetUrl);
                     req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
                     req.Timeout = 8000;
@@ -855,6 +1072,13 @@ namespace ZapretStudio
         // Сброс до заводских настроек
         public static void FactoryReset()
         {
+            string err;
+            FactoryReset(out err);
+        }
+
+        public static bool FactoryReset(out string error)
+        {
+            error = null;
             try
             {
                 StopService();
@@ -862,9 +1086,9 @@ namespace ZapretStudio
                 if (TgProxyRunning()) TgProxyStop();
 
                 string local = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "gui-config.ini");
-                string utilsCfg = Path.Combine(Root, "utils", "gui-config.ini");
-                try { if (File.Exists(local)) File.Delete(local); } catch { }
-                try { if (File.Exists(utilsCfg)) File.Delete(utilsCfg); } catch { }
+                string utilsCfg = !string.IsNullOrEmpty(Root) ? Path.Combine(Root, "utils", "gui-config.ini") : null;
+                try { if (File.Exists(local)) File.Delete(local); } catch (Exception ex) { error = ex.Message; }
+                try { if (utilsCfg != null && File.Exists(utilsCfg)) File.Delete(utilsCfg); } catch (Exception ex) { if (error == null) error = ex.Message; }
 
                 lock (_cfgLock)
                 {
@@ -873,10 +1097,13 @@ namespace ZapretStudio
 
                 lock (Log) { Log.Clear(); }
                 Theme.Apply(ThemeMode.Dark);
+                return error == null;
             }
             catch (Exception ex)
             {
+                error = ex.Message;
                 Fail("FactoryReset: " + ex.Message);
+                return false;
             }
         }
     }

@@ -30,11 +30,11 @@ namespace ZapretStudio
         // Категория по имени файла (General / ALT / FAKE / SIMPLE / Другая)
         public static string CategoryOf(string bat)
         {
-            string n = bat.ToUpperInvariant();
-            if (n.Contains("FAKE")) return "FAKE";
+            string n = Path.GetFileName(bat ?? "").Trim().ToUpperInvariant();
             if (n.Contains("SIMPLE")) return "SIMPLE";
+            if (n.Contains("FAKE")) return "FAKE";
             if (n.Contains("ALT")) return "ALT";
-            if (n == "GENERAL.BAT") return "General";
+            if (n.Equals("GENERAL.BAT", StringComparison.OrdinalIgnoreCase)) return "General";
             return Loc.T("cat.other");
         }
 
@@ -79,7 +79,7 @@ namespace ZapretStudio
                     }
                     string v = File.ReadAllText(GameFlag).Trim().ToLowerInvariant();
                     if (v == "all" || v == "tcp" || v == "udp" || v == "off") return v;
-                    return "udp";
+                    return "off";
                 }
                 catch { return "off"; }
             }
@@ -196,7 +196,7 @@ namespace ZapretStudio
         }
 
         // ---------- IPSet filter (loaded / none / any) ----------
-        const string IpsetSentinel = "203.0.113.113/32";
+        public const string IpsetSentinel = "203.0.113.113/32";
 
         public static string IpsetStatus()
         {
@@ -204,7 +204,7 @@ namespace ZapretStudio
             {
                 if (!IpsetEnabled) return "none";
                 if (!File.Exists(IpsetFile)) return "any";
-                var lines = File.ReadAllLines(IpsetFile).Where(l => l.Trim().Length > 0).ToList();
+                var lines = File.ReadAllLines(IpsetFile).Where(l => l.Trim().Length > 0 && !l.TrimStart().StartsWith("#")).ToList();
                 if (lines.Count == 0) return "any";
                 if (lines.Any(l => l.Contains(IpsetSentinel))) return "none";
                 return "loaded";
@@ -228,6 +228,12 @@ namespace ZapretStudio
                         if (File.Exists(IpsetFile)) File.Delete(IpsetFile);
                         File.Move(backup, IpsetFile);
                     }
+                    else if (current != "loaded")
+                    {
+                        // №5: раньше ветка молча не делала ничего, и пользователь
+                        // считал список возвращённым, тогда как winws работал с пустым.
+                        Warn(Loc.T("ipset.noBackup"));
+                    }
                 }
                 else if (mode == "none")
                 {
@@ -240,6 +246,13 @@ namespace ZapretStudio
                 }
                 else if (mode == "any")
                 {
+                    // №5: режим any стирал скачанный список без копии, вернуть
+                    // loaded было невозможно. Сохраняем так же, как ветка none.
+                    if (current == "loaded" && File.Exists(IpsetFile))
+                    {
+                        if (File.Exists(backup)) File.Delete(backup);
+                        File.Move(IpsetFile, backup);
+                    }
                     File.WriteAllText(IpsetFile, "");
                 }
                 IpsetEnabled = true;
@@ -318,11 +331,13 @@ namespace ZapretStudio
             if (cmd.StartsWith("\"")) cmd = cmd.Substring(1);
 
             string tcp, udp; GameValues(out tcp, out udp);
-            cmd = cmd.Replace("%BIN%", Bin)
+            cmd = cmd.Replace("%BIN%\"", Bin.TrimEnd('\\') + "\"")
+                     .Replace("%LISTS%\"", Lists.TrimEnd('\\') + "\"")
+                     .Replace("%BIN%", Bin)
                      .Replace("%LISTS%", Lists)
                      .Replace("%GameFilterTCP%", tcp)
                      .Replace("%GameFilterUDP%", udp)
-                     .Replace("%GameFilter%", GameMode == "tcp" ? tcp : udp);
+                     .Replace("%GameFilter%", GameMode == "udp" ? udp : tcp);
 
             cmd = UnescapeCaret(cmd);
             if (!IpsetEnabled)

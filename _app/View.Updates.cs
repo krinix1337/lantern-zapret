@@ -20,6 +20,7 @@ namespace ZapretStudio
         ContentControl _zapStatusPill;
         Button _zapUpdateBtn;
         Border _zapUpToDatePill;
+        Border _zapLocalNewerPill;
         UpdateProgressBar _zapProgress;
         string _zapLatest;
 
@@ -28,6 +29,7 @@ namespace ZapretStudio
         TextBlock _tgLocalVer, _tgLatestVer, _tgStatusLine;
         Button _tgUpdateBtn;
         Border _tgUpToDatePill;
+        Border _tgLocalNewerPill;
         UpdateProgressBar _tgProgress;
         string _tgLatest;
 
@@ -36,12 +38,16 @@ namespace ZapretStudio
         ContentControl _appStatusPill;
         Button _appUpdateBtn;
         Border _appUpToDatePill;
+        Border _appLocalNewerPill;
         UpdateProgressBar _appProgress;
         string _appLatest;
 
         // Header check button
-        Button _checkBtn;
+        Button _checkBtn, _verifyFilesBtn;
         RotateTransform _checkSpinTransform;
+        readonly System.Collections.Generic.List<string> _zapIntegrity = new System.Collections.Generic.List<string>();
+        readonly System.Collections.Generic.List<string> _tgIntegrity = new System.Collections.Generic.List<string>();
+        bool _integrityBusy, _zapIntegrityShown, _tgIntegrityShown;
 
         public UpdatesPage(MainWindow win)
         {
@@ -67,6 +73,7 @@ namespace ZapretStudio
                 string tgLoc = tgInst ? SettingsPage.NormVer(Core.TgProxyLocalVersion()) : null;
                 if (_tgLocalVer != null) _tgLocalVer.Text = Loc.T("updates.installedTag") + (tgInst && !string.IsNullOrEmpty(tgLoc) ? tgLoc : "—");
             }
+            RunIntegrityCheck(false);
         }
 
         void BuildHeaderAction()
@@ -105,12 +112,13 @@ namespace ZapretStudio
 
             _checkBtn = new Button
             {
-                Content = border,
+                Content = Ctl.SplitSurface(border),
                 Cursor = System.Windows.Input.Cursors.Hand,
                 Focusable = true
             };
             Ctl.StripChrome(_checkBtn);
             Ctl.AddMotion(_checkBtn);
+            Ctl.AttachGlow(_checkBtn, border);
             Ctl.AutomationSetName(_checkBtn, Loc.T("updates.check"));
 
             _checkBtn.MouseEnter += (s, e) =>
@@ -130,7 +138,18 @@ namespace ZapretStudio
                 _win.CheckUpdates();
             };
 
-            HeaderActionSlot.Content = _checkBtn;
+            _verifyFilesBtn = Ctl.Button(Loc.T("updates.integrity.check"), Icons.Check, 1);
+            var vb = Ctl.Surface(_verifyFilesBtn);
+            var vbox = Ctl.ContentHost(_verifyFilesBtn);
+            if (vb != null) { vb.Height = 32; vb.CornerRadius = Theme.R8; if (vbox != null) vbox.Padding = new Thickness(12, 0, 12, 0); }
+            _verifyFilesBtn.ToolTip = Loc.T("updates.integrity.check");
+            _verifyFilesBtn.Click += (s, e) => RunIntegrityCheck(true);
+
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            actions.Children.Add(_verifyFilesBtn);
+            actions.Children.Add(new Border { Width = 8 });
+            actions.Children.Add(_checkBtn);
+            HeaderActionSlot.Content = actions;
         }
 
         void StartSpinAnimation()
@@ -180,14 +199,14 @@ namespace ZapretStudio
         static Border MakeUpToDateIndicator()
         {
             var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            var ic = UI.Icon(Icons.Check, 13, Theme.BrOk, 2.0);
+            var ic = UI.Icon(Icons.Check, 13, Theme.BrAccent, 2.0);
             ic.VerticalAlignment = VerticalAlignment.Center;
             ic.Margin = new Thickness(0, 0, 6, 0);
             sp.Children.Add(ic);
             sp.Children.Add(new TextBlock
             {
                 Text = Loc.T("updates.upToDate"),
-                Foreground = Theme.BrOk,
+                Foreground = Theme.BrAccent,
                 FontSize = Theme.FsSmall,
                 FontFamily = Theme.UiFont,
                 FontWeight = FontWeights.SemiBold,
@@ -197,8 +216,46 @@ namespace ZapretStudio
 
             return new Border
             {
-                Background = Theme.Alpha(Theme.Ok, 14),
-                BorderBrush = Theme.Alpha(Theme.Ok, 55),
+                Background = Theme.Alpha(Theme.AccentMain, 14),
+                BorderBrush = Theme.Alpha(Theme.AccentMain, 55),
+                BorderThickness = new Thickness(1),
+                CornerRadius = Theme.R8,
+                Height = 32,
+                Padding = new Thickness(12, 0, 12, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = sp,
+                Visibility = Visibility.Collapsed
+            };
+        }
+
+        // Индикатор «локальная версия новее» — тот же слот справа в шапке
+        // карточки, где у равных версий горит зелёное «Актуально». Без него
+        // карточка компонента, собранного локально новее опубликованного
+        // релиза, оставалась справа пустой: только кнопка истории релизов.
+        static Border MakeLocalNewerIndicator()
+        {
+            var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            var dot = new System.Windows.Shapes.Ellipse
+            {
+                Width = 7, Height = 7, Fill = Theme.Frozen(Theme.TextMuted),
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0)
+            };
+            sp.Children.Add(dot);
+            sp.Children.Add(new TextBlock
+            {
+                Text = Loc.T("updates.localNewer"),
+                Foreground = Theme.BrMuted,
+                FontSize = Theme.FsSmall,
+                FontFamily = Theme.UiFont,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 1, 0, 0)
+            });
+
+            return new Border
+            {
+                Background = Theme.BrSurfaceAlt,
+                BorderBrush = Theme.BrStroke,
                 BorderThickness = new Thickness(1),
                 CornerRadius = Theme.R8,
                 Height = 32,
@@ -219,7 +276,10 @@ namespace ZapretStudio
             TextBlock statusLine,
             UpdateProgressBar progress,
             Button updateBtn,
-            Border upToDateIndicator)
+            Border upToDateIndicator,
+            Border localNewerIndicator,
+            string releasesApi,
+            string releasesPage)
         {
             var cardPanel = new StackPanel();
 
@@ -264,8 +324,36 @@ namespace ZapretStudio
             Grid.SetColumn(leftGrid, 0);
             topGrid.Children.Add(leftGrid);
 
+            // Панель истории — внутри карточки, раскрывается под её содержимым.
+            // Pop-up для этого не годился: он выглядит как отдельное окно, лежит
+            // поверх других блоков и не следует за прокруткой страницы.
+            StackPanel historyBody = null;
+            Border historyBox = null;
+            if (!string.IsNullOrEmpty(releasesApi))
+            {
+                historyBody = new StackPanel();
+                historyBox = new Border
+                {
+                    Visibility = Visibility.Collapsed,
+                    Margin = new Thickness(0, 12, 0, 0),
+                    Background = Theme.BrSurfaceAlt,
+                    BorderBrush = Theme.BrStroke,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = Theme.R10,
+                    Padding = new Thickness(14, 12, 14, 12),
+                    Child = historyBody
+                };
+                _histBoxes.Add(historyBox);
+                _histBodies.Add(historyBody);
+            }
+
             var rightBox = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0) };
+            // «Что обновлялось» рядом с кнопкой обновления: разворачивает список
+            // последних релизов этого компонента ниже по карточке.
+            if (historyBox != null)
+                rightBox.Children.Add(ReleaseHistoryButton(historyBox, historyBody, releasesApi, releasesPage));
             if (upToDateIndicator != null) rightBox.Children.Add(upToDateIndicator);
+            if (localNewerIndicator != null) rightBox.Children.Add(localNewerIndicator);
             if (updateBtn != null) rightBox.Children.Add(updateBtn);
             Grid.SetColumn(rightBox, 1);
             topGrid.Children.Add(rightBox);
@@ -284,6 +372,7 @@ namespace ZapretStudio
             badgesRow.Children.Add(VersionBadge(latestVerTb));
             if (statusPillWrap != null)
             {
+                statusPillWrap.Focusable = false;
                 statusPillWrap.VerticalAlignment = VerticalAlignment.Center;
                 statusPillWrap.Margin = new Thickness(0, 0, 8, 4);
                 badgesRow.Children.Add(statusPillWrap);
@@ -296,8 +385,214 @@ namespace ZapretStudio
                 cardPanel.Children.Add(progress.View);
 
             cardPanel.Children.Add(statusLine);
+            if (historyBox != null) cardPanel.Children.Add(historyBox);
 
             return UI.Card(cardPanel, new Thickness(18, 16, 18, 16));
+        }
+
+        // ---------- История релизов компонента ----------
+        // Обновления мало установить — нужно ещё и объяснить, что менялось. Кнопка
+        // у карточки раскрывает последние релизы внутри самой карточки, ниже её
+        // содержимого: pop-up для этого не подошёл — он выглядит отдельным окном,
+        // лежит поверх других блоков и не следует за прокруткой страницы.
+        // Описание не резуется: markdown вычищается до читаемого текста, а длинное
+        // тело просто растягивает карточку.
+        // Панели истории по карточкам — нужны тестовому хуку ShowDemoHistory, чтобы
+        // аудит разметки и скриншот видели раскрытую панель, а не свёрнутую.
+        readonly System.Collections.Generic.List<Border> _histBoxes = new System.Collections.Generic.List<Border>();
+        readonly System.Collections.Generic.List<StackPanel> _histBodies = new System.Collections.Generic.List<StackPanel>();
+
+        Button ReleaseHistoryButton(Border box, StackPanel body, string releasesApi, string releasesPage)
+        {
+            var b = Ctl.Button(null, Icons.List, 1);
+            // Та же высота, что у плашки «Актуально» и кнопки «Обновить» (32 px):
+            // иначе в шапке карточки стоят элементы разного размера.
+            var bb = Ctl.Surface(b);
+            var bbox = Ctl.ContentHost(b);
+            if (bb != null) { bb.Height = 32; bb.CornerRadius = Theme.R8; if (bbox != null) bbox.Padding = new Thickness(9, 0, 9, 0); }
+            string tip = Loc.T("updates.history.tip");
+            b.ToolTip = tip;
+            Ctl.AutomationSetName(b, tip);
+            b.Margin = new Thickness(0, 0, 8, 0);
+            b.Click += (s, e) => ToggleReleaseHistory(box, body, releasesApi, releasesPage);
+            return b;
+        }
+
+        // Закрывает та же кнопка «Что обновлялось»: второй крестик внутри панели
+        // дублировал действие и выглядел как лишняя кнопка в шапке блока.
+        void ToggleReleaseHistory(Border box, StackPanel body, string releasesApi, string releasesPage)
+        {
+            if (box == null || body == null) return;
+            if (box.Visibility == Visibility.Visible) { SetHistoryOpen(box, false); return; }
+            SetHistoryOpen(box, true);
+            if (body.Children.Count > 0) return;      // второй раз — без повторной сети
+            LoadReleaseHistory(box, body, releasesApi, releasesPage);
+        }
+
+        void SetHistoryOpen(Border box, bool open)
+        {
+            if (box == null) return;
+            if (open)
+            {
+                box.Visibility = Visibility.Visible;
+                box.BeginAnimation(OpacityProperty, null);
+                box.Opacity = 1;
+                if (!Theme.AnimationsEnabled) return;
+                box.RenderTransformOrigin = new Point(0.5, 0);
+                var st = box.RenderTransform as ScaleTransform;
+                if (st == null) { st = new ScaleTransform(1, 1); box.RenderTransform = st; }
+                var grow = new DoubleAnimation(0.94, 1, TimeSpan.FromMilliseconds(200))
+                { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                st.BeginAnimation(ScaleTransform.ScaleYProperty, grow);
+                var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180));
+                box.BeginAnimation(OpacityProperty, fade);
+                return;
+            }
+
+            if (box.Visibility != Visibility.Visible) return;
+            if (!Theme.AnimationsEnabled) { box.Visibility = Visibility.Collapsed; return; }
+            var hide = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(130))
+            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
+            hide.Completed += (s, e) =>
+            {
+                // Разворачивание всегда начинается с полной непрозрачности.
+                box.BeginAnimation(OpacityProperty, null);
+                box.Opacity = 1;
+                box.Visibility = Visibility.Collapsed;
+            };
+            box.BeginAnimation(OpacityProperty, hide);
+        }
+
+        void LoadReleaseHistory(Border box, StackPanel body, string releasesApi, string releasesPage)
+        {
+            body.Children.Add(HistoryTitle(box));
+            var loading = UI.T(Loc.T("updates.history.loading"), Theme.FsSmall, Theme.BrFaint);
+            body.Children.Add(loading);
+
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                var releases = Core.FetchReleaseList(releasesApi);
+                try
+                {
+                    Dispatcher.BeginInvoke(DispatcherPriority.Normal, (Action)delegate
+                    {
+                        body.Children.Remove(loading);
+                        FillHistoryBody(body, releases, releasesPage);
+                    });
+                }
+                catch (Exception ex) { Core.Warn("LoadReleaseHistory: " + Core.Short(ex.Message)); }
+            });
+        }
+
+        // releases == null — это «GitHub не ответил», а пустой список — «релизов
+        // нет»; показывать одно и то же за другое нельзя.
+        void FillHistoryBody(StackPanel body, System.Collections.Generic.List<Endpoints.ReleaseInfo> releases, string releasesPage)
+        {
+            if (releases == null) body.Children.Add(HistoryNote(Loc.T("updates.history.unavailable")));
+            else if (releases.Count == 0) body.Children.Add(HistoryNote(Loc.T("updates.history.empty")));
+            else foreach (var r in releases) body.Children.Add(HistoryRow(r));
+            body.Children.Add(HistoryFooter(releasesPage));
+        }
+
+#if SELFTEST
+        // Тестовый хук: раскрывает историю релизов на фиктивных данных с живым
+        // markdown (жирный, код, ссылки, бейдж-картинка, цитата, заголовки), чтобы
+        // аудит проверял панель, а скриншот — что это читается.
+        public bool ShowDemoHistory()
+        {
+            if (_histBoxes.Count == 0 || _histBodies.Count == 0) return false;
+            var rel = new System.Collections.Generic.List<Endpoints.ReleaseInfo>();
+            rel.Add(new Endpoints.ReleaseInfo
+            {
+                Tag = "1.9.9",
+                Date = "2026-03-05T12:00:00Z",
+                Notes = "## Что нового\n\n- **Добавлен** режим `alt3` для [Discord](https://discord.com)\n" +
+                        "- Исправлен ~~вылет~~ остановка при завершении\n\n> Требуются права администратора\n\n" +
+                        "![shield](https://img.example/badge.svg)\n\n* мелкие правки"
+            });
+            rel.Add(new Endpoints.ReleaseInfo { Tag = "1.9.8", Date = "2026-02-01T12:00:00Z", Notes = "- fix A\n- fix B" });
+            var box = _histBoxes[0];
+            var body = _histBodies[0];
+            body.Children.Clear();
+            body.Children.Add(HistoryTitle(box));
+            FillHistoryBody(body, rel, Endpoints.ZapretReleasesPage);
+            box.Visibility = Visibility.Visible;
+            return true;
+        }
+
+        public void HideDemoHistory()
+        {
+            foreach (var b in _histBoxes) if (b != null) b.Visibility = Visibility.Collapsed;
+        }
+#endif
+
+        FrameworkElement HistoryTitle(Border box)
+        {
+            var head = new Grid();
+            head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var title = UI.T(Loc.T("updates.history"), Theme.FsSmall, Theme.BrText, FontWeights.SemiBold);
+            title.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(title, 0);
+            head.Children.Add(title);
+
+            return new Border
+            {
+                Child = head,
+                BorderBrush = Theme.BrStrokeSoft,
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Padding = new Thickness(0, 0, 0, 10),
+                Margin = new Thickness(0, 0, 0, 12)
+            };
+        }
+
+        TextBlock HistoryNote(string text)
+        {
+            return new TextBlock
+            {
+                Text = text,
+                Foreground = Theme.BrMuted,
+                FontSize = Theme.FsSmall,
+                FontFamily = Theme.UiFont,
+                TextWrapping = TextWrapping.Wrap
+            };
+        }
+
+        FrameworkElement HistoryRow(Endpoints.ReleaseInfo r)
+        {
+            var sp = new StackPanel { Margin = new Thickness(0, 0, 0, 16) };
+
+            var head = new StackPanel { Orientation = Orientation.Horizontal };
+            head.Children.Add(UI.T(r.Tag, Theme.FsBody, Theme.BrAccent, FontWeights.SemiBold));
+            string date = Endpoints.ReleaseDate(r.Date);
+            if (!string.IsNullOrEmpty(date))
+            {
+                var dateTb = UI.T(date, Theme.FsTiny, Theme.BrFaint);
+                dateTb.Margin = new Thickness(8, 0, 0, 0);
+                dateTb.VerticalAlignment = VerticalAlignment.Center;
+                head.Children.Add(dateTb);
+            }
+            sp.Children.Add(head);
+
+            string notes = string.IsNullOrEmpty(r.Notes) ? null
+                : Endpoints.FormatReleaseNotes(Endpoints.RepairUtf8Mojibake(r.Notes));
+            sp.Children.Add(new TextBlock
+            {
+                Text = string.IsNullOrEmpty(notes) ? Loc.T("updates.history.noNotes") : notes,
+                Foreground = Theme.BrMuted,
+                FontSize = Theme.FsSmall,
+                FontFamily = Theme.UiFont,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 4, 0, 0)
+            });
+            return sp;
+        }
+
+        FrameworkElement HistoryFooter(string releasesPage)
+        {
+            var b = Ctl.Button(Loc.T("updates.history.all"), Icons.External, 1);
+            b.HorizontalAlignment = HorizontalAlignment.Left;
+            b.Click += (s, e) => Core.OpenUrl(releasesPage);
+            return b;
         }
 
         Border BuildZapretCard()
@@ -311,13 +606,15 @@ namespace ZapretStudio
                 TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed
             };
             _zapProgress = new UpdateProgressBar();
-            _zapStatusPill = new ContentControl { VerticalAlignment = VerticalAlignment.Center };
+            _zapStatusPill = new ContentControl { VerticalAlignment = VerticalAlignment.Center, Focusable = false };
             _zapUpdateBtn = Ctl.Button(Loc.T("settings.updateNow"), Icons.Download, 0);
             _zapUpdateBtn.Visibility = Visibility.Collapsed;
-            var zapBd = _zapUpdateBtn.Content as Border;
-            if (zapBd != null) { zapBd.Height = 32; zapBd.CornerRadius = Theme.R8; zapBd.Padding = new Thickness(14, 0, 14, 0); }
-            _zapUpdateBtn.Click += (s, e) => _win.UpdateZapret(_zapLatest);
+            var zapBd = Ctl.Surface(_zapUpdateBtn);
+            var zapBox = Ctl.ContentHost(_zapUpdateBtn);
+            if (zapBd != null) { zapBd.Height = 32; zapBd.CornerRadius = Theme.R8; if (zapBox != null) zapBox.Padding = new Thickness(14, 0, 14, 0); }
+            _zapUpdateBtn.Click += (s, e) => _win.UpdateZapret(_zapLatest, _zapIntegrity.Count > 0);
             _zapUpToDatePill = MakeUpToDateIndicator();
+            _zapLocalNewerPill = MakeLocalNewerIndicator();
 
             return BuildComponentCard(
                 Icons.Bolt,
@@ -329,7 +626,10 @@ namespace ZapretStudio
                 _zapStatusLine,
                 _zapProgress,
                 _zapUpdateBtn,
-                _zapUpToDatePill);
+                _zapUpToDatePill,
+                _zapLocalNewerPill,
+                Endpoints.ZapretReleasesApi,
+                Endpoints.ZapretReleasesPage);
         }
 
         Border BuildTgProxyCard()
@@ -343,13 +643,15 @@ namespace ZapretStudio
                 TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed
             };
             _tgProgress = new UpdateProgressBar();
-            _tgPillWrap = new ContentControl { VerticalAlignment = VerticalAlignment.Center };
+            _tgPillWrap = new ContentControl { VerticalAlignment = VerticalAlignment.Center, Focusable = false };
             _tgUpdateBtn = Ctl.Button(Loc.T("settings.updateNow"), Icons.Download, 0);
             _tgUpdateBtn.Visibility = Visibility.Collapsed;
-            var tgBd = _tgUpdateBtn.Content as Border;
-            if (tgBd != null) { tgBd.Height = 32; tgBd.CornerRadius = Theme.R8; tgBd.Padding = new Thickness(14, 0, 14, 0); }
+            var tgBd = Ctl.Surface(_tgUpdateBtn);
+            var tgBox = Ctl.ContentHost(_tgUpdateBtn);
+            if (tgBd != null) { tgBd.Height = 32; tgBd.CornerRadius = Theme.R8; if (tgBox != null) tgBox.Padding = new Thickness(14, 0, 14, 0); }
             _tgUpdateBtn.Click += (s, e) => UpdateTgProxy();
             _tgUpToDatePill = MakeUpToDateIndicator();
+            _tgLocalNewerPill = MakeLocalNewerIndicator();
 
             return BuildComponentCard(
                 Icons.Telegram,
@@ -361,7 +663,10 @@ namespace ZapretStudio
                 _tgStatusLine,
                 _tgProgress,
                 _tgUpdateBtn,
-                _tgUpToDatePill);
+                _tgUpToDatePill,
+                _tgLocalNewerPill,
+                Endpoints.TgProxyReleasesApi,
+                Endpoints.TgProxyReleasesAll);
         }
 
         Border BuildAppCard()
@@ -375,13 +680,15 @@ namespace ZapretStudio
                 TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed
             };
             _appProgress = new UpdateProgressBar();
-            _appStatusPill = new ContentControl { VerticalAlignment = VerticalAlignment.Center };
+            _appStatusPill = new ContentControl { VerticalAlignment = VerticalAlignment.Center, Focusable = false };
             _appUpdateBtn = Ctl.Button(Loc.T("settings.updateNow"), Icons.Download, 0);
             _appUpdateBtn.Visibility = Visibility.Collapsed;
-            var appBd = _appUpdateBtn.Content as Border;
-            if (appBd != null) { appBd.Height = 32; appBd.CornerRadius = Theme.R8; appBd.Padding = new Thickness(14, 0, 14, 0); }
+            var appBd = Ctl.Surface(_appUpdateBtn);
+            var appBox = Ctl.ContentHost(_appUpdateBtn);
+            if (appBd != null) { appBd.Height = 32; appBd.CornerRadius = Theme.R8; if (appBox != null) appBox.Padding = new Thickness(14, 0, 14, 0); }
             _appUpdateBtn.Click += (s, e) => DoAppUpdate();
             _appUpToDatePill = MakeUpToDateIndicator();
+            _appLocalNewerPill = MakeLocalNewerIndicator();
 
             return BuildComponentCard(
                 Icons.Lantern,
@@ -393,7 +700,10 @@ namespace ZapretStudio
                 _appStatusLine,
                 _appProgress,
                 _appUpdateBtn,
-                _appUpToDatePill);
+                _appUpToDatePill,
+                _appLocalNewerPill,
+                Endpoints.AppReleasesApi,
+                Endpoints.AppReleasesPage);
         }
 
         void InitInitialStatus()
@@ -458,6 +768,7 @@ namespace ZapretStudio
             if (_appLatestVer != null)
                 _appLatestVer.Text = Loc.T("updates.latestTag") + (string.IsNullOrEmpty(apLat) ? "—" : apLat);
             SetCardStatus(_appStatusLine, _appStatusPill, _appUpdateBtn, apLat, apLoc);
+            RunIntegrityCheck(false);
         }
 
         public void SetCheckingUpdates()
@@ -469,6 +780,9 @@ namespace ZapretStudio
             if (_zapUpToDatePill != null) _zapUpToDatePill.Visibility = Visibility.Collapsed;
             if (_tgUpToDatePill != null) _tgUpToDatePill.Visibility = Visibility.Collapsed;
             if (_appUpToDatePill != null) _appUpToDatePill.Visibility = Visibility.Collapsed;
+            if (_zapLocalNewerPill != null) _zapLocalNewerPill.Visibility = Visibility.Collapsed;
+            if (_tgLocalNewerPill != null) _tgLocalNewerPill.Visibility = Visibility.Collapsed;
+            if (_appLocalNewerPill != null) _appLocalNewerPill.Visibility = Visibility.Collapsed;
             if (_zapUpdateBtn != null) _zapUpdateBtn.Visibility = Visibility.Collapsed;
             if (_tgUpdateBtn != null) _tgUpdateBtn.Visibility = Visibility.Collapsed;
             if (_appUpdateBtn != null) _appUpdateBtn.Visibility = Visibility.Collapsed;
@@ -500,6 +814,8 @@ namespace ZapretStudio
             updateButton.Visibility = Visibility.Collapsed;
             var upInd = UpToDateIndicatorFor(updateButton);
             if (upInd != null) upInd.Visibility = Visibility.Collapsed;
+            var lnInd = LocalNewerIndicatorFor(updateButton);
+            if (lnInd != null) lnInd.Visibility = Visibility.Collapsed;
             HideLine(line);
 
             if (string.IsNullOrEmpty(latest))
@@ -511,7 +827,10 @@ namespace ZapretStudio
                         if (statusPillWrap == _tgPillWrap && !Core.TgProxyInstalled())
                             statusPillWrap.Content = Pill.Make(Sev.Warn, Loc.T("settings.tg.notInstalled"));
                         else
-                            statusPillWrap.Content = null;
+                            // №64: вместо пустой пилюли — честное «статус неизвестен».
+                            // Пустой Content выглядел как «всё актуально» до первой
+                            // проверки обновлений.
+                            statusPillWrap.Content = Pill.Make(Sev.Neutral, Loc.T("updates.status.unknown"));
                     }
                     else
                     {
@@ -523,13 +842,20 @@ namespace ZapretStudio
             if (string.IsNullOrEmpty(local))
             {
                 if (statusPillWrap != null)
-                    statusPillWrap.Content = Pill.Make(Sev.Warn, Loc.T("settings.tg.notInstalled"));
+                {
+                    string notInstKey = (updateButton == _tgUpdateBtn) ? "settings.tg.notInstalled" :
+                                        (updateButton == _zapUpdateBtn) ? "updates.notInstalled.engine" : "updates.notInstalled.app";
+                    statusPillWrap.Content = Pill.Make(Sev.Warn, Loc.T(notInstKey));
+                }
+                Ctl.SetButton(updateButton, Loc.T("updates.downloadNow"), Icons.Download, 0);
+                updateButton.Visibility = Visibility.Visible;
                 return;
             }
             if (SettingsPage.CompareVersions(latest, local) > 0)
             {
                 if (statusPillWrap != null)
                     statusPillWrap.Content = Pill.Make(Sev.Warn, Loc.T("updates.available") + ": " + latest);
+                Ctl.SetButton(updateButton, Loc.T("settings.updateNow"), Icons.Download, 0);
                 updateButton.Visibility = Visibility.Visible;
                 return;
             }
@@ -542,7 +868,108 @@ namespace ZapretStudio
             }
             if (statusPillWrap != null)
                 statusPillWrap.Content = Pill.Make(Sev.Neutral, Loc.T("updates.localNewer"));
-            if (upInd != null) upInd.Visibility = Visibility.Visible;
+            if (upInd != null) upInd.Visibility = Visibility.Collapsed;
+            // Локальная сборка новее опубликованного релиза: статус виден в том же
+            // слоте справа, где у равных версий горит «Актуально».
+            if (lnInd != null) lnInd.Visibility = Visibility.Visible;
+        }
+
+        void RunIntegrityCheck(bool notify)
+        {
+            if (_integrityBusy) return;
+            _integrityBusy = true;
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                var z = Core.EngineIntegrityIssues();
+                var t = Core.TgProxyIntegrityIssues();
+                try
+                {
+                    Dispatcher.Invoke((Action)delegate
+                    {
+                        _integrityBusy = false;
+                        _zapIntegrity.Clear();
+                        if (z != null) _zapIntegrity.AddRange(z);
+                        _tgIntegrity.Clear();
+                        if (t != null) _tgIntegrity.AddRange(t);
+                        ApplyIntegrityStatus();
+                        foreach (string issue in _zapIntegrity) Core.Warn("Integrity zapret: " + issue);
+                        foreach (string issue in _tgIntegrity) Core.Warn("Integrity TG: " + issue);
+                        int n = _zapIntegrity.Count + _tgIntegrity.Count;
+                        if (notify)
+                        {
+                            if (n == 0)
+                            {
+                                Core.Good(Loc.T("updates.integrity.ok"));
+                                _win.ShowToast(Loc.T("updates.integrity.ok"), Sev.Ok);
+                            }
+                            else
+                            {
+                                string msg = string.Format(Loc.T("updates.integrity.found"), n);
+                                Core.Warn(msg);
+                                _win.ShowToast(msg, Sev.Warn);
+                            }
+                        }
+                        else if (n > 0)
+                        {
+                            Core.Warn(string.Format(Loc.T("updates.integrity.found"), n));
+                        }
+                    });
+                }
+                catch { }
+            });
+        }
+
+        void ApplyIntegrityStatus()
+        {
+            bool zapBad = _zapIntegrity.Count > 0;
+            if (zapBad)
+            {
+                if (_zapStatusPill != null)
+                {
+                    var p = Pill.Make(Sev.Err, Loc.T("updates.integrity.damaged"));
+                    p.ToolTip = string.Join("\n", _zapIntegrity.ToArray());
+                    _zapStatusPill.Content = p;
+                }
+                if (_zapUpToDatePill != null) _zapUpToDatePill.Visibility = Visibility.Collapsed;
+                if (_zapLocalNewerPill != null) _zapLocalNewerPill.Visibility = Visibility.Collapsed;
+                if (_zapUpdateBtn != null)
+                {
+                    Ctl.SetButton(_zapUpdateBtn, Loc.T("updates.integrity.repair"), Icons.Download, 0);
+                    _zapUpdateBtn.Visibility = Visibility.Visible;
+                }
+                _zapIntegrityShown = true;
+            }
+            else if (_zapIntegrityShown)
+            {
+                _zapIntegrityShown = false;
+                SetCardStatus(_zapStatusLine, _zapStatusPill, _zapUpdateBtn, _zapLatest, SettingsPage.NormVer(Core.ZapretVersion()));
+            }
+
+            bool tgBad = _tgIntegrity.Count > 0;
+            if (tgBad)
+            {
+                if (_tgPillWrap != null)
+                {
+                    var p = Pill.Make(Sev.Err, Loc.T("updates.integrity.damaged"));
+                    p.ToolTip = string.Join("\n", _tgIntegrity.ToArray());
+                    _tgPillWrap.Content = p;
+                }
+                if (_tgUpToDatePill != null) _tgUpToDatePill.Visibility = Visibility.Collapsed;
+                if (_tgLocalNewerPill != null) _tgLocalNewerPill.Visibility = Visibility.Collapsed;
+                if (_tgUpdateBtn != null)
+                {
+                    Ctl.SetButton(_tgUpdateBtn, Loc.T("updates.integrity.repair"), Icons.Download, 0);
+                    _tgUpdateBtn.Visibility = Visibility.Visible;
+                }
+                _tgIntegrityShown = true;
+            }
+            else if (_tgIntegrityShown)
+            {
+                _tgIntegrityShown = false;
+                bool tgInst = Core.TgProxyInstalled();
+                string tgLoc = tgInst ? SettingsPage.NormVer(Core.TgProxyLocalVersion()) : null;
+                SetCardStatus(_tgStatusLine, _tgPillWrap, _tgUpdateBtn, _tgLatest, tgLoc);
+            }
         }
 
         Border UpToDateIndicatorFor(Button button)
@@ -550,6 +977,13 @@ namespace ZapretStudio
             if (button == _zapUpdateBtn) return _zapUpToDatePill;
             if (button == _tgUpdateBtn) return _tgUpToDatePill;
             return _appUpToDatePill;
+        }
+
+        Border LocalNewerIndicatorFor(Button button)
+        {
+            if (button == _zapUpdateBtn) return _zapLocalNewerPill;
+            if (button == _tgUpdateBtn) return _tgLocalNewerPill;
+            return _appLocalNewerPill;
         }
 
         UpdateProgressBar ProgressFor(Button button)
@@ -592,7 +1026,11 @@ namespace ZapretStudio
             FinishProgress(_zapProgress, _zapStatusLine, text, ok);
             if (ok && _zapLocalVer != null)
             {
-                _zapLocalVer.Text = Loc.T("settings.localVersion") + Core.ZapretVersion();
+                _zapLocalVer.Text = Loc.T("updates.installedTag") + SettingsPage.NormVer(Core.ZapretVersion());
+                // Дать полосе успеха скрыться, затем перепроверить файлы.
+                var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1600) };
+                t.Tick += (s, e) => { t.Stop(); RunIntegrityCheck(false); };
+                t.Start();
             }
         }
 
@@ -628,11 +1066,12 @@ namespace ZapretStudio
             bool wasRunning = Core.TgProxyRunning();
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
+                bool ok = false;
+                string tgErr = null;
                 try
                 {
                     if (wasRunning) Core.TgProxyStop();
-                    try { Directory.CreateDirectory(Core.TgToolsDir); } catch { }
-                    bool ok = Core.DownloadFile(Core.TgProxyDownloadUrl(), Core.TgProxyExe, delegate (DlProgress p)
+                    ok = Core.TgProxyInstall(delegate (DlProgress p)
                     {
                         try
                         {
@@ -643,31 +1082,46 @@ namespace ZapretStudio
                             });
                         }
                         catch { }
-                    }, null);
+                    }, out tgErr);
+                }
+                catch (Exception ex)
+                {
+                    tgErr = Core.Short(ex.Message);
+                    Core.Fail("UpdateTgProxy: " + tgErr);
+                }
+                try
+                {
                     Dispatcher.Invoke((Action)delegate
                     {
                         if (ok)
                         {
                             SetTgUpdateProgress(Loc.T("settings.update.replacing"), 96);
-                            string tag = !string.IsNullOrEmpty(_tgLatest) ? _tgLatest : Core.Get("latest_tg", "");
-                            Core.TgProxyMarkInstalled(tag);
                             string nv = Core.TgProxyLocalVersion();
                             string nvNorm = string.IsNullOrEmpty(nv) ? "—" : SettingsPage.NormVer(nv);
                             if (_tgLocalVer != null)
-                                _tgLocalVer.Text = Loc.T("settings.localVersion") + nvNorm;
+                                _tgLocalVer.Text = Loc.T("updates.installedTag") + nvNorm;
                             if (_tgPillWrap != null)
-                                _tgPillWrap.Content = Pill.Make(Sev.Ok, Loc.Lang == "ru" ? "Установлен" : "Installed");
+                                _tgPillWrap.Content = Pill.Make(Theme.AccentMain, Loc.T("updates.installed"));
                             if (_win != null) _win.NoteTgProxyUpdated(nv);
                             FinishProgress(_tgProgress, _tgStatusLine,
                                 Loc.T("settings.update.done") + ": " + nvNorm, true);
                             _win.ShowToast(Loc.T("tg.dlOk"), Sev.Ok);
-                            if (wasRunning) { string tgErr; Core.TgProxyStart(out tgErr); }
+                            if (wasRunning) { string tgStartErr; Core.TgProxyStart(out tgStartErr); }
                         }
                         else
                         {
-                            FinishProgress(_tgProgress, _tgStatusLine, Loc.T("tg.dlFail"), false);
+                            // Кнопку возвращаем: без неё повторить попытку можно
+                            // было только повторной проверкой обновлений.
+                            _tgUpdateBtn.Visibility = Visibility.Visible;
+                            FinishProgress(_tgProgress, _tgStatusLine,
+                                Loc.T("tg.dlFail") + (string.IsNullOrEmpty(tgErr) ? "" : ": " + tgErr), false);
                             _win.ShowToast(Loc.T("tg.dlFail"), Sev.Warn);
+                            if (!string.IsNullOrEmpty(tgErr)) Core.Fail(tgErr);
                         }
+                        if (_win != null) _win.RefreshTop();
+                        var it = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1600) };
+                        it.Tick += (s2, e2) => { it.Stop(); RunIntegrityCheck(false); };
+                        it.Start();
                     });
                 }
                 catch { }
@@ -768,9 +1222,14 @@ namespace ZapretStudio
                 _appUpdateBtn.Visibility != Visibility.Visible)
                 throw new Exception("available update without the update button");
 
-            SetAutomaticUpdateResults("1.2", "1.2", "1.2", null, "1.2", "1.2");
-            if (_tgUpdateBtn.Visibility != Visibility.Collapsed)
-                throw new Exception("missing proxy shows update button");
+            // «Локальная версия неизвестна» → карточка предлагает скачать.
+            // Проверяем на движке: у TG-карточки на этот случай живой фолбэк
+            // Core.TgProxyInstalled()/TgProxyLocalVersion() (View.Updates.cs:454),
+            // из-за которого ожидание зависело от того, стоит ли прокси на машине
+            // запуска, — тест краснел на установленном TgWsProxy.
+            SetAutomaticUpdateResults("1.2", null, "1.2", "1.2", "1.2", "1.2");
+            if (_zapUpdateBtn.Visibility != Visibility.Visible)
+                throw new Exception("missing engine should show download button");
 
             SetAutomaticUpdateResults(null, "1.2", null, "1.2", null, "1.2");
             if (_zapUpdateBtn.Visibility != Visibility.Collapsed)

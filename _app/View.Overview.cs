@@ -15,7 +15,9 @@ namespace ZapretStudio
         Border _statusCard, _tgCard;
         TextBlock _statusTitle, _statusSub, _stratName, _modeVal, _uptimeVal;
         TextBlock _tgStatusTitle, _tgStatusSub;
-        Button _mainBtn, _restartBtn, _tgBtn, _tgFolderBtn;
+        Button _mainBtn, _restartBtn, _tgBtn, _tgConnectBtn, _tgSettingsBtn;
+        string _lastTgKey;
+        bool? _lastTgTopRunning;
         Border _cDiscord, _cYouTube, _cDivert, _cService;
         bool? _lastRunning;
         bool _zapBusy, _tgBusy;
@@ -60,23 +62,32 @@ namespace ZapretStudio
             }
         }
 
-        public void SetTgTransition(bool busy)
+        public void SetTgTransition(bool busy, bool isDownload = false)
         {
             _tgBusy = busy;
             if (busy)
             {
-                _tgStatusTitle.Text = Loc.T("ov.tgLaunching");
-                _tgStatusTitle.Foreground = Theme.BrAccent;
-                _tgStatusSub.Text = Loc.T("tg.dlProgress");
+                if (isDownload)
+                {
+                    _tgStatusTitle.Text = Loc.T("tg.dlTitle");
+                    _tgStatusTitle.Foreground = Theme.BrAccent;
+                    _tgStatusSub.Text = Loc.T("tg.dlProgress");
+                }
+                else
+                {
+                    _tgStatusTitle.Text = Loc.T("ov.tgLaunching");
+                    _tgStatusTitle.Foreground = Theme.BrAccent;
+                    _tgStatusSub.Text = Loc.T("common.waiting");
+                }
                 if (_tgBtn != null) _tgBtn.IsEnabled = false;
+                if (_tgConnectBtn != null) _tgConnectBtn.IsEnabled = false;
                 PulseCard(_tgCard, true);
             }
             else
             {
                 PulseCard(_tgCard, false);
                 if (_tgBtn != null) _tgBtn.IsEnabled = true;
-                _lastTgRunning = null;
-                _lastTgInstalled = null;
+                _lastTgKey = null;
                 RefreshTg();
             }
         }
@@ -91,7 +102,7 @@ namespace ZapretStudio
                 card.RenderTransform = scale;
                 card.RenderTransformOrigin = new Point(0.5, 0.5);
             }
-            if (!active)
+            if (!active || Theme.Mode == ThemeMode.System24)
             {
                 scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
                 scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
@@ -164,7 +175,7 @@ namespace ZapretStudio
             btnRow.Children.Add(_mainBtn);
             _restartBtn = Ctl.Button(Loc.T("ov.restart"), Icons.Restart, 3);
             _restartBtn.Height = 40;
-            _restartBtn.Click += (s, e) => _win.RestartCurrent();
+            _restartBtn.Click += (s, e) => _win.RestartAll();
             btnRow.Children.Add(_restartBtn);
             Grid.SetRow(btnRow, 3); g.Children.Add(btnRow);
 
@@ -180,11 +191,26 @@ namespace ZapretStudio
             g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-            var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
-            head.Children.Add(UI.Icon(Icons.Telegram, 18, Theme.BrAccent, 1.8));
+            var head = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+            head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var headLeft = new StackPanel { Orientation = Orientation.Horizontal };
+            headLeft.Children.Add(UI.Icon(Icons.Telegram, 18, Theme.BrAccent, 1.8));
             var ht = UI.T(Loc.T("ov.sec.tg"), Theme.FsSmall, Theme.BrFaint, FontWeights.SemiBold);
             ht.Margin = new Thickness(9, 0, 0, 0); ht.VerticalAlignment = VerticalAlignment.Center;
-            head.Children.Add(ht);
+            headLeft.Children.Add(ht);
+            Grid.SetColumn(headLeft, 0); head.Children.Add(headLeft);
+
+            // Шестерня ведёт в настройки на отдельную секцию TG-прокси.
+            // Доступна всегда — даже когда прокси остановлен или не установлен.
+            _tgSettingsBtn = Ctl.Button(null, Icons.Gear, 1);
+            var settingsBorder = Ctl.Surface(_tgSettingsBtn);
+            var settingsBox = Ctl.ContentHost(_tgSettingsBtn);
+            if (settingsBorder != null) { settingsBorder.Height = 30; settingsBorder.CornerRadius = Theme.R8; if (settingsBox != null) settingsBox.Padding = new Thickness(8, 0, 8, 0); }
+            _tgSettingsBtn.ToolTip = Loc.T("ov.tg.settings.tip");
+            _tgSettingsBtn.Click += (s, e) => _win.OpenTgProxySettings();
+            Grid.SetColumn(_tgSettingsBtn, 1); head.Children.Add(_tgSettingsBtn);
             Grid.SetRow(head, 0); g.Children.Add(head);
 
             _tgStatusTitle = UI.T("—", Theme.FsDisplay, Theme.BrText, FontWeights.Bold);
@@ -209,10 +235,12 @@ namespace ZapretStudio
             _tgBtn.Height = 40;
             _tgBtn.Click += (s, e) => TgToggle();
             btnRow.Children.Add(_tgBtn);
-            _tgFolderBtn = Ctl.Button(Loc.T("ov.qa.tgFolder"), Icons.Folder, 3);
-            _tgFolderBtn.Height = 40;
-            _tgFolderBtn.Click += (s, e) => { try { System.IO.Directory.CreateDirectory(Core.TgToolsDir); Core.OpenFolder(Core.TgToolsDir); } catch { } };
-            btnRow.Children.Add(_tgFolderBtn);
+            _tgConnectBtn = Ctl.Button(Loc.T("ov.tg.connect"), Icons.Telegram, 3);
+            _tgConnectBtn.Height = 40;
+            _tgConnectBtn.IsEnabled = false;
+            ToolTipService.SetShowOnDisabled(_tgConnectBtn, true);
+            _tgConnectBtn.Click += (s, e) => TgConnect();
+            btnRow.Children.Add(_tgConnectBtn);
             Grid.SetRow(btnRow, 3); g.Children.Add(btnRow);
 
             _tgCard = UI.Card(g, new Thickness(22, 20, 22, 20));
@@ -243,7 +271,10 @@ namespace ZapretStudio
                 Foreground = Theme.BrFaint,
                 FontSize = Theme.FsTiny,
                 FontFamily = Theme.UiFont,
-                FontWeight = FontWeights.SemiBold
+                FontWeight = FontWeights.SemiBold,
+                // Заглавные подписи карточек («ВСЕГО ЗАГРУЖЕНО») на узком окне
+                // вылезают за край карточки — переносим, а не обрезаем.
+                TextWrapping = TextWrapping.Wrap
             });
             val = UI.T("—", Theme.FsH2, Theme.BrText, FontWeights.SemiBold);
             val.Margin = new Thickness(0, 6, 0, 0);
@@ -331,24 +362,69 @@ namespace ZapretStudio
                 return;
             }
             SetTgTransition(true);
-            Dispatcher.BeginInvoke((Action)delegate
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
+                string err = null;
+                bool ok = false;
                 try
                 {
-                    string err;
-                    if (Core.TgProxyStart(out err)) { Core.Good(Loc.T("tg.startedOk")); _win.ShowToast(Loc.T("tg.startedOk"), Sev.Ok); }
-                    else Core.Fail(string.Format(Loc.T("tg.startErr"), err));
+                    ok = Core.TgProxyStart(out err);
                 }
-                finally { SetTgTransition(false); }
-            }, DispatcherPriority.Background);
+                catch (Exception ex)
+                {
+                    err = Core.Short(ex.Message);
+                }
+                finally
+                {
+                    try
+                    {
+                        Dispatcher.BeginInvoke((Action)delegate
+                        {
+                            try
+                            {
+                                if (ok) { Core.Good(Loc.T("tg.startedOk")); _win.ShowToast(Loc.T("tg.startedOk"), Sev.Ok); }
+                                else Core.Fail(string.Format(Loc.T("tg.startErr"), err));
+                            }
+                            finally
+                            {
+                                SetTgTransition(false);
+                            }
+                        });
+                    }
+                    catch { }
+                }
+            });
         }
 
         void TgStop()
         {
-            Core.TgProxyStop();
-            Core.Info(Loc.T("tg.stoppedOk"));
-            _win.ShowToast(Loc.T("tg.stoppedOk"), Sev.Warn);
-            RefreshTg();
+            SetTgTransition(true);
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                try
+                {
+                    Core.TgProxyStop();
+                }
+                finally
+                {
+                    try
+                    {
+                        Dispatcher.BeginInvoke((Action)delegate
+                        {
+                            try
+                            {
+                                Core.Info(Loc.T("tg.stoppedOk"));
+                                _win.ShowToast(Loc.T("tg.stoppedOk"), Sev.Warn);
+                            }
+                            finally
+                            {
+                                SetTgTransition(false);
+                            }
+                        });
+                    }
+                    catch { }
+                }
+            });
         }
 
         void TgDownload()
@@ -357,60 +433,68 @@ namespace ZapretStudio
                 string.Format(Loc.T("tg.dlDlg"), Core.TgToolsDir),
                 Loc.T("tg.dlTitle"), MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (r != MessageBoxResult.Yes) return;
-            string url = Core.TgProxyDownloadUrl();
-            string dest = Core.TgProxyExe;
+            SetTgTransition(true, true);
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
-                try
+                bool ok = false;
+                string err = null;
+                try { ok = Core.TgProxyInstall(null, out err); }
+                catch (Exception ex) { err = Core.Short(ex.Message); }
+                finally
                 {
-                    try { System.IO.Directory.CreateDirectory(Core.TgToolsDir); } catch { }
-                    bool ok = Core.DownloadFile(url, dest, null, null);
-                    if (ok)
+                    try
                     {
-                        // Помечаем установленную сборку тегом релиза: в exe апстрима
-                        // версия не обновляется, и без метки настройки сразу же
-                        // предлагали «обновить» только что скачанный файл.
-                        string tag = Core.Get("latest_tg", "");
-                        if (string.IsNullOrEmpty(tag)) { try { tag = Core.TgProxyLatestVersion(); } catch { } }
-                        Core.TgProxyMarkInstalled(tag);
+                        Dispatcher.Invoke((Action)delegate
+                        {
+                            SetTgTransition(false);
+                            if (ok) Core.Good(Loc.T("tg.dlOk"));
+                            else Core.Fail(Loc.T("tg.dlFail") + (string.IsNullOrEmpty(err) ? "" : ": " + err));
+                            RefreshTg();
+                        });
                     }
-                    Dispatcher.Invoke((Action)delegate
-                    {
-                        if (ok) Core.Good(Loc.T("tg.dlOk"));
-                        else Core.Fail(Loc.T("tg.dlFail"));
-                        RefreshTg();
-                    });
+                    catch { }
                 }
-                catch { }
             });
         }
-
-        bool? _lastTgRunning;
-        bool? _lastTgInstalled;
 
         void RefreshTg()
         {
             if (_tgBtn == null) return;
             _tgBtn.IsEnabled = !_tgBusy;
             if (_tgBusy) return;
+
             bool installed = Core.TgProxyInstalled();
             bool running = Core.TgProxyRunning();
+            if (!_lastTgTopRunning.HasValue || _lastTgTopRunning.Value != running)
+            {
+                _lastTgTopRunning = running;
+                _win.RefreshTop();
+            }
+            TgProxySettings cfg;
+            string cfgErr;
+            bool cfgOk = Core.TryTgProxySettings(out cfg, out cfgErr);
+            bool canUse = running && cfgOk;
 
-            if (_lastTgRunning.HasValue && _lastTgRunning.Value == running &&
-                _lastTgInstalled.HasValue && _lastTgInstalled.Value == installed)
-                return;
-
-            _lastTgRunning = running;
-            _lastTgInstalled = installed;
+            if (_tgConnectBtn != null)
+            {
+                _tgConnectBtn.IsEnabled = canUse;
+                _tgConnectBtn.ToolTip = !running ? Loc.T("ov.tg.startFirst")
+                    : (!cfgOk ? (cfgErr ?? Loc.T("ov.tg.cfgMissing")) : Loc.T("ov.tg.connect.tip"));
+            }
+            string key = (running ? "1" : "0") + (installed ? "1" : "0") + "|" +
+                         (cfgOk ? cfg.Endpoint + "|" + cfg.Secret : "!" + (cfgErr ?? ""));
+            if (key == _lastTgKey) return;
+            _lastTgKey = key;
 
             if (running)
             {
                 _tgStatusTitle.Text = Loc.T("ov.running");
-                _tgStatusTitle.Foreground = Theme.BrOk;
-                _tgStatusSub.Text = Loc.T("ov.tg.desc");
+                _tgStatusTitle.Foreground = Theme.BrAccent;
+                _tgStatusSub.Text = cfgOk ? Loc.T("ov.tg.runningDesc") : (cfgErr ?? Loc.T("ov.tg.cfgMissing"));
                 Ctl.SetButton(_tgBtn, Loc.T("common.stop"), Icons.Stop, 2);
-                _tgCard.BorderBrush = Theme.Alpha(Theme.Ok, 80);
-                _tgCard.Background = Theme.Alpha(Theme.Ok, 12);
+                // Карточку не подкрашиваем в зелёный: статус уже зелёный.
+                _tgCard.BorderBrush = Theme.BrStroke;
+                _tgCard.Background = Theme.BrSurface;
             }
             else if (installed)
             {
@@ -432,21 +516,41 @@ namespace ZapretStudio
             }
         }
 
+        void TgConnect()
+        {
+            TgProxySettings cfg;
+            string err;
+            if (!Core.TryTgProxySettings(out cfg, out err))
+            {
+                Core.Warn("TG settings: " + err);
+                _win.ShowToast(err ?? Loc.T("ov.tg.cfgMissing"), Sev.Warn);
+                return;
+            }
+            if (!Core.TgProxyRunning())
+            {
+                _win.ShowToast(Loc.T("ov.tg.startFirst"), Sev.Warn);
+                return;
+            }
+            if (!Core.TgOpenLinkDefault(cfg.Link, out err))
+            {
+                Core.Warn("TG link: " + err);
+                _win.ShowToast(string.Format(Loc.T("ov.tg.openFail"), err), Sev.Err);
+            }
+        }
+
         void BuildQuickActions()
         {
             Body.Children.Add(SectionLabel(Loc.T("ov.sec.quick")));
-            var wrap = new WrapPanel();
-            wrap.Children.Add(QA(Loc.T("ov.qa.check"), Icons.Pulse, delegate { _win.Navigate("check"); }));
-            wrap.Children.Add(QA(Loc.T("ov.qa.strat"), Icons.Grid, delegate { _win.Navigate("strategies"); }));
-            wrap.Children.Add(QA(Loc.T("ov.qa.folder"), Icons.Folder, delegate { Core.OpenFolder(Core.Root); }));
-            wrap.Children.Add(QA(Loc.T("ov.qa.log"), Icons.List, delegate { _win.Navigate("log"); }));
-            Body.Children.Add(wrap);
+            Body.Children.Add(Ctl.ButtonRow(
+                QA(Loc.T("ov.qa.check"), Icons.Pulse, delegate { _win.Navigate("check"); }),
+                QA(Loc.T("ov.qa.strat"), Icons.Grid, delegate { _win.Navigate("strategies"); }),
+                QA(Loc.T("ov.qa.folder"), Icons.Folder, delegate { Core.OpenFolder(Core.Root); }),
+                QA(Loc.T("ov.qa.log"), Icons.List, delegate { _win.Navigate("log"); })));
         }
 
         Button QA(string text, string icon, Action act)
         {
             var b = Ctl.Button(text, icon, 1);
-            b.Margin = new Thickness(0, 0, 10, 10);
             b.Click += (s, e) => act();
             return b;
         }
@@ -461,6 +565,26 @@ namespace ZapretStudio
         void PulseStatus()
         {
             if (_statusCard == null) return;
+            if (Theme.Mode == ThemeMode.System24)
+            {
+                var st0 = _statusCard.RenderTransform as ScaleTransform;
+                if (st0 != null)
+                {
+                    st0.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                    st0.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                    st0.ScaleX = st0.ScaleY = 1;
+                }
+                var easeFade = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut };
+                var fadeOnly = new System.Windows.Media.Animation.DoubleAnimation
+                {
+                    From = 0.55,
+                    To = 1.0,
+                    Duration = TimeSpan.FromMilliseconds(200),
+                    EasingFunction = easeFade
+                };
+                if (_statusTitle != null) _statusTitle.BeginAnimation(UIElement.OpacityProperty, fadeOnly);
+                return;
+            }
             var st = _statusCard.RenderTransform as ScaleTransform;
             if (st == null)
             {
@@ -516,11 +640,12 @@ namespace ZapretStudio
                 if (running)
                 {
                     _statusTitle.Text = Loc.T("ov.running");
-                    _statusTitle.Foreground = Theme.BrOk;
+                    _statusTitle.Foreground = Theme.BrAccent;
                     _statusSub.Text = mode == Loc.T("mode.service") ? Loc.T("ov.sub.service") : Loc.T("ov.sub.manual");
                     Ctl.SetButton(_mainBtn, Loc.T("common.stop"), Icons.Stop, 2);
-                    _statusCard.BorderBrush = Theme.Alpha(Theme.Ok, 80);
-                    _statusCard.Background = Theme.Alpha(Theme.Ok, 12);
+                    // Карточку не подкрашиваем: цвет статуса берётся из акцента темы.
+                    _statusCard.BorderBrush = Theme.BrStroke;
+                    _statusCard.Background = Theme.BrSurface;
                     if (_restartBtn != null) _restartBtn.IsEnabled = true;
                     PulseStatus();
                 }

@@ -22,39 +22,29 @@ namespace ZapretStudio
             A("nav.updates",    "Обновления",            "Updates");
             A("nav.log",        "Журнал",                "Log");
             A("nav.about",      "О проекте",             "About");
-            A("tools.title",    "Инструменты",           "Tools");
-            A("tools.sub",      "Дополнительные сетевые инструменты.", "Additional network tools.");
-            A("common.running",   "Запущено",     "Running");
-            A("common.stopped",   "Остановлено",  "Stopped");
             A("common.start",     "Запустить",    "Start");
             A("common.stop",      "Остановить",   "Stop");
-            A("common.restart",   "Перезапустить","Restart");
-            A("common.refresh",   "Обновить",     "Refresh");
             A("common.later",     "Позже",        "Later");
             A("common.close",     "Закрыть",      "Close");
             A("common.minimize",  "Свернуть",     "Minimize");
             A("common.maximize",  "Развернуть",   "Maximize");
-            A("common.open",      "Открыть",      "Open");
-            A("common.copy",      "Копировать",   "Copy");
-            A("common.cancel",    "Отмена",       "Cancel");
             A("common.waiting",   "Ожидает",      "Waiting");
             A("common.checking",  "Проверяется",  "Checking");
             A("common.settings",  "Настройки",    "Settings");
-            A("common.checkUpdates","Проверить обновления","Check for updates");
             A("common.button",    "кнопка",       "button");
             A("common.ok",        "В норме",      "OK");
             A("common.warning",   "Внимание",     "Warning");
             A("common.error",     "Ошибка",       "Error");
             A("common.info",      "Инфо",         "Info");
             A("mw.verLine",     "Версия zapret: {0}",  "zapret version: {0}");
-            A("mw.verCurrent",  "Версия zapret: {0} — актуально", "zapret version: {0} — up to date");
-            A("mw.verUpdate",   "Версия zapret: {0} — есть обновление", "zapret version: {0} — update available");
+            A("mw.verCurrent",  "Версия zapret: {0}\u00A0—\u00A0актуально", "zapret version: {0}\u00A0—\u00A0up to date");
+            A("mw.verUpdate",   "Версия zapret: {0}\u00A0—\u00A0есть обновление", "zapret version: {0}\u00A0—\u00A0update available");
             A("mw.openGithub",  "Открыть GitHub",     "Open GitHub");
             A("mw.collapse",    "Свернуть меню",      "Collapse menu");
-            A("mw.appShell",    "Версия оболочки: v{0} — актуально", "Shell version: v{0} — up to date");
-            A("mw.appShell.update", "Версия оболочки: v{0} — есть обновление", "Shell version: v{0} — update available");
-            A("mw.tgVer",       "Версия TG-Proxy: {0} — актуально", "TG-Proxy version: {0} — up to date");
-            A("mw.tgVer.update","Версия TG-Proxy: {0} — есть обновление", "TG-Proxy version: {0} — update available");
+            A("mw.appShell",    "Версия оболочки: v{0}\u00A0—\u00A0актуально", "Shell version: v{0}\u00A0—\u00A0up to date");
+            A("mw.appShell.update", "Версия оболочки: v{0}\u00A0—\u00A0есть обновление", "Shell version: v{0}\u00A0—\u00A0update available");
+            A("mw.tgVer",       "Версия TG-Proxy: {0}\u00A0—\u00A0актуально", "TG-Proxy version: {0}\u00A0—\u00A0up to date");
+            A("mw.tgVer.update","Версия TG-Proxy: {0}\u00A0—\u00A0есть обновление", "TG-Proxy version: {0}\u00A0—\u00A0update available");
             A("mw.tgVer.none",  "TG-Proxy: не установлен", "TG-Proxy: not installed");
             A("mw.noStrats",    "Стратегии не найдены", "No strategies found");
             A("mw.startTask",   "Запуск обхода",      "Starting bypass");
@@ -72,7 +62,7 @@ namespace ZapretStudio
             // Кнопка перезапуска в шапке: поднимает заново обход и Telegram-прокси
             // и заново проверяет обновления (тему и язык не трогает).
             A("mw.restartAll",  "Перезапуск обхода и Telegram-прокси…", "Restarting bypass and Telegram proxy…");
-            A("mw.restartAllTip","Перезапустить обход и прокси, проверить обновления", "Restart bypass and proxy, check for updates");
+            A("mw.restartAllTip","Перезапустить службу обхода и Telegram-прокси, проверить обновления", "Restart bypass service and Telegram proxy, check for updates");
             A("mw.restartAllBusy","Перезапуск выполняется…", "Restart in progress…");
             A("mw.restartAllDone","Перезапуск завершён",  "Restart finished");
             A("mw.restartAllPart","Перезапуск завершён с ошибками — смотрите журнал", "Restart finished with errors — see the journal");
@@ -82,7 +72,6 @@ namespace ZapretStudio
             A("mw.restartTgSkip","Telegram-прокси не запущен — перезапускать нечего", "Telegram proxy is not running — nothing to restart");
             A("mw.restartNoBypass","Обход не запущен и стратегия не выбрана — перезапускать нечего", "Bypass is not running and no strategy is selected — nothing to restart");
             A("mw.busy",        "Другая операция с обходом уже выполняется.", "Another bypass operation is already running.");
-            A("mw.needAdminMsg","Для действия «{0}» нужны права администратора.\nЗапустите приложение от имени администратора.", "The \"{0}\" action requires administrator rights.\nRestart the app as administrator.");
             A("mw.needAdminPrompt","Для действия «{0}» требуются права администратора.\n\nПерезапустить приложение от имени администратора сейчас?", "The \"{0}\" action requires administrator rights.\n\nRestart the application as administrator now?");
             A("mw.needAdminLog","{0}: нет прав администратора", "{0}: no administrator rights");
             A("mw.noAdminBadge","Нет прав админа", "No Admin Rights");
@@ -91,24 +80,20 @@ namespace ZapretStudio
             A("mw.startBypassAct","Запуск обхода",    "Starting bypass");
             A("mw.checkVer",    "Проверка версии…",   "Checking version…");
             A("mw.verFail",     "Не удалось получить версию из репозитория", "Could not fetch the version from the repository");
-            A("mw.verOk",       "Актуальная версия (GitHub): {0}", "Latest version (GitHub): {0}");
-            A("mw.verNew",      "Доступна версия {0} (у вас {1})", "Version {0} available (you have {1})");
             A("mw.zapVerOk",    "zapret: установлена актуальная версия {0}", "zapret: up-to-date version {0} installed");
             A("mw.zapVerNew",   "zapret: доступна новая версия {0} (у вас {1})", "zapret: new version {0} available (you have {1})");
-            A("mw.zapLocalNewer","zapret: локальная версия {0} новее последней на GitHub: {1}", "zapret: local version {0} is newer than latest on GitHub: {1}");
             A("mw.tgVerOk",     "TG-Proxy: установлена актуальная версия {0}", "TG-Proxy: up-to-date version {0} installed");
             A("mw.tgVerNew",    "TG-Proxy: доступна новая версия {0} (у вас {1})", "TG-Proxy: new version {0} available (you have {1})");
             A("mw.appVerOk",    "Lantern: установлена актуальная версия {0}", "Lantern: up-to-date version {0} installed");
             A("mw.appVerNew",   "Lantern: доступна новая версия {0} (у вас {1})", "Lantern: new version {0} available (you have {1})");
-            A("mw.appLocalNewer","Lantern: локальная версия {0} новее последней на GitHub: {1}", "Lantern: local version {0} is newer than latest on GitHub: {1}");
-            A("mw.verDlg",      "Доступна версия zapret {0} (у вас {1}).\n\nСкачать и установить обновление автоматически?", "zapret {0} is available (you have {1}).\n\nDownload and install the update automatically?");
             A("mw.verDlgTitle", "Обновление",         "Update");
             A("mw.updStart",    "Загрузка обновления {0}…", "Downloading update {0}…");
             A("mw.updProgress", "Загрузка…",          "Downloading…");
             A("mw.updFail",     "Не удалось загрузить обновление", "Failed to download the update");
+            A("mw.updStopFail", "Не удалось остановить обход — обновление отменено", "Could not stop the bypass - update cancelled");
+            A("mw.updNoSpace",  "Недостаточно места: свободно {0}, нужно {1}", "Not enough disk space: {0} free, {1} required");
+            A("mw.updErr",      "Сбой обновления: {0}", "Update failed: {0}");
             A("mw.updDone",     "Обновление установлено: версия {0}", "Update installed: version {0}");
-            A("update.unverifiedTitle", "Автообновление отключено", "Automatic update disabled");
-            A("update.unverified", "Релиз не содержит проверяемой цифровой подписи или подписанного манифеста. Lantern не будет автоматически скачивать или запускать этот файл. Откроется страница релиза для ручной проверки.", "This release has no verifiable code signature or signed manifest. Lantern will not download or run it automatically. The release page will open for manual verification.");
             A("mw.noAdminWarn", "Приложение запущено без прав администратора — управление обходом и службой недоступно", "The app is running without administrator rights — bypass and service control is unavailable");
             A("mw.tray.toggle", "Запустить / остановить", "Start / stop");
             A("mw.tray.restart","Перезапустить",      "Restart");
@@ -120,10 +105,11 @@ namespace ZapretStudio
             A("tray.widget.caption", "Быстрый статус", "Quick status");
             A("tray.widget.strategy", "Текущая стратегия", "Current strategy");
             A("tray.widget.strategyNone", "Стратегия не выбрана", "No strategy selected");
-            A("tray.widget.open", "Открыть приложение", "Open application");
-            A("tray.widget.refresh", "Обновить статус", "Refresh status");
             A("mw.bypassDown.title","Обход остановлен", "Bypass stopped");
             A("mw.bypassDown.body","Winws перестал работать. Проверьте стратегию.", "Winws has stopped. Check your strategy.");
+            A("winws.tsEnabled", "Включены метки времени TCP (нужны для --dpi-desync-fooling=ts)", "TCP timestamps enabled (required by --dpi-desync-fooling=ts)");
+            A("winws.tsFailed", "Не удалось включить метки времени TCP — группы с fooling=ts могут не работать", "Could not enable TCP timestamps — fooling=ts groups may not work");
+            A("winws.foreign", "Работает чужой winws.exe ({0}): {1}. Приложение им не управляет, а десинк применяется дважды — закройте его.", "A foreign winws.exe is running ({0}): {1}. The app does not control it and desync is applied twice — close it.");
             A("strat.recommend", "Подобрать стратегию по провайдеру", "Recommend strategy by ISP");
             A("strat.recommend.busy", "Определяю провайдера...", "Detecting ISP...");
             A("strat.recommend.fail", "Не удалось определить провайдера", "Could not detect ISP");
@@ -158,12 +144,14 @@ namespace ZapretStudio
             A("check.diag.sub",    "Проверка системного окружения, конфликтов драйверов и тест DPI Freeze", "Check system environment, driver conflicts and DPI Freeze test");
             A("check.diag.run",    "Проверить систему",      "Check system");
             A("check.diag.loading","Загрузка диагностики…",  "Loading diagnostics…");
+            A("check.diagRunning","Сбор диагностики…",        "Collecting diagnostics…");
             A("check.diag.discordCache", "Очистить кэш Discord", "Clear Discord Cache");
             A("check.diag.discordCacheDesc", "Принудительно закрывает Discord и удаляет кэши сессий (Cache, Code Cache, GPUCache). Устраняет бесконечное «Подключение к голосовому каналу» (RTC Connecting).", "Closes Discord and removes session caches. Fixes endless RTC Connecting.");
             A("check.diag.discordCacheOk", "Кэш Discord успешно очищен ({0} папок)", "Discord cache cleared ({0} folders)");
             A("check.diag.wdReset", "Сбросить WinDivert",     "Reset WinDivert");
             A("check.diag.wdResetDesc", "Принудительно останавливает и удаляет зависший драйвер WinDivert в Windows, освобождая фильтрацию сетевых пакетов.", "Force stops and unloads stuck WinDivert driver, restoring packet filtering.");
             A("check.diag.wdResetOk", "WinDivert успешно сброшен", "WinDivert reset successfully");
+            A("check.diag.wdResetBusy", "WinDivert остался в памяти: драйвер помечен на удаление или залочен, нужна перезагрузка", "WinDivert is still loaded: the driver is marked for deletion or locked, a reboot is required");
             A("check.diag.fixTimestamps", "Включить Timestamps", "Enable Timestamps");
             A("check.diag.fixTimestampsOk", "TCP Timestamps включены", "TCP Timestamps enabled");
             A("check.diag.fixProxy", "Отключить прокси",     "Disable Proxy");
@@ -172,6 +160,7 @@ namespace ZapretStudio
             A("check.diag.dpiFreezeDesc", "Проверяет устойчивость загрузки потока 64 КБ без блокировок ТСПУ на 16–20 пакетах.", "Tests streaming of 64 KB payload without TSPU blocking on packets 16-20.");
             A("check.diag.dpiFreezeRun", "Запустить тест DPI Freeze", "Run DPI Freeze test");
             A("check.diag.dpiFreezeOk", "Поток стабилен (DPI Freeze не обнаружен)", "Stream stable (no DPI freeze detected)");
+            A("check.diag.dpiFreezeFail", "Обнаружено зависание пакетов (DPI Freeze)", "DPI Freeze packet stall detected");
             A("check.diag.dpiFreezeOkDetail", "Получено {0} КБ за {1} мс без обрывов потока", "Received {0} KB in {1} ms without stream drop");
             A("check.diag.dpiFreezeStallDetail", "Поток завис после {0} КБ (вероятен DPI Freeze)", "Stream stalled after {0} KB (probable DPI Freeze)");
             A("check.diag.dpiFreezeDetectedDetail", "Обрыв после {0} КБ: {1} (активен DPI Freeze)", "Dropped after {0} KB: {1} (DPI Freeze active)");
@@ -183,39 +172,44 @@ namespace ZapretStudio
             A("check.strat.run",   "Проверить эту стратегию","Test this strategy");
             A("check.strat.hint",  "Каждая стратегия запускается на короткое время, затем проверяется доступность выбранных адресов. Требуются права администратора.", "Each strategy is started briefly, then the chosen hosts are re-checked. Administrator rights required.");
             A("settings.theme",       "Тема оформления", "Theme");
-            A("settings.theme.desc",  "Тёмная, AMOLED, светлая, северное сияние, закат или Питер Гриффин.", "Dark, AMOLED, light, Aurora, Sunset or Peter Griffin theme.");
+            A("settings.theme.desc",  "Тёмная, AMOLED, светлая, закат или System24.", "Dark, AMOLED, light, Sunset or System24 theme.");
             A("settings.theme.dark",  "Тёмная",  "Dark");
             A("settings.theme.amoled","AMOLED",  "AMOLED");
             A("settings.theme.light", "Светлая", "Light");
-            A("settings.theme.aurora", "Северное сияние", "Aurora");
             A("settings.theme.sunset", "Закат", "Sunset");
-            A("settings.theme.peter", "Питер Гриффин", "Peter Griffin");
-            A("settings.peter.sec", "Режим Питера", "Peter mode");
-            A("settings.peter.backdrop", "Большой Питер на фоне", "Large Peter in background");
-            A("settings.peter.backdrop.desc", "Показывает Питера примерно на половину рабочей области. Доступно только в теме Питера.", "Shows Peter across about half of the workspace. Available only in the Peter theme.");
-            A("settings.peter.song", "Музыка Питера", "Peter's music");
-            A("settings.peter.song.desc", "Воспроизведение треков из папки assets\\peter-songs (поддерживаются MP3, WAV, FLAC, M4A, AAC, WMA, OGG).", "Plays tracks from assets\\peter-songs (supports MP3, WAV, FLAC, M4A, AAC, WMA, OGG).");
-            A("settings.peter.song.play", "Включить музыку", "Play music");
-            A("settings.peter.song.open", "Включить музыку", "Play music");
-            A("settings.peter.song.stop", "Выключить музыку", "Turn off music");
-            A("settings.peter.song.none", "Не найдено аудиофайлов в папке assets\\peter-songs", "No audio files found in assets\\peter-songs");
-            A("settings.peter.song.playing", "Играет: {0}", "Now playing: {0}");
-            A("player.prev", "Предыдущий трек", "Previous track");
-            A("player.next", "Следующий трек", "Next track");
-            A("player.play", "Воспроизвести", "Play");
-            A("player.pause", "Пауза", "Pause");
-            A("player.stop", "Остановить", "Stop");
-            A("player.shuffle", "Случайный порядок", "Shuffle");
-            A("player.close", "Закрыть плеер", "Close player");
-            A("player.defaultArtist", "Питер Гриффин", "Peter Griffin");
+            A("settings.theme.system24", "System24", "System24");
+            A("settings.font",      "Шрифт интерфейса", "Interface font");
+            A("settings.font.desc", "Google Sans, Unbounded, Onest, Golos Text или Literata. Все варианты скачиваются при первом запуске и проверяются по SHA-256.", "Google Sans, Unbounded, Onest, Golos Text or Literata. All variants are downloaded on first launch and verified via SHA-256.");
+            A("settings.accent",      "Акцентный цвет", "Accent color");
+            A("settings.accent.desc", "Пресеты поверх любой темы; «Как в теме» — родной цвет оформления.", "Presets on top of any theme; \"As in theme\" keeps the native accent.");
+            A("settings.accent.default", "Как в теме", "As in theme");
+            A("settings.accent.blue",  "Синий",    "Blue");
+            A("settings.accent.green", "Зелёный",  "Green");
+            A("settings.accent.amber", "Янтарный", "Amber");
+            A("settings.accent.pink",  "Розовый",  "Pink");
+            A("settings.accent.red",   "Красный",  "Red");
+            A("accent.migrated", "Незнакомый акцентный цвет в конфиге — вернул «как в теме», выбор сохранён.", "Unknown accent color in the config — reset to the theme default and saved the choice.");
+            A("settings.compact",      "Компактный интерфейс", "Compact interface");
+            A("settings.compact.desc", "Уменьшенные отступы карточек, кнопок и строк — для длинных списков.", "Reduced padding for cards, buttons and rows — for long lists.");
+            // Миграция конфига: theme = устаревшей или битой темы (App.ApplySavedTheme).
+            A("theme.migrated", "Тема «{0}» удалена из сборки — включена «{1}», выбор сохранён в настройках.", "Theme \"{0}\" was removed from this build — switched to \"{1}\" and saved the choice.");
+            A("theme.unknownValue", "Неизвестное значение темы «{0}» — включена «{1}», выбор сохранён в настройках.", "Unknown theme value \"{0}\" — switched to \"{1}\" and saved the choice.");
+            A("settings.system24.flavor", "Подтема System24", "System24 Flavor");
+            A("settings.system24.flavor.desc", "Цветовая палитра стиля System24 (автор refact0r): классический Lavender, Catppuccin Mocha, Tokyo Night, Nord, Rosé Pine, Everforest или Discord Blurple.", "System24 color palette flavor (by refact0r): classic Lavender, Catppuccin Mocha, Tokyo Night, Nord, Rosé Pine, Everforest or Discord Blurple.");
+            A("system24.flavor.default", "Default (Lavender)", "Default (Lavender)");
+            A("system24.flavor.mocha", "Catppuccin Mocha", "Catppuccin Mocha");
+            A("system24.flavor.tokyo_night", "Tokyo Night", "Tokyo Night");
+            A("system24.flavor.nord", "Nord", "Nord");
+            A("system24.flavor.rose_pine", "Rosé Pine", "Rosé Pine");
+            A("system24.flavor.everforest", "Everforest", "Everforest");
+            A("system24.flavor.vencord", "Vencord (Discord)", "Vencord (Discord)");
             A("settings.lang",        "Язык интерфейса", "Interface language");
             A("settings.lang.desc",   "Russian или English. Применяется сразу.", "Russian or English. Applies immediately.");
             A("settings.sec.general",  "Основные",           "General");
-            A("settings.sec.launch",   "Запуск",             "Startup");
             A("settings.sec.check",    "Проверка",           "Checking");
             A("settings.sec.dns",      "Безопасный DNS",     "Secure DNS");
             A("settings.sec.interface","Интерфейс",          "Interface");
-            A("settings.sec.updates",  "Обновления",         "Updates");
+            A("settings.sec.tg",       "Telegram-прокси",    "Telegram proxy");
             A("settings.sec.privacy",  "Конфиденциальность", "Privacy");
             A("settings.reduceMotion",     "Уменьшить анимацию", "Reduce motion");
             A("settings.reduceMotion.desc","Отключает плавные переходы интерфейса.", "Disables smooth interface transitions.");
@@ -223,15 +217,6 @@ namespace ZapretStudio
             A("settings.tray.desc",  "Кнопка закрытия прячет окно в область уведомлений, приложение продолжает работать.", "The close button hides the window to the notification area; the app keeps running.");
             A("settings.notify",     "Показывать уведомления", "Show notifications");
             A("settings.notify.desc","Всплывающие уведомления Windows при запуске и остановке обхода.", "Windows toast notifications when the bypass starts or stops.");
-            A("settings.autorun",     "Запускать обход при старте приложения", "Start bypass when app opens");
-            A("settings.autorun.desc","Автоматически применять последнюю стратегию при открытии приложения.", "Automatically apply the last strategy when the app opens.");
-            A("settings.autostart",     "Автозапуск приложения с Windows", "Launch app with Windows");
-            A("settings.autostart.desc","Задача в планировщике Windows: приложение запускается при входе в систему с правами администратора.", "A Windows Task Scheduler entry: the app starts at sign-in with administrator rights.");
-            A("settings.tgAutostart",   "Автозапуск TG-Proxy", "Auto-start TG Proxy");
-            A("settings.tgAutostart.desc","Запускать Telegram-прокси автоматически при входе в Windows.", "Start Telegram proxy automatically when Windows starts.");
-            A("settings.appVer",        "Версия Lantern", "Lantern version");
-            A("settings.app.downloading","Скачивание установщика...", "Downloading installer...");
-            A("settings.app.manualOnly", "Доступна новая версия, но автоустановка отключена: релиз не имеет проверяемой подписи.", "A new version is available, but automatic installation is disabled because the release has no verifiable signature.");
             A("settings.timeout",     "Тайм-аут проверки соединения", "Connection check timeout");
             A("settings.timeout.desc","Максимальное ожидание ответа при проверке доступности адреса.", "Maximum wait for a response when checking a host.");
             A("settings.dns.note", "Приложение не меняет системный DNS. При проблемах с доступом рекомендуется вручную включить DNS-over-HTTPS (например, 1.1.1.1 или 8.8.8.8) в настройках сети Windows. Любое изменение DNS выполняется вами и с явным подтверждением.", "The app does not change the system DNS. If you have access issues, enable DNS-over-HTTPS manually (e.g. 1.1.1.1 or 8.8.8.8) in Windows network settings. Any DNS change is made by you, with explicit confirmation.");
@@ -240,33 +225,18 @@ namespace ZapretStudio
             A("settings.hosts.ok",    "Записей, мешающих YouTube, не обнаружено.", "No entries interfering with YouTube were found.");
             A("settings.hosts.needAttention", "Требует внимания", "Needs attention");
             A("settings.hosts.clean",         "Чисто", "Clean");
-            A("settings.checkUpdates",     "Проверять обновления при запуске", "Check for updates on startup");
-            A("settings.checkUpdates.desc","Сверять локальную версию zapret с версией в репозитории. Ничего не скачивается автоматически.", "Compare the local zapret version with the repository. Nothing is downloaded automatically.");
-            A("settings.checkNow",      "Проверить сейчас", "Check now");
-            A("settings.versionCheck",  "Проверка версии", "Version check");
-            A("settings.checkingOnStart", "Проверка выполняется при запуске…", "Checking on startup…");
-            A("settings.checkingUpd", "Проверяем обновления…", "Checking for updates…");
             // Строки «актуально» и «локальная новее» убраны намеренно: когда
             // обновления нет, карточка ничего не пишет (SetAutomaticStatus).
-            A("settings.updateFull", "Последняя версия (GitHub): {0} — есть обновление", "Latest version (GitHub): {0} — update available");
-            A("settings.localVersion",  "Локальная версия: ", "Local version: ");
-            A("settings.tgVer",         "Версия Telegram-прокси", "Telegram proxy version");
-            A("settings.tgVer.desc",    "Проверить установленную версию tg-ws-proxy и последнюю на GitHub.", "Check the installed tg-ws-proxy version and the latest one on GitHub.");
-            A("settings.zapretVer",     "Версия zapret",      "zapret version");
-            A("settings.zapretVer.desc","Проверить локальную версию zapret и последнюю в репозитории.", "Check the local zapret version and the latest one in the repository.");
             A("settings.tg.notInstalled","Не установлен",     "Not installed");
-            A("settings.tg.checking",   "Проверка…",          "Checking…");
-            A("settings.tg.local",      "Установлено: {0}",   "Installed: {0}");
-            A("settings.tg.localUnknown","Установлен (версия неизвестна)", "Installed (version unknown)");
-            A("settings.tg.latest",     "Последняя: {0}",     "Latest: {0}");
-            A("settings.tg.upToDate",   "Установлена: {0} · последняя: {1}", "Installed: {0} · latest: {1}");
-            A("settings.tg.update",     "Доступно обновление: {0} (у вас {1})", "Update available: {0} (you have {1})");
-            A("settings.tg.fetchFail",  "Не удалось получить последнюю версию", "Could not fetch the latest version");
-            A("settings.tg.latestOnly", "Последняя на GitHub: {0}", "Latest on GitHub: {0}");
+            A("settings.tg.desc", "Подключение локального прокси к Telegram. Параметры самой утилиты tg-ws-proxy меняются в её окне.", "Connecting the local proxy to Telegram. The tg-ws-proxy options themselves are changed in its window.");
+            A("settings.tg.folder", "Папка TG-Proxy", "TG-Proxy folder");
+            A("settings.tg.noClientsHint", "Клиенты Telegram не найдены — скопируйте ссылку и добавьте её вручную.", "No Telegram clients found — copy the link and add it manually.");
+            A("settings.tg.hint.notInstalled", "Прокси не установлен — скачайте его на главной странице.", "Proxy is not installed — download it on the main page.");
+            A("settings.tg.hint.stopped", "Прокси остановлен — запустите его на главной странице, чтобы подключить.", "Proxy is stopped — start it on the main page to connect.");
+            A("settings.tg.hint.running", "Выберите клиент или скопируйте ссылку; клиент попросит подтвердить добавление.", "Choose a client or copy the link; the client will ask for confirmation.");
             A("settings.privacy.note", "Приложение не собирает телеметрию и не отправляет данные. Проверка версии и проверка соединения обращаются только к указанным адресам и только по вашему действию.", "The app collects no telemetry and sends no data. Version and connection checks contact only the listed hosts, and only when you act.");
             A("service.sec.status",        "Состояние службы zapret", "zapret service status");
             A("service.sec.serviceConfig", "Управление системной службой", "System service management");
-            A("service.sec.autostart",     "Стратегия для службы", "Strategy for the service");
             A("service.sec.winAutostart",  "Автозапуск с Windows (вход в систему)", "Windows autostart (at sign-in)");
             A("service.sec.appAutostart",  "Автозапуск при старте Lantern", "Autostart on Lantern launch");
             A("service.appAuto",           "Автозапуск Lantern при входе в Windows", "Launch Lantern at Windows sign-in");
@@ -282,7 +252,6 @@ namespace ZapretStudio
             A("service.tgAutoApp",         "Автозапуск TG-Proxy при старте Lantern", "Auto-start TG Proxy when Lantern launches");
             A("service.tgAutoApp.desc",    "Запускать Telegram-прокси автоматически при каждом открытии Lantern.", "Automatically start Telegram proxy whenever Lantern opens.");
             A("service.bypassActiveSvc",   "Обход уже активен через системную службу Windows", "Bypass is already active via Windows system service");
-            A("service.sec.actions",   "Действия",              "Actions");
             A("service.svc",           "Служба zapret",   "zapret service");
             A("service.driver",        "Драйвер WinDivert","WinDivert driver");
             A("service.driver.desc",   "Сетевой драйвер, через который работает обход.", "The network driver the bypass runs through.");
@@ -320,6 +289,10 @@ namespace ZapretStudio
             A("service.noAdmin.log", "{0}: нет прав администратора", "{0}: no administrator rights");
             A("state.running",  "Запущено",    "Running");
             A("state.stopped",  "Остановлено", "Stopped");
+            A("state.bypass",   "Обход запущен", "Bypass running");
+            A("state.bypassTg", "Обход и TG запущены", "Bypass and TG running");
+            A("state.tg",       "TG-прокси запущен", "TG proxy running");
+            A("state.tooltip",  "Обход: {0} · TG-прокси: {1}", "Bypass: {0} · TG proxy: {1}");
             A("mode.service",   "Служба",  "Service");
             A("mode.manual",    "Ручной",  "Manual");
             A("time.h",   " ч ",  "h ");
@@ -336,61 +309,56 @@ namespace ZapretStudio
             A("ov.meta.strat",    "Активная стратегия", "Active strategy");
             A("ov.meta.mode",     "Режим запуска",      "Run mode");
             A("ov.meta.uptime",   "Время работы",       "Uptime");
+            A("ov.up.unknown",    "не определено",      "unknown");
             A("ov.stratNone",     "Не выбрана", "Not selected");
             A("ov.sec.components","Компоненты", "Components");
             A("ov.card.service",  "Служба",    "Service");
-            A("ov.comp.active",   "Стратегия активна", "Strategy active");
+            A("ov.comp.active",   "Активно",           "Active");
             A("ov.comp.off",      "Не активно",        "Inactive");
-            A("ov.wd.absent",     "Файл отсутствует",  "File missing");
-            A("ov.wd.loaded",     "Драйвер загружен",  "Driver loaded");
-            A("ov.wd.ready",      "Готов к запуску",   "Ready to start");
-            A("ov.svc.running",   "Служба запущена",   "Service running");
+            A("ov.wd.absent",     "Нет файла",         "Missing");
+            A("ov.wd.loaded",     "Загружен",          "Loaded");
+            A("ov.wd.ready",      "Готов",             "Ready");
+            A("ov.svc.running",   "Запущена",          "Running");
             A("ov.svc.stopped",   "Остановлена",       "Stopped");
             A("ov.svc.absent",    "Не установлена",    "Not installed");
             A("ov.sec.quick",     "Быстрые действия",  "Quick actions");
             A("ov.sec.tg",        "Telegram-прокси",   "Telegram proxy");
             A("ov.zap.title",     "Обход блокировок",  "Bypass");
-            A("ov.tg.install",    "Установить",        "Install");
-            A("ov.tg.title",      "Telegram-прокси (tg-ws-proxy)", "Telegram proxy (tg-ws-proxy)");
             A("ov.tg.desc",       "Локальный прокси для Telegram. Включается так же, как обход.", "Local proxy for Telegram. Toggles like the bypass.");
+            A("ov.tg.runningDesc","Прокси запущен. Подключите его в Telegram кнопкой справа.", "Proxy is running. Connect it in Telegram with the button on the right.");
+            A("ov.tg.connect",    "Подключить прокси", "Connect proxy");
+            A("ov.tg.connect.tip","Добавить прокси в Telegram", "Add the proxy to Telegram");
+            A("ov.tg.settings.tip","Настройки TG-прокси", "TG proxy settings");
+            A("ov.tg.defaultClient","Клиент Telegram по умолчанию", "Default Telegram client");
+            A("ov.tg.clientTip",  "Добавить прокси в этот клиент — он попросит подтверждение", "Add the proxy to this client — it will ask for confirmation");
+            A("ov.tg.copy",       "Копировать", "Copy");
+            A("ov.tg.copyTip",    "Скопировать ссылку на прокси", "Copy the proxy link");
+            A("ov.tg.copied",     "Ссылка на прокси скопирована", "Proxy link copied");
+            A("ov.tg.copyFail",   "Не удалось скопировать ссылку: {0}", "Could not copy the link: {0}");
+            A("ov.tg.cfgMissing", "Настройки TG-прокси не найдены", "TG proxy settings not found");
+            A("ov.tg.cfgInvalid", "Настройки TG-прокси повреждены", "TG proxy settings are invalid");
+            A("ov.tg.startFirst", "Сначала запустите прокси", "Start the proxy first");
+            A("ov.tg.openFail",   "Не удалось открыть Telegram: {0}", "Could not open Telegram: {0}");
+            A("ov.tg.clientMissing","Клиент Telegram не найден — возможно, он был удалён", "Telegram client not found — it may have been removed");
             A("ov.tg.notInstalled","Прокси не установлен — нажмите «Скачать прокси»", "Proxy not installed — click Download proxy");
             A("ov.zap.notInstalled","Компоненты zapret не найдены — нажмите «Скачать zapret»", "Zapret components not found — click Download zapret");
             A("ov.zap.download",  "Скачать zapret", "Download zapret");
             A("ov.zap.notInstalledTitle","Не установлен", "Not installed");
-            A("ov.tg.openTools",  "Инструменты",       "Tools");
             A("ov.qa.check",      "Проверить соединение", "Check connection");
             A("ov.qa.strat",      "Выбрать стратегию",    "Choose strategy");
             A("ov.qa.folder",     "Открыть папку zapret", "Open zapret folder");
-            A("ov.qa.tgFolder",   "Папка TG-Proxy",       "Open TG-Proxy folder");
-            A("ov.qa.zapretFolder","Папка zapret",        "Open zapret folder");
             A("ov.qa.log",        "Журнал",               "Log");
             A("ov.risk", "zapret — не VPN и не шифрование трафика. Это обход DPI-блокировок. Драйвер WinDivert некоторые антивирусы помечают как RiskTool — это ожидаемо для сетевых утилит.", "zapret is not a VPN and does not encrypt traffic. It bypasses DPI blocking. Some antiviruses flag the WinDivert driver as RiskTool - this is expected for network utilities.");
-            A("tg.title",     "Telegram-прокси (tg-ws-proxy)", "Telegram proxy (tg-ws-proxy)");
-            A("tg.desc",      "Локальный MTProto-прокси для Telegram Desktop. Отдельная утилита Flowseal/tg-ws-proxy, скачивается по вашему подтверждению.", "Local MTProto proxy for Telegram Desktop. Separate Flowseal/tg-ws-proxy utility, downloaded on your confirmation.");
             A("tg.download",  "Скачать прокси", "Download proxy");
-            A("tg.start",     "Запустить прокси", "Start proxy");
-            A("tg.stop",      "Остановить прокси", "Stop proxy");
-            A("tg.open",      "Открыть в Telegram", "Open in Telegram");
-            A("tg.copy",      "Скопировать ссылку", "Copy link");
             A("tg.notInstalled","Прокси не установлен", "Proxy not installed");
-            A("tg.installed", "Прокси установлен", "Proxy installed");
-            A("tg.enable",    "Включить прокси",  "Enable proxy");
-            A("tg.enabledDesc","Запускает локальный tg-ws-proxy. Работает, пока переключатель включён.", "Runs the local tg-ws-proxy. Active while the switch is on.");
-            A("tg.needDownload","Сначала скачайте утилиту прокси.", "Download the proxy utility first.");
-            A("tg.note", "После запуска утилита показывает ссылку для подключения (tg://proxy) в своём окне. Скопируйте её оттуда и откройте в Telegram. Приложение не подменяет и не генерирует эту ссылку.", "After launch the utility shows a connection link (tg://proxy) in its own window. Copy it from there and open it in Telegram. The app does not substitute or generate this link.");
             A("tg.dlDlg", "Скачать TgWsProxy_windows.exe из репозитория Flowseal/tg-ws-proxy?\n\nФайл будет сохранён в:\n{0}\n\nЗагрузка выполняется по HTTPS с GitHub.", "Download TgWsProxy_windows.exe from the Flowseal/tg-ws-proxy repository?\n\nThe file will be saved to:\n{0}\n\nDownload is over HTTPS from GitHub.");
             A("tg.dlTitle", "Загрузка прокси", "Download proxy");
             A("tg.dlProgress", "Загрузка...", "Downloading...");
-            A("tg.dlDone", "Готово. Сохранено: {0}  ({1})", "Done. Saved: {0}  ({1})");
             A("tg.dlOk", "Telegram-прокси загружен", "Telegram proxy downloaded");
-            A("tg.dlFailMsg", "Не удалось загрузить. Попробуйте открыть страницу GitHub.", "Download failed. Try opening the GitHub page.");
             A("tg.dlFail", "Загрузка прокси не удалась", "Proxy download failed");
             A("tg.startedOk", "Telegram-прокси запущен", "Telegram proxy started");
-            A("tg.startedDetail", "Прокси запущен. Ссылка подключения в окне утилиты.", "Proxy started. The connection link is in the utility window.");
             A("tg.startErr", "Запуск прокси: {0}", "Proxy start: {0}");
-            A("tg.startErrDetail", "Ошибка запуска: {0}", "Start error: {0}");
             A("tg.stoppedOk", "Telegram-прокси остановлен", "Telegram proxy stopped");
-            A("check.selectHint", "Отметьте стратегии галочками и запустите проверку выбранных или всех.", "Tick strategies and run the check for selected or all.");
             A("check.strat.runSel","Проверить выбранные", "Test selected");
             A("check.strat.runAll","Проверить все",       "Test all");
             A("check.strat.selectAll","Выбрать все",       "Select all");
@@ -419,6 +387,7 @@ namespace ZapretStudio
             A("ipset.loaded", "Загружен ({0} записей)", "Loaded ({0} entries)");
             A("ipset.none",   "Отключён (заглушка)", "Disabled (stub)");
             A("ipset.empty",  "Пустой (пропускает всё)", "Empty (lets everything through)");
+            A("ipset.noBackup", "Резервной копии списка нет — загрузите его заново (Фильтры → Обновить списки)", "No backup of the list - download it again (Filters -> Update lists)");
             A("strat.noWinws","Не найдена команда winws.exe в {0}", "winws.exe command not found in {0}");
             A("unit.b",  "Б",  "B");
             A("unit.kb", "КБ", "KB");
@@ -426,9 +395,11 @@ namespace ZapretStudio
             A("unit.gb", "ГБ", "GB");
             A("unit.perSec", "/с", "/s");
             A("tg.notInstalledErr", "Прокси не установлен", "Proxy not installed");
+            A("tg.stopUnmatched", "PID процесса недоступен, PID {0} — остановлен по совпадению имени", "Process path not readable, PID {0} - stopped by name match");
             A("app.errToast", "Ошибка: {0}", "Error: {0}");
             A("app.errDlg",   "Произошла ошибка:\n\n{0}", "An error occurred:\n\n{0}");
             A("app.crashDlg", "Критическая ошибка в фоновой операции:\n\n{0}\n\nПодробности сохранены в файл:\n{1}", "Critical error in a background operation:\n\n{0}\n\nDetails were saved to:\n{1}");
+            A("app.crashLoopDlg", "Ошибка повторяется несколько раз подряд. Завершить работу приложения?", "The error is repeating continuously. Close the application?");
             A("app.startedLog","Приложение запущено. Папка zapret: {0}", "Application started. zapret folder: {0}");
             A("app.adminYes", "Права администратора: есть", "Administrator rights: yes");
             A("app.adminNo",  "Права администратора: нет",  "Administrator rights: no");
@@ -486,6 +457,8 @@ namespace ZapretStudio
             A("net.d.tcpNone",   "TCP: нет соединения","TCP: no connection");
             A("net.d.noStatus",  "Ответ без статуса",  "Response without status");
             A("net.d.empty",     "Пустой ответ",       "Empty response");
+            A("net.d.tlsTimeout", "TLS: рукопожатие не уложилось в тайм-аут", "TLS: handshake timed out");
+            A("net.d.cancelled", "Проба остановлена",  "Probe stopped");
             A("net.listEmpty",   "Список пуст.",       "The list is empty.");
             A("net.notFound",    "Стратегии (general*.bat) не найдены.", "Strategies (general*.bat) not found.");
             A("net.select",      "Выбрать {0}",        "Select {0}");
@@ -504,7 +477,6 @@ namespace ZapretStudio
             A("check.strat.noneSel", "Стратегии для проверки не выбраны", "No strategies selected for testing");
             A("check.strat.stopped", "Остановлено", "Stopped");
             A("check.strat.launching", "Запуск стратегии...", "Launching strategy...");
-            A("check.strat.probing", "Проверка: {0}...", "Checking: {0}...");
             A("check.strat.err", "Ошибка", "Error");
             A("check.strat.errDetail", "Ошибка проверки: {0}", "Test error: {0}");
             A("check.strat.errLog", "Проверка стратегии {0}: {1}", "Strategy test {0}: {1}");
@@ -513,9 +485,12 @@ namespace ZapretStudio
             A("check.strat.partial", "Частично", "Partial");
             A("check.strat.fail", "Не пройдено", "Failed");
             A("check.strat.resultLine", "Доступно {0} из {1} адресов. Обход остановлен после проверки.", "{0} of {1} hosts reachable. Bypass stopped after the test.");
-            A("check.strat.resultLog", "Проверка стратегии {0}: {1}/{2}", "Strategy test {0}: {1}/{2}");
             A("check.strat.batchStopped", "Проверка стратегий: остановлено", "Strategy tests: stopped");
             A("check.strat.batchDone", "Проверка стратегий: завершено", "Strategy tests: finished");
+            A("check.strat.summaryOk", "Доступно {0}/{1}: {2}", "Available {0}/{1}: {2}");
+            A("check.strat.summaryPartial", "Доступно {0}/{1} · Сбой: {2}", "Available {0}/{1} · Failed: {2}");
+            A("check.strat.summaryFail", "Не работает (0/{0}) · Все адреса недоступны", "Failed (0/{0}) · All addresses unreachable");
+            A("check.strat.notStarted", "Движок не запустился", "Engine failed to start");
             A("dl.title",     "Компоненты zapret не найдены", "Zapret components not found");
             A("dl.desc",      "Не найдены файлы bin, winws.exe. Можно скачать последний релиз с GitHub. Приложение распакует и настроит всё автоматически. Ничего не запускается без вашего подтверждения.", "bin, winws.exe was not found. You can download the latest GitHub release. The app will unpack and set everything up automatically. Nothing runs without your confirmation.");
             A("dl.download",  "Скачать с GitHub", "Download from GitHub");
@@ -532,11 +507,24 @@ namespace ZapretStudio
             A("dl.noWinws",   "В выбранной папке не найден bin\\winws.exe.", "bin\\winws.exe was not found in the selected folder.");
             A("dl.confirm",   "Скачать последний релиз zapret с GitHub и настроить его?\n\nИсточник: {0}\nПапка назначения: {1}\n\nЗагрузка по HTTPS. Ничего не запускается автоматически.", "Download the latest zapret release from GitHub and set it up?\n\nSource: {0}\nDestination: {1}\n\nDownload over HTTPS. Nothing runs automatically.");
             A("dl.confirmTitle","Загрузка zapret", "Download zapret");
+            A("dl.cancelConfirm","Загрузка компонентов ещё не завершена. Отменить и выйти?", "Component download is not finished yet. Cancel and exit?");
+            A("dl.cancelled", "Загрузка отменена", "Download cancelled");
             A("dl.progress",  "Загрузка...", "Downloading...");
             A("dl.failZip",   "Не удалось загрузить архив. Проверьте соединение или откройте страницу релизов.", "Failed to download the archive. Check your connection or open the releases page.");
             A("dl.installed", "zapret установлен: {0}", "zapret installed: {0}");
             A("dl.failExtract","Не удалось распаковать или файлы неполные{0}.", "Failed to extract or files are incomplete{0}.");
             A("dl.dlErr",     "Ошибка загрузки: {0}", "Download error: {0}");
+            A("dl.sizeMismatch","Обрыв соединения: получено {0} из {1}", "Connection dropped: received {0} of {1}");
+            A("dl.bakKept",   "Резервная копия не удалена: {0} ({1})", "Backup file was not deleted: {0} ({1})");
+            A("dl.lockedFiles","Файлы заняты другим процессом: {0}. Обход остановлен приложением — попробуйте ещё раз через пару секунд.", "Files are held by another process: {0}. The bypass was already stopped by the app - retry in a few seconds.");
+            A("dl.partialReport","Обновление применено частично, файлы не заменены: {0}. Список: {1}", "Update applied partially, files were not replaced: {0}. Report: {1}");
+            A("dl.tmpLeft",   "Временная папка не удалена: {0}", "Temporary folder was not deleted: {0}");
+            A("dl.hashOk",    "Контрольная сумма скачанного файла совпала", "Hash of the downloaded file matches");
+            A("dl.hashMismatch","Установка отменена: контрольная сумма не совпала.\nОжидалось: {0}\nПолучено:  {1}", "Installation aborted: hash mismatch.\nExpected: {0}\nActual:   {1}");
+            A("dl.hashMissing","Установка отменена: не удалось получить контрольную сумму релиза из GitHub API. Повторите позже или скачайте файл вручную со страницы релиза.", "Installation aborted: could not read the release hash from the GitHub API. Try again later or download the file manually from the release page.");
+            A("tg.noAsset",   "В релизе TG-прокси нет сборки для этой платформы ({0}). Доступные файлы смотрите здесь: {1}", "The TG proxy release has no build for this platform ({0}). See the available files here: {1}");
+            A("tg.dlSource",  "TG-прокси: {0} ← {1}", "TG proxy: {0} ← {1}");
+            A("upd.zipSource","Архив движка: {0}", "Engine archive: {0}");
             // Фильтры
             A("filters.sec.game",  "Игровой фильтр", "Game filter");
             A("filters.game",      "Обход для игр (порты выше 1023)", "Bypass for games (ports above 1023)");
@@ -567,23 +555,41 @@ namespace ZapretStudio
             A("updates.installedTag", "Установлена: ", "Installed: ");
             A("updates.latestTag", "Доступна: ", "Available: ");
             A("updates.localNewer", "Локальная версия новее", "Local version is newer");
+            A("updates.history.tip", "Что обновлялось", "What changed");
+            A("updates.history", "История обновлений", "Release history");
+            A("updates.history.loading", "Загрузка релизов...", "Loading releases...");
+            A("updates.history.unavailable", "GitHub не отвечает: вероятно, исчерпан лимит запросов или перекрыт api.github.com. Откройте страницу релизов в браузере.", "GitHub is not responding - the API rate limit may be exhausted or api.github.com is blocked. Open the releases page in a browser.");
+            A("updates.history.empty", "Последних релизов нет.", "No recent releases.");
+            A("updates.history.noNotes", "Без описания.", "No description.");
+            A("updates.history.all", "Показать все релизы", "Show all releases");
             A("updates.checking", "Проверка...", "Checking...");
-            A("updates.latestVersion", "Последняя версия: ", "Latest version: ");
             A("updates.installed", "Установлен", "Installed");
+            A("updates.downloadNow", "Скачать", "Download");
+            A("updates.status.unknown", "Не определено", "Unknown");
+            A("updates.notInstalled.engine", "Компоненты zapret не найдены", "zapret components not found");
+            A("updates.notInstalled.app", "Приложение не найдено", "App not found");
+            A("updates.integrity.check", "Проверить файлы", "Check files");
+            A("updates.integrity.damaged", "Повреждён", "Damaged");
+            A("updates.integrity.repair", "Восстановить", "Repair");
+            A("updates.integrity.ok", "Все файлы на месте, повреждений нет", "All files are present, no corruption");
+            A("updates.integrity.found", "Проверка файлов: проблем — {0}", "File check: {0} problem(s)");
+            A("updates.integrity.missingFile", "Нет файла: {0}", "Missing file: {0}");
+            A("updates.integrity.corruptFile", "Повреждён: {0}", "Corrupted: {0}");
+            A("updates.integrity.unreadableFile", "Не читается: {0} ({1})", "Unreadable: {0} ({1})");
+            A("updates.integrity.manifestMissing", "Нет SHA256SUMS.txt — целостность движка не проверена", "SHA256SUMS.txt is missing — engine integrity not verified");
+            A("updates.integrity.manifestUnreadable", "Не удалось прочитать SHA256SUMS.txt: {0}", "Could not read SHA256SUMS.txt: {0}");
+            A("updates.integrity.startupToast", "Не хватает файлов компонентов — откройте «Обновления» и восстановите.", "Component files are missing — open Updates and repair.");
             A("filters.sec.ipset", "IPSet-фильтр", "IPSet filter");
             A("filters.ipset",     "Использовать список IP (ipset-all.txt)", "Use IP list (ipset-all.txt)");
             A("filters.ipset.on",  "Применять обход к адресам из списка ipset-all.txt.", "Apply the bypass to addresses from ipset-all.txt.");
-            A("filters.ipset.off", "Файл lists/ipset-all.txt не найден — фильтр недоступен.", "lists/ipset-all.txt not found - filter unavailable.");
             A("filters.ipset.loaded", "Загруженный список", "Loaded list");
             A("filters.ipset.none", "Ничего", "None");
             A("filters.ipset.any", "Любой IP", "Any IP");
+            A("filters.ipset.off.hidesGame", "При отключённом IPSet игровой фильтр не действует (правила опускаются движком).", "When IPSet is disabled, the game filter is inactive (rules are omitted by engine).");
             A("filters.restart.note", "Изменения фильтров вступят в силу после перезапуска обхода.", "Filter changes take effect after restarting the bypass.");
             A("filters.restartNow",   "Перезапустить сейчас", "Restart now");
             // Стратегии
             A("strat.all",        "Все",        "All");
-            A("strat.favorites",  "Избранное",  "Favorites");
-            A("strat.search",     "Поиск стратегии", "Search strategy");
-            A("strat.filterPrefix","Фильтр: ",  "Filter: ");
             A("strat.nothing",    "Ничего не найдено.", "Nothing found.");
             A("strat.pickHint",   "Нажмите на стратегию, чтобы выбрать её. Запуск обхода — в главном меню.", "Click a strategy to select it. Start the bypass from the main menu.");
             A("strat.current",    "Текущая",    "Current");
@@ -593,15 +599,12 @@ namespace ZapretStudio
             A("strat.favRemoved", "Убрано из избранного: {0}", "Removed from favorites: {0}");
             // Журнал
             A("log.clear",   "Очистить",       "Clear");
-            A("log.copy",    "Копировать всё",  "Copy all");
-            A("log.empty",   "Журнал пуст.",   "Log is empty.");
             A("log.copied",  "Журнал скопирован в буфер обмена", "Log copied to clipboard");
             A("log.copyErr", "Копирование: {0}", "Copy: {0}");
             A("log.saved",   "Журнал сохранён: {0}", "Log saved: {0}");
             A("log.saveErr", "Сохранение: {0}", "Save: {0}");
             A("log.diagCopied", "Диагностика скопирована (имя пользователя и пути замаскированы)", "Diagnostics copied (username and paths masked)");
             A("log.diagErr", "Диагностика: {0}", "Diagnostics: {0}");
-            A("log.cleared", "Журнал очищен",  "Log cleared");
             A("log.search",  "Поиск по журналу", "Search log");
             A("log.pause",   "Пауза",     "Pause");
             A("log.resume",  "Возобновить","Resume");
@@ -609,13 +612,14 @@ namespace ZapretStudio
             A("log.copyBtn", "Копировать", "Copy");
             A("log.save",    "Сохранить",  "Save");
             A("log.diag",    "Копировать диагностику", "Copy diagnostics");
+            A("log.diagTooltip", "Скопировать отчёт о системе: процессы zapret/WinDivert, состояние служб, драйверов и сети (личные данные маскируются)", "Copy system report: zapret/WinDivert processes, services, driver and network state (personal data is masked)");
             A("log.events",  "{0} событий", "{0} events");
             A("log.live",    "в реальном времени", "live");
             A("log.paused",  "пауза",      "paused");
             // О проекте
-            A("about.appName",   "{0} · графическая оболочка zapret", "{0} · zapret graphical shell");
-            A("about.versionLine","Версия оболочки {0} · zapret {1}", "Shell version {0} · zapret {1}");
-            A("about.intro",     "Оболочка не изменяет внутреннюю логику zapret. Она использует существующие скрипты и бинарные файлы как исполнительный слой и показывает реальные результаты.", "The shell does not change zapret's internal logic. It uses the existing scripts and binaries as an execution layer and shows real results.");
+            A("about.appName",   "{0} · графическая оболочка zapret и tg-ws-proxy", "{0} · zapret and tg-ws-proxy graphical shell");
+            A("about.versionLine","Версия оболочки {0} · zapret {1} · tg-ws-proxy {2}", "Shell version {0} · zapret {1} · tg-ws-proxy {2}");
+            A("about.intro",     "Оболочка не изменяет внутреннюю логику zapret и tg-ws-proxy. Она использует существующие скрипты, бинарные файлы и настройки утилит как исполнительный слой, проверяет целостность компонентов и показывает реальные результаты.", "The shell does not change the internal logic of zapret or tg-ws-proxy. It uses the existing scripts, binaries and utility settings as an execution layer, checks component integrity and shows real results.");
             A("about.sec.versions", "Версии", "Versions");
             A("about.ver.app",    "Версия приложения", "App version");
             A("about.ver.app.desc","Графическая оболочка Lantern", "Lantern graphical shell");
@@ -624,13 +628,17 @@ namespace ZapretStudio
             A("about.ver.tg",     "Версия Telegram-прокси", "Telegram proxy version");
             A("about.ver.tg.desc","Локальный tg-ws-proxy", "Local tg-ws-proxy");
             A("about.ver.repo",   "Репозиторий приложения", "App repository");
+            A("about.ver.author", "Разработчик оболочки", "Shell developer");
+            A("about.ver.author.desc","Разработка графического интерфейса Lantern", "Development of Lantern GUI");
             A("about.sec.links", "Ссылки", "Links");            A("about.link.flowseal","Сборка и стратегии обхода", "Build and bypass strategies");
             A("about.link.tgproxy", "Локальный прокси для Telegram", "Local proxy for Telegram");
             A("about.link.engine", "Оригинальный движок DPI-обхода", "Original DPI bypass engine");
             A("about.link.windivert","Сетевой драйвер перехвата пакетов", "Packet capture network driver");
+            A("about.link.system24","Дизайн TUI-темы и палитры (refact0r)", "TUI theme design and palettes (refact0r)");
             A("about.sec.licenses","Лицензии", "Licenses");
             A("about.lic.engine",  "zapret (движок)", "zapret (engine)");
             A("about.lic.flowseal","Сборка Flowseal и оболочка", "Flowseal build and shell");
+            A("about.lic.system24","Тема System24 (refact0r)", "System24 theme (refact0r)");
             A("about.sec.integrity","Проверка целостности", "Integrity check");
             A("about.verify",     "Проверить SHA-256", "Verify SHA-256");
             A("about.checksums",  "Контрольные суммы файлов", "File checksums");
@@ -639,7 +647,8 @@ namespace ZapretStudio
             A("about.sums.missing","файл отсутствует", "file missing");
             A("about.sums.match", "совпадает", "matches");
             A("about.sums.mismatch","НЕ совпадает", "does NOT match");
-            A("about.sums.summary","Проверено: OK {0}, несовпадений {1}, отсутствует {2}", "Checked: OK {0}, mismatches {1}, missing {2}");
+            A("about.sums.skipped","вне проверки", "not checked");
+            A("about.sums.summary","Проверено bin/: OK {0}, несовпадений {1}, отсутствует {2}, вне проверки {3}", "Checked bin/: OK {0}, mismatches {1}, missing {2}, not checked {3}");
             A("about.warn", "Скачивайте zapret только из официального репозитория Flowseal. Поддельные страницы и сборки могут содержать вредоносный код. Проверяйте контрольные суммы.", "Download zapret only from the official Flowseal repository. Fake pages and builds may contain malicious code. Verify checksums.");
             // Автоподбор стратегии
             A("check.strat.autoPick", "Автоподбор лучшей", "Auto-pick best");
@@ -647,19 +656,8 @@ namespace ZapretStudio
             A("check.strat.autoPickStart", "Автоподбор: проверка {0} стратегий…", "Auto-pick: testing {0} strategies…");
             A("check.strat.autoPickDone", "Лучшая стратегия: {0} ({1}/{2} доступно).\nСтратегия выбрана автоматически.", "Best strategy: {0} ({1}/{2} reachable).\nStrategy selected automatically.");
             A("check.strat.autoPickNone", "Ни одна стратегия не обеспечила доступ. Проверьте соединение.", "No strategy provided access. Check your connection.");
-            // Автопереключение (watchdog)
-            A("mw.watchdogOn", "Автопереключение включено (каждые {0} мин.)", "Auto-switch enabled (every {0} min)");
-            A("mw.watchdogCheck", "Автопереключение: проверка соединения…", "Auto-switch: checking connection…");
-            A("mw.watchdogFail", "Автопереключение: текущая стратегия не работает, поиск замены…", "Auto-switch: current strategy failed, searching for alternative…");
-            A("mw.watchdogSwitch", "Автопереключение: переход на {0}", "Auto-switch: switching to {0}");
-            A("mw.watchdogSwitchTitle", "Стратегия переключена", "Strategy switched");
-            A("mw.watchdogNone", "Автопереключение: рабочая стратегия не найдена", "Auto-switch: no working strategy found");
-            A("mw.watchdogNoneTitle", "Обход не работает", "Bypass not working");
-            A("settings.sec.watchdog", "Автопереключение", "Auto-switch");
-            A("settings.watchdog", "Автопереключение стратегии", "Auto-switch strategy");
-            A("settings.watchdog.desc", "Периодически проверять соединение и автоматически переключать стратегию, если текущая не работает.", "Periodically check connection and automatically switch strategy if the current one fails.");
-            A("settings.watchdog.interval", "Интервал проверки", "Check interval");
-            A("settings.watchdog.interval.desc", "Как часто проверять работоспособность текущей стратегии.", "How often to check the current strategy's connectivity.");
+            // Ключи автопереключения (watchdog) удалены как мёртвые вместе с самим
+            // автопереключением — см. musor/disabled/Core.Watchdog.autoswitch.cs.
             A("time.min", "мин", "min");
             A("time.sec", "с", "s");
             // Статистика трафика
@@ -669,7 +667,6 @@ namespace ZapretStudio
             A("ov.traffic.totalDown", "Всего загружено", "Total downloaded");
             A("ov.traffic.totalUp", "Всего отправлено", "Total uploaded");
             // DNS-over-HTTPS
-            A("filters.sec.doh", "DNS-over-HTTPS", "DNS-over-HTTPS");
             A("filters.doh", "Включить DNS-over-HTTPS", "Enable DNS-over-HTTPS");
             A("filters.doh.desc", "Шифрует DNS-запросы. Требуются права администратора. Применяется через реестр Windows.", "Encrypts DNS queries. Requires administrator rights. Applied via Windows registry.");
             A("doh.enabled", "DNS-over-HTTPS включён", "DNS-over-HTTPS enabled");
@@ -682,6 +679,10 @@ namespace ZapretStudio
             A("filters.sec.lists", "Списки (редактор)", "Lists (editor)");
             A("filters.list.add", "Добавить", "Add");
             A("filters.list.del", "Удалить", "Remove");
+            // Пояснение под выбором списка: три файла-списка выглядят одинаково.
+            A("filters.list.about.list-general", "Список того, для чего применяется обход: домены и адреса отсюда проходят через zapret. Добавляйте сюда сервис, который не открывается.", "List of what the bypass applies to: entries here are handled by zapret. Add the service that will not open.");
+            A("filters.list.about.list-exclude", "Исключения по доменам: адреса отсюда работают как обычно, без подмены пакетов. Сюда вписывают сайт, который сломался из-за обхода.", "Domain exclusions: entries here work normally, without packet desyncing. Put a site that broke because of the bypass here.");
+            A("filters.list.about.ipset-exclude", "Исключения по IP и сетям: то же, что и выше, но по адресам — обход к ним не применяется, трафик идёт напрямую.", "IP/network exclusions: same as above but by address — the bypass is not applied to them, traffic goes directly.");
             A("filters.list.count", "Записей: {0}", "Entries: {0}");
             A("filters.list.more", "... +{0} ещё (список сокращён для быстродействия)",
                                    "... +{0} more (list truncated for performance)");
@@ -691,22 +692,23 @@ namespace ZapretStudio
             A("filters.updateLists", "Обновить списки с GitHub", "Update lists from GitHub");
             A("filters.updatingLists", "Обновление списков…", "Updating lists…");
             A("filters.listsUpdated", "Список ipset обновлён ({0} записей)", "IPSet list updated ({0} entries)");
+            A("filters.listsUnchanged", "Список уже актуален: {0} записей, изменений нет", "List is already current: {0} entries, no changes");
+            A("filters.listsDiff", "Список обновлён: было {0}, стало {1} (+{2} / -{3})", "List updated: {0} before, {1} after (+{2} / -{3})");
             A("filters.listsErr", "Не удалось обновить списки: {0}", "Failed to update lists: {0}");
+            A("filters.openIpsetMachine", "Машинный ipset (опасно)", "Machine ipset (danger)");
+            A("filters.openIpsetWarn", "Файл ipset-all.txt является системным списком zapret и автоматически перезаписывается при обновлении списков или смене режимов.\n\nВы уверены, что хотите открыть его для редактирования?", "The ipset-all.txt file is a machine-managed zapret list and will be automatically overwritten when updating lists or changing modes.\n\nAre you sure you want to open it for editing?");
+            A("filters.list.sentinelRejected", "Служебный адрес заглушки (sentinel) нельзя добавлять в списки вручную", "Sentinel placeholder address cannot be added to lists manually");
+            A("filters.list.addedNoneWarn", "Список ipset сейчас отключён (none) — добавленный адрес будет учтён только после включения", "IPSet list is currently disabled (none) — added address will take effect when enabled");
+            A("filters.list.removedCount", "Удалено «{0}» ({1} совпадений)", "Removed '{0}' ({1} matches)");
+            A("lists.rejected", "Ответ сервера не похож на список IP ({0} посторонних строк) — файл не перезаписан", "Server response does not look like an IP list ({0} unexpected lines) — file was not overwritten");
             // Changelog
             A("mw.changelog", "Что нового", "What's new");
+            A("mw.changelogUnavailable", "Описание релиза получить не удалось: GitHub сейчас недоступен (лимит запросов или блокировка api.github.com). Список изменений — на странице релизов.", "Could not fetch the release description: GitHub is unavailable (rate limit or api.github.com blocked). See the releases page.");
             // Сравнение стратегий
             A("check.strat.comparison", "Сравнение стратегий (по эффективности):", "Strategy comparison (by effectiveness):");
-            // Профили
-            A("settings.sec.profiles", "Профили", "Profiles");
-            A("settings.profile.save", "Сохранить текущий профиль", "Save current profile");
-            A("settings.profile.load", "Загрузить", "Load");
-            A("settings.profile.del", "Удалить", "Delete");
-            A("settings.profile.namePrompt", "Имя профиля:", "Profile name:");
-            A("settings.profile.saved", "Профиль сохранён: {0}", "Profile saved: {0}");
-            A("settings.profile.loaded", "Профиль загружен: {0}", "Profile loaded: {0}");
-            A("settings.profile.deleted", "Профиль удалён: {0}", "Profile deleted: {0}");
+            // Ключи профилей удалены вместе с Core.Profiles.cs (ни вызова, ни UI) —
+            // исходник и список ключей сохранены в musor/disabled/.
             A("settings.updateNow", "Обновить", "Update");
-            A("settings.latestVer", "Последняя версия", "Latest version");
             A("settings.update.downloading", "Загрузка обновления", "Downloading update");
             A("settings.update.unpacking", "Распаковка обновления", "Extracting update");
             A("settings.update.replacing", "Замена файлов", "Replacing files");
@@ -714,19 +716,11 @@ namespace ZapretStudio
             A("settings.update.done", "Обновление установлено", "Update installed");
             // Настройки стратегии (шестерёнка)
             A("strat.settings", "Настройки стратегии", "Strategy settings");
-            A("strat.opt.game", "Игровой режим", "Game mode");
-            A("strat.opt.gameDesc", "Отключает обработку UDP (порты 27000-27200) и игрового трафика", "Disables UDP (ports 27000-27200) and game traffic processing");
-            A("strat.opt.ipset", "IPSet-фильтр", "IPSet filter");
-            A("strat.opt.ipsetDesc", "Ограничивает обход заданным списком IP-адресов", "Limits bypass to a specified IP address list");
-            A("strat.opt.dns", "DNS-over-HTTPS", "DNS-over-HTTPS");
-            A("strat.opt.dnsDesc", "Маршрутизирует DNS-запросы через зашифрованный канал", "Routes DNS queries through an encrypted channel");
-            A("strat.opt.gameOn", "Игровой режим включён", "Game mode enabled");
-            A("strat.opt.gameOff", "Игровой режим выключен", "Game mode disabled");
-            A("strat.opt.ipsetOn", "IPSet-фильтр включён", "IPSet filter enabled");
-            A("strat.opt.ipsetOff", "IPSet-фильтр выключен", "IPSet filter disabled");
             // Шрифты
             A("fonts.dlFail", "Не удалось безопасно скачать шрифт интерфейса: {0}", "Could not safely download interface font: {0}");
-            A("fonts.downloaded", "Шрифты Google Sans загружены и проверены.", "Google Sans fonts downloaded and verified.");
+            A("fonts.downloading", "Скачиваю шрифт интерфейса: {0}", "Downloading interface font: {0}");
+            A("fonts.downloaded", "Шрифты интерфейса загружены и проверены.", "Interface fonts downloaded and verified.");
+            A("fonts.migrated", "Незнакомый шрифт интерфейса в конфиге — вернул Google Sans, выбор сохранён.", "Unknown interface font in the config — switched back to Google Sans and saved the choice.");
 
             // Вывод winws (журнал)
             A("log.winwsOut",    "Вывод winws", "winws output");
@@ -781,9 +775,9 @@ namespace ZapretStudio
 
             // Прочее
             A("tray.widget.live", "РАБОТАЕТ", "LIVE");
-            A("player.volume", "Громкость", "Volume");
             A("net.ping", "ping", "ping");
             A("net.http", "http", "http");
+            A("net.probesTimeout", "Пробы не завершились в срок: {0} из {1} — результат неполный", "Probes did not finish in time: {0} of {1} — result is incomplete");
 
             // Самообновление: проверка SHA-256 установщика
             A("appupd.hashOk",        "Хеш установщика совпадает с опубликованным.", "Installer hash matches the published one.");
@@ -799,7 +793,7 @@ namespace ZapretStudio
             // Исключения Windows Defender
             A("settings.sec.antivirus",  "Антивирус и Защитник Windows", "Antivirus and Windows Defender");
             A("settings.defender.note",  "Драйвер WinDivert (необходим для работы zapret) часто ошибочно помечается Защитником Windows как RiskTool/HackTool. Добавление папки приложения в исключения гарантирует, что антивирус не заблокирует драйвер и не удалит файлы программы.", "The WinDivert driver (required by zapret) is often falsely flagged by Windows Defender as RiskTool/HackTool. Adding the application folder to exclusions guarantees that antivirus will not block the driver or delete the app.");
-            A("settings.defender.btn",   "Добавить в исключения Windows Defender", "Add to Windows Defender exclusions");
+            A("settings.defender.btn",   "Добавить в исключения", "Add exclusion");
             A("settings.defender.inList","Папка в исключениях", "Folder in exclusions");
             A("settings.defender.notIn", "Не добавлено в исключения", "Not in exclusions");
             A("settings.defender.disabled", "Отключён / сторонний антивирус", "Disabled / 3rd-party antivirus");
@@ -809,8 +803,7 @@ namespace ZapretStudio
             // Обновление приложения Lantern
             A("settings.app.installerStarted", "Установщик запущен", "Installer started");
             A("settings.app.changelog",        "Список изменений", "Changelog");
-            A("settings.app.dlFail",           "Загрузка обновления не удалась", "App update download failed");
-        }
+            A("settings.app.dlFail",           "Загрузка обновления не удалась", "App update download failed");        }
 
         static void A(string key, string ru, string en) { M[key] = new[] { ru, en }; }
 

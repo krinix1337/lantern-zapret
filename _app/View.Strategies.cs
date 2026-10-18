@@ -14,7 +14,8 @@ namespace ZapretStudio
         public override string Subtitle { get { return Loc.T("strategies.sub"); } }
 
         readonly MainWindow _win;
-        WrapPanel _list;
+        CellRow _list;
+        Border _banner;
         HashSet<string> _fav = new HashSet<string>();
         const double MinCardW = 250, Gap = 12;
 
@@ -29,17 +30,25 @@ namespace ZapretStudio
                 BorderThickness = new Thickness(1),
                 CornerRadius = Theme.R10,
                 Padding = new Thickness(14, 10, 14, 10),
-                Margin = new Thickness(0, 0, Gap, 14)
+                // Правый отступ тут был ни к чему: сетка карточек ниже идёт ровно
+                // до края, и баннер выглядел «уехавшим» на 12px вправо.
+                Margin = new Thickness(0, 0, 0, 14)
             };
+            _banner = banner;
 
             var bGrid = new Grid();
             bGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             bGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            var hintSp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            // Горизонтальный StackPanel меряет детей при бесконечной ширине, поэтому
+            // TextBlock c Wrap никогда не переносился и на узком окне наезжал на кнопку.
+            var hintSp = new Grid { VerticalAlignment = VerticalAlignment.Center };
+            hintSp.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            hintSp.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             var infoIcon = UI.Icon(Icons.Info, 18, Theme.BrAccent, 1.8);
             infoIcon.VerticalAlignment = VerticalAlignment.Center;
             infoIcon.Margin = new Thickness(0, 0, 10, 0);
+            Grid.SetColumn(infoIcon, 0);
             hintSp.Children.Add(infoIcon);
 
             var hintTb = new TextBlock
@@ -51,6 +60,7 @@ namespace ZapretStudio
                 VerticalAlignment = VerticalAlignment.Center,
                 TextWrapping = TextWrapping.Wrap
             };
+            Grid.SetColumn(hintTb, 1);
             hintSp.Children.Add(hintTb);
             Grid.SetColumn(hintSp, 0);
             bGrid.Children.Add(hintSp);
@@ -65,8 +75,12 @@ namespace ZapretStudio
             banner.Child = bGrid;
             Body.Children.Add(banner);
 
-            _list = new WrapPanel();
-            _list.SizeChanged += (s, e) => { if (Math.Abs(e.PreviousSize.Width - e.NewSize.Width) > 1) Relayout(); };
+            // CellRow вместо WrapPanel + ручного Relayout: колонки и ширину
+            // карточек панель считает сама на каждом измерении. WrapPanel держал
+            // ширину карточек в поле и пересчитывал её только по SizeChanged, из-за
+            // чего при расширении окна ряд не успевал добрать ширину и справа
+            // оставалась пустая полоса.
+            _list = new CellRow { MinCell = MinCardW, Gap = Gap };
             Body.Children.Add(_list);
         }
 
@@ -83,8 +97,12 @@ namespace ZapretStudio
             Core.SaveConfig();
         }
 
+        volatile bool _recommending;
+
         void DoRecommend()
         {
+            if (_recommending) return;
+            _recommending = true;
             _win.ShowToast(Loc.T("strat.recommend.busy"), Sev.Info);
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
@@ -96,7 +114,8 @@ namespace ZapretStudio
 
                     string bestFile = null;
                     bool liveVerified = false;
-                    bool wasRunning = _win.IsActive2();
+                    bool wasService = Core.ServiceState() == "running";
+                    bool wasManual = !wasService && Core.IsWinwsRunning();
                     string prevStrat = _win.CurrentStrategyFile();
 
                     if (Core.TryBeginWinwsOperation())
@@ -112,15 +131,19 @@ namespace ZapretStudio
                             {
                                 string cand = candidates[i];
                                 Core.KillWinws();
-                                Core.StartWinws(cand);
-                                System.Threading.Thread.Sleep(500);
+                                if (!Core.StartWinws(cand)) continue;
+                                // Прогрев тот же, что в проверке стратегий: 500 мс
+                                // WinDivert не хватало, и рабочая стратегия
+                                // помечалась как непроверенная.
+                                System.Threading.Thread.Sleep(Core.ProbeWarmupMs);
 
                                 int ok = 0;
-                                foreach (var q in quickProbes)
+                                int missed;
+                                Core.RunProbes(quickProbes, delegate(Target q)
                                 {
-                                    var cr = Core.CurlCheck(q.Url, 2);
-                                    if (cr.Verdict == "ok") ok++;
-                                }
+                                    if (Core.CurlCheck(q.Url, 5).Verdict == "ok")
+                                        System.Threading.Interlocked.Increment(ref ok);
+                                }, null, out missed);
                                 if (ok >= 1)
                                 {
                                     bestFile = cand;
@@ -133,9 +156,13 @@ namespace ZapretStudio
                         {
                             Core.KillWinws();
                             Core.EndWinwsOperation();
-                            if (wasRunning && !string.IsNullOrEmpty(prevStrat))
+                            if (wasService || wasManual)
                             {
-                                Dispatcher.Invoke((Action)delegate { try { _win.RunStrategy(prevStrat); } catch { } });
+                                // №17: это finally фонового потока. Сам Dispatcher.Invoke
+                                // бросает, если диспетчер уже погашен (окно закрылось), —
+                                // исключение из finally убило бы поток пула молча.
+                                try { Dispatcher.Invoke((Action)delegate { try { _win.RestartInSameMode(wasService, wasManual, prevStrat); } catch { } }); }
+                                catch { }
                             }
                         }
                     }
@@ -178,8 +205,18 @@ namespace ZapretStudio
                 {
                     Dispatcher.Invoke((Action)delegate { Core.Fail("DoRecommend: " + ex.Message); });
                 }
+                finally
+                {
+                    _recommending = false;
+                }
             });
         }
+
+#if SELFTEST
+        // Тесту нужно померять ряд карточек и баннер над ним (приватные поля).
+        public System.Windows.Controls.Panel DemoStratList { get { return _list; } }
+        public FrameworkElement DemoBanner { get { return _banner; } }
+#endif
 
         public void Rebuild()
         {
@@ -199,22 +236,6 @@ namespace ZapretStudio
             if (shown == 0)
                 _list.Children.Add(new TextBlock { Text = Loc.T("strat.nothing"), Foreground = Theme.BrMuted,
                     FontSize = Theme.FsBody, FontFamily = Theme.UiFont, Margin = new Thickness(2, 12, 0, 0) });
-            Relayout();
-        }
-
-        void Relayout()
-        {
-            double avail = _list.ActualWidth;
-            if (avail <= 1) return;
-            int cols = Math.Max(1, (int)((avail) / (MinCardW + Gap)));
-            double cardW = (avail - Gap * cols) / cols - 1; 
-            if (cardW < 40) cardW = 40;
-            foreach (var child in _list.Children)
-            {
-                var b = child as Border;
-                if (b == null) continue;
-                b.Width = cardW;
-            }
         }
 
         Border StrategyCard(string file, string name, string cat, bool isCurrent)
@@ -246,6 +267,13 @@ namespace ZapretStudio
                 var newIcon = UI.Icon(adding ? Icons.StarFilled : Icons.Star, 18, adding ? Theme.BrWarn : Theme.BrFaint, 1.6);
                 starBg.Child = newIcon;
                 star.ToolTip = (adding ? Loc.T("strat.favRemove") : Loc.T("strat.favAdd")) + name;
+                _win.ShowToast(string.Format(adding ? Loc.T("strat.favAdded") : Loc.T("strat.favRemoved"), name),
+                    adding ? Sev.Ok : Sev.Neutral);
+                if (Theme.Mode == ThemeMode.System24 || !Theme.AnimationsEnabled)
+                {
+                    Rebuild();
+                    return;
+                }
                 var st = new ScaleTransform(1, 1);
                 newIcon.RenderTransform = st;
                 newIcon.RenderTransformOrigin = new Point(0.5, 0.5);
@@ -256,8 +284,6 @@ namespace ZapretStudio
                 };
                 st.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
                 st.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
-                _win.ShowToast(string.Format(adding ? Loc.T("strat.favAdded") : Loc.T("strat.favRemoved"), name),
-                    adding ? Sev.Ok : Sev.Neutral);
                 var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(280) };
                 timer.Tick += (s2, e2) => { timer.Stop(); Rebuild(); };
                 timer.Start();
@@ -303,83 +329,174 @@ namespace ZapretStudio
                 FontSize = Theme.FsSmall, FontFamily = Theme.UiFont, Margin = new Thickness(0, 8, 0, 0),
                 TextWrapping = TextWrapping.Wrap });
 
-            var card = UI.Card(outer, new Thickness(16, 14, 16, 14));
-            card.Margin = new Thickness(0, 0, Gap, Gap);
-            card.Cursor = System.Windows.Input.Cursors.Hand;
-            card.RenderTransformOrigin = new Point(0.5, 0.5);
-            var cardScale = new ScaleTransform(1, 1);
-            card.RenderTransform = cardScale;
-
             Brush normalBackground = isCurrent ? Theme.Alpha(Theme.AccentMain, 14) : Theme.BrSurface;
             Brush normalBorder = isCurrent ? Theme.BrAccent : Theme.BrStroke;
-            card.BorderBrush = normalBorder;
-            card.Background = normalBackground;
+
+            var card = new Border
+            {
+                Background = normalBackground,
+                BorderBrush = normalBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = Theme.R12,
+                Padding = new Thickness(16, 14, 16, 14),
+                Child = outer,
+                Margin = new Thickness(0),
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
 
             bool selecting = false;
+            RadialGradientBrush stratSpot = null;
+            RadialGradientBrush stratBgSpot = null;
             card.MouseEnter += (s, e) =>
             {
                 if (selecting) return;
-                card.Background = isCurrent ? Theme.Alpha(Theme.AccentMain, 24) : Theme.BrSurfaceHi;
-                card.BorderBrush = Theme.BrAccent;
-                AnimateCardScale(cardScale, 1.018, 120);
+                if (Theme.Mode == ThemeMode.System24)
+                {
+                    card.Background = isCurrent ? Theme.Alpha(Theme.AccentMain, 24) : Theme.BrSurfaceHi;
+                    if (Theme.AnimationsEnabled)
+                    {
+                        var anim = new ColorAnimation(isCurrent ? Theme.AccentMain : Theme.Stroke, Theme.AccentMain, TimeSpan.FromMilliseconds(200))
+                        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                        var brush = new SolidColorBrush(isCurrent ? Theme.AccentMain : Theme.Stroke);
+                        card.BorderBrush = brush;
+                        brush.BeginAnimation(SolidColorBrush.ColorProperty, anim);
+                    }
+                    else card.BorderBrush = Theme.BrAccent;
+                }
+                else
+                {
+                    if (Theme.AnimationsEnabled)
+                    {
+                        if (stratSpot == null)
+                        {
+                            stratSpot = new RadialGradientBrush
+                            {
+                                MappingMode = BrushMappingMode.RelativeToBoundingBox,
+                                RadiusX = 0.45,
+                                RadiusY = 0.45
+                            };
+                        }
+                        if (stratBgSpot == null)
+                        {
+                            stratBgSpot = new RadialGradientBrush
+                            {
+                                MappingMode = BrushMappingMode.RelativeToBoundingBox,
+                                RadiusX = 0.55,
+                                RadiusY = 0.55
+                            };
+                        }
+                        Color outerCol = isCurrent ? Theme.AccentMain : Theme.Stroke;
+                        stratSpot.GradientStops.Clear();
+                        stratSpot.GradientStops.Add(new GradientStop(Color.FromArgb(235, Theme.AccentHi.R, Theme.AccentHi.G, Theme.AccentHi.B), 0.0));
+                        stratSpot.GradientStops.Add(new GradientStop(Color.FromArgb(90, Theme.AccentMain.R, Theme.AccentMain.G, Theme.AccentMain.B), 0.45));
+                        stratSpot.GradientStops.Add(new GradientStop(outerCol, 1.0));
+
+                        Color bgCenter = isCurrent ? Color.FromArgb(44, Theme.AccentHi.R, Theme.AccentHi.G, Theme.AccentHi.B) : Theme.Blend(Theme.SurfaceHi, Theme.AccentHi, 0.16);
+                        Color bgEdge = isCurrent ? Color.FromArgb(20, Theme.AccentMain.R, Theme.AccentMain.G, Theme.AccentMain.B) : Theme.SurfaceHi;
+                        stratBgSpot.GradientStops.Clear();
+                        stratBgSpot.GradientStops.Add(new GradientStop(bgCenter, 0.0));
+                        stratBgSpot.GradientStops.Add(new GradientStop(bgEdge, 0.85));
+
+                        var pos = e.GetPosition(card);
+                        var relX = card.ActualWidth > 0 ? pos.X / card.ActualWidth : 0.5;
+                        var relY = card.ActualHeight > 0 ? pos.Y / card.ActualHeight : 0.5;
+                        var relPos = new Point(relX, relY);
+
+                        stratSpot.Center = relPos;
+                        stratSpot.GradientOrigin = relPos;
+                        stratBgSpot.Center = relPos;
+                        stratBgSpot.GradientOrigin = relPos;
+
+                        card.BorderBrush = stratSpot;
+                        card.Background = stratBgSpot;
+                    }
+                    else
+                    {
+                        card.Background = isCurrent ? Theme.Alpha(Theme.AccentMain, 24) : Theme.BrSurfaceHi;
+                        card.BorderBrush = Theme.BrAccent;
+                    }
+                }
+            };
+            card.MouseMove += (s, e) =>
+            {
+                if (selecting || !Theme.AnimationsEnabled || Theme.Mode == ThemeMode.System24) return;
+                var pos = e.GetPosition(card);
+                var relX = card.ActualWidth > 0 ? pos.X / card.ActualWidth : 0.5;
+                var relY = card.ActualHeight > 0 ? pos.Y / card.ActualHeight : 0.5;
+                var relPos = new Point(relX, relY);
+                if (stratSpot != null && card.BorderBrush == stratSpot)
+                {
+                    stratSpot.Center = relPos;
+                    stratSpot.GradientOrigin = relPos;
+                }
+                if (stratBgSpot != null && card.Background == stratBgSpot)
+                {
+                    stratBgSpot.Center = relPos;
+                    stratBgSpot.GradientOrigin = relPos;
+                }
             };
             card.MouseLeave += (s, e) =>
             {
                 if (selecting) return;
-                card.Background = isCurrent ? Theme.Alpha(Theme.AccentMain, 14) : Theme.BrSurface;
-                card.BorderBrush = isCurrent ? Theme.BrAccent : Theme.BrStroke;
-                AnimateCardScale(cardScale, 1, 140);
+                card.Background = normalBackground;
+                if (Theme.Mode == ThemeMode.System24)
+                {
+                    if (isCurrent)
+                    {
+                        card.BorderBrush = Theme.BrAccent;
+                    }
+                    else if (Theme.AnimationsEnabled)
+                    {
+                        var anim = new ColorAnimation(Theme.AccentMain, Theme.Stroke, TimeSpan.FromMilliseconds(200))
+                        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                        var brush = new SolidColorBrush(Theme.AccentMain);
+                        card.BorderBrush = brush;
+                        brush.BeginAnimation(SolidColorBrush.ColorProperty, anim);
+                    }
+                    else card.BorderBrush = Theme.BrStroke;
+                }
+                else
+                {
+                    card.BorderBrush = normalBorder;
+                }
             };
-            card.MouseLeftButtonDown += (s, e) =>
-            {
-                if (!IsInStar(e.OriginalSource as DependencyObject, star) &&
-                    !IsInStar(e.OriginalSource as DependencyObject, gear)) AnimateCardScale(cardScale, 0.988, 70);
-            };
-            card.MouseLeftButtonUp += (s, e) =>
+                card.MouseLeftButtonUp += (s, e) =>
             {
                 if (e.OriginalSource is DependencyObject && IsInStar((DependencyObject)e.OriginalSource, star)) return;
                 if (e.OriginalSource is DependencyObject && IsInStar((DependencyObject)e.OriginalSource, gear)) return;
+                if (Core.WinwsOperationActive()) { _win.Warn(Loc.T("mw.busy")); return; }
                 selecting = true;
                 card.Background = Theme.Alpha(Theme.AccentMain, 34);
                 card.BorderBrush = Theme.BrAccent;
                 _win.SelectStrategy(file);
-                if (!Theme.AnimationsEnabled)
+                Rebuild();
+            };
+            card.Focusable = true;
+            card.GotKeyboardFocus += (s, e) =>
+            {
+                card.BorderBrush = Theme.BrAccentHi;
+                card.BorderThickness = new Thickness(2);
+                card.BringIntoView();
+            };
+            card.LostKeyboardFocus += (s, e) =>
+            {
+                card.BorderBrush = isCurrent ? Theme.BrAccent : normalBorder;
+                card.BorderThickness = new Thickness(1);
+            };
+            card.KeyDown += (s, e) =>
+            {
+                if (e.Key == System.Windows.Input.Key.Enter || e.Key == System.Windows.Input.Key.Space)
                 {
+                    if (Core.WinwsOperationActive()) { _win.Warn(Loc.T("mw.busy")); e.Handled = true; return; }
+                    selecting = true;
+                    card.Background = Theme.Alpha(Theme.AccentMain, 34);
+                    card.BorderBrush = Theme.BrAccent;
+                    _win.SelectStrategy(file);
                     Rebuild();
-                    return;
+                    e.Handled = true;
                 }
-
-                cardScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-                cardScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-                cardScale.ScaleX = 1.018;
-                cardScale.ScaleY = 1.018;
-                var confirm = new DoubleAnimation(1.045, TimeSpan.FromMilliseconds(110))
-                {
-                    AutoReverse = true,
-                    FillBehavior = FillBehavior.Stop,
-                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-                };
-                confirm.Completed += (s2, e2) => Rebuild();
-                cardScale.BeginAnimation(ScaleTransform.ScaleXProperty, confirm);
-                cardScale.BeginAnimation(ScaleTransform.ScaleYProperty, confirm);
             };
             return card;
-        }
-
-        static void AnimateCardScale(ScaleTransform scale, double target, int duration)
-        {
-            if (!Theme.AnimationsEnabled)
-            {
-                scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-                scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-                scale.ScaleX = target;
-                scale.ScaleY = target;
-                return;
-            }
-            var animation = new DoubleAnimation(target, TimeSpan.FromMilliseconds(duration))
-            { EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut } };
-            scale.BeginAnimation(ScaleTransform.ScaleXProperty, animation);
-            scale.BeginAnimation(ScaleTransform.ScaleYProperty, animation);
         }
 
         static bool IsInStar(DependencyObject src, DependencyObject star)

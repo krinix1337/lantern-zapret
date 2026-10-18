@@ -21,32 +21,64 @@ namespace ZapretStudio
         {
             var app = new App();
             Theme.InstallScrollBarStyle();
-            string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "_selftest.log");
 
             // В SELFTEST-режиме глобальный обработчик из App.Main не подключается
             // (Main выходит раньше) — любое исключение в колбэке диспатчера убивает
-            // процесс без лога. Ловим сами.
+            // процесс без лога. Ловим сами и обязательно считаем падением: иначе
+            // Click/Loaded, упавший внутри диспатчера, оставлял прогон «зелёным».
             app.DispatcherUnhandledException += delegate(object s, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
             {
+                _fail++;
                 Line("DISPATCHER", e.Exception.ToString());
                 e.Handled = true;
             };
             AppDomain.CurrentDomain.UnhandledException += delegate(object s, UnhandledExceptionEventArgs e)
             {
-                try { File.WriteAllText(logPath + ".crash", e.ExceptionObject.ToString()); } catch { }
+                try { WriteLog("PASS=" + _pass + " FAIL=" + _fail + "\n" + Log.ToString() + "\nCRASH:\n" + e.ExceptionObject); } catch { }
             };
 
             app.Startup += delegate
             {
                 try { Execute(); }
-                catch (Exception ex) { Line("FATAL", ex.ToString()); }
+                catch (Exception ex) { _fail++; Line("FATAL", ex.ToString()); }
                 finally
                 {
-                    File.WriteAllText(logPath, "PASS=" + _pass + " FAIL=" + _fail + "\n" + Log.ToString());
+                    // Код возврата обязателен: build-selftest.cmd собирает -target:exe,
+                    // и без этого шаг CI оставался зелёным при любом числе FAIL.
+                    try { WriteLog("PASS=" + _pass + " FAIL=" + _fail + "\n" + Log.ToString()); }
+                    catch (Exception ex) { Console.WriteLine("[WARN] log write: " + ex.Message); }
+                    Environment.ExitCode = _fail > 0 ? 1 : 0;
                     app.Shutdown();
                 }
             };
             app.Run();
+        }
+
+        // Лог пишется в %LOCALAPPDATA%\Lantern, а не рядом с exe: папка установки
+        // (C:\Program Files\...) может быть недоступна для записи, и исключение из
+        // finally не дало бы выполниться app.Shutdown() — процесс висел бы до
+        // тайм-аута CI. Фолбэк — каталог exe, чтобы путь из CI-артефактов работал.
+        static void WriteLog(string text)
+        {
+            string[] roots =
+            {
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Core.AppName),
+                AppDomain.CurrentDomain.BaseDirectory
+            };
+            Exception last = null;
+            foreach (var root in roots)
+            {
+                try
+                {
+                    if (string.IsNullOrEmpty(root)) continue;
+                    if (!Directory.Exists(root)) Directory.CreateDirectory(root);
+                    File.WriteAllText(Path.Combine(root, "_selftest.log"), text, Encoding.UTF8);
+                    Console.WriteLine("[INFO] log written to " + Path.Combine(root, "_selftest.log"));
+                    return;
+                }
+                catch (Exception ex) { last = ex; }
+            }
+            if (last != null) throw last;
         }
 
         static void Execute()
@@ -63,6 +95,64 @@ namespace ZapretStudio
             // истолковать: то ли верстка пустая, то ли компонентов нет.
             Line("INFO", "root=" + (Core.Root ?? "<null>") + " base=" + AppDomain.CurrentDomain.BaseDirectory);
 
+            // 6f: словарь конфига в памяти один на процесс, а прогон переключает язык,
+            // тему, reduce_motion и режимы ipset. Любой SaveConfig() после этого
+            // (Loc.SetLang, Theme.ApplySystem24Flavor, сеттер IpsetEnabled) записал бы
+            // тестовые значения в настоящий utils\gui-config.ini.
+            SnapshotConfig();
+            try { RunChecks(); }
+            finally { RestoreConfig(); }
+        }
+
+        // Ключи, которые прогон трогает, и снимок самого файла: восстановление
+        // побайтово, чтобы gui-config.ini пользователя остался нетронутым.
+        static readonly string[] GuardedKeys = { "ipset_enabled", "lang", "theme", "reduce_motion", "sidebar_collapsed", "last_strategy" };
+        static Dictionary<string, string> _cfgWas;
+        static string _cfgFileWas;
+        static byte[] _cfgBytesWas;
+
+        static void SnapshotConfig()
+        {
+            _cfgWas = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var k in GuardedKeys) _cfgWas[k] = Core.Get(k, null);
+            try
+            {
+                _cfgFileWas = Core.ConfigFile;
+                _cfgBytesWas = File.Exists(_cfgFileWas) ? File.ReadAllBytes(_cfgFileWas) : null;
+            }
+            catch (Exception ex) { _cfgFileWas = null; _cfgBytesWas = null; Line("WARN", "config snapshot: " + ex.Message); }
+        }
+
+        static void RestoreConfig()
+        {
+            if (_cfgWas != null)
+                foreach (var kv in _cfgWas)
+                {
+                    if (kv.Value == null) Core.Unset(kv.Key);
+                    else Core.Set(kv.Key, kv.Value);
+                }
+            if (_cfgFileWas == null) return;
+            try
+            {
+                byte[] now = File.Exists(_cfgFileWas) ? File.ReadAllBytes(_cfgFileWas) : null;
+                if (SameBytes(now, _cfgBytesWas)) return;
+                if (_cfgBytesWas == null) File.Delete(_cfgFileWas);
+                else File.WriteAllBytes(_cfgFileWas, _cfgBytesWas);
+                Line("WARN", "gui-config.ini changed during the run; restored from snapshot");
+            }
+            catch (Exception ex) { _fail++; Line("FAIL", "config restore: " + ex.Message); }
+        }
+
+        static bool SameBytes(byte[] a, byte[] b)
+        {
+            if (a == null || b == null) return a == null && b == null;
+            if (a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+            return true;
+        }
+
+        static void RunChecks()
+        {
             // 0) Чистая логика без UI — версии, парсеры, кодировки, буферы.
             PureTests();
 
@@ -95,6 +185,87 @@ namespace ZapretStudio
                 ThemeSwitch("rapid dark " + i, ThemeMode.Dark);
             }
 
+            // 3b) Подсветка карточки под курсором должна оставаться КРУГОЙ.
+            // Радиусы задаются в долях bounding box, и без поправки на отношение
+            // сторон пятно на широкой карточке растягивалось по всей рамке —
+            // «свечение прямоугольное».
+            Try("spotlight круглое", delegate
+            {
+                bool motionWas = Theme.AnimationsEnabled;
+                var modeWas = Theme.Mode;
+                Core.SetBool("reduce_motion", false);
+                Theme.Apply(ThemeMode.Dark);
+                try
+                {
+                    var bd = new Border { Width = 400, Height = 100, Background = Theme.BrSurface };
+                    UI.AttachSpotlight(bd);
+                    bd.Measure(new Size(400, 100));
+                    bd.Arrange(new Rect(0, 0, 400, 100));
+                    Pump();
+                    var args = new System.Windows.Input.MouseEventArgs(
+                        System.Windows.Input.Mouse.PrimaryDevice, Environment.TickCount)
+                    {
+                        RoutedEvent = UIElement.MouseEnterEvent
+                    };
+                    bd.RaiseEvent(args);
+                    var rg = bd.BorderBrush as RadialGradientBrush;
+                    Assert(rg != null, "наведение не поставило радиальную подсветку рамки");
+                    // Круг в абсолютных пикселях: RadiusX * W == RadiusY * H.
+                    double dx = rg.RadiusX * 400, dy = rg.RadiusY * 100;
+                    Assert(Math.Abs(dx - dy) < 1.5,
+                        "пятно эллиптическое: по ширине " + dx + "px, по высоте " + dy + "px");
+                }
+                finally
+                {
+                    Core.SetBool("reduce_motion", motionWas ? false : true);
+                    Theme.Apply(modeWas);
+                }
+            });
+
+            // 3c) Сетка карточек стратегий обязана добирать ширину до края блока.
+            // На старом WrapPanel + ручном Relayout ширина карточек пересчитывалась
+            // не всегда, и при расширении окна справа оставалась пустая полоса.
+            Try("strategies grid fills width", delegate
+            {
+                NavCheck(win, "strategies");
+                foreach (var w in new double[] { 860, 1000, 1180, 1400 })
+                {
+                    win.Width = w; Pump(); ForceLayout(win); Pump();
+                    var page = FindPage(win) as StrategiesPage;
+                    Assert(page != null, "страница стратегий не найдена");
+                    var list = page.DemoStratList;
+                    Assert(list != null && list.Children.Count > 0, "сетка стратегий пуста");
+                    var first = (FrameworkElement)list.Children[0];
+                    double y0 = first.TranslatePoint(new Point(0, 0), list).Y;
+                    double right = 0;
+                    for (int i = 0; i < list.Children.Count; i++)
+                    {
+                        var fe = list.Children[i] as FrameworkElement;
+                        if (fe == null) continue;
+                        var p = fe.TranslatePoint(new Point(0, 0), list);
+                        if (Math.Abs(p.Y - y0) > 1) break;      // сравниваем только первую строку
+                        right = Math.Max(right, p.X + fe.ActualWidth);
+                    }
+                    double gapRight = list.ActualWidth - right;
+                    Assert(gapRight <= 1.5, "при ширине окна " + w + " справа от карточек пусто " + gapRight + "px");
+                    var banner = page.DemoBanner;
+                    if (banner != null)
+                    {
+                        double bl = banner.TranslatePoint(new Point(0, 0), list).X;
+                        double br = bl + banner.ActualWidth;
+                        Assert(Math.Abs(bl) < 1.5 && Math.Abs(br - right) < 1.5,
+                            "баннер и сетка не выровнены: баннер " + bl + ".." + br + ", карточки 0.." + right);
+                    }
+                }
+                win.Width = 1200; Pump(); ForceLayout(win);
+            });
+
+            // 3b) Каждая тема из реестра по кругу. Раньше тест гонял только Light↔Dark,
+            // и палитры AMOLED/Закат/System24 не проверялись на read-only кисти вообще.
+            NavCheck(win, "overview");
+            foreach (var mode in Theme.Modes) ThemeSwitch("all " + Theme.Name(mode), mode);
+            ThemeSwitch("back to dark", ThemeMode.Dark);
+
             // 4) Смена языка туда-обратно
             LangSwitch("en", "en");
             LangSwitch("ru", "ru");
@@ -114,21 +285,33 @@ namespace ZapretStudio
             Core.SetBool("reduce_motion", true); // без анимаций — контент виден сразу
             win.Width = 1200; win.Height = 800; Pump(); ForceLayout(win);
             
-            // 6 тем оформления
+            // Темы оформления: скриншоты берутся из реестра Theme.Modes, поэтому
+            // добавление или удаление темы не требует правки этого места.
             NavCheck(win, "overview");
-            Theme.Apply(ThemeMode.Dark); Pump(); ForceLayout(win); Shot(win, "overview-dark");
-            Theme.Apply(ThemeMode.Amoled); Pump(); ForceLayout(win); Shot(win, "overview-amoled");
-            Theme.Apply(ThemeMode.Light); Pump(); ForceLayout(win); Shot(win, "overview-light");
-            Theme.Apply(ThemeMode.Aurora); Pump(); ForceLayout(win); Shot(win, "overview-aurora");
-            Theme.Apply(ThemeMode.Sunset); Pump(); ForceLayout(win); Shot(win, "overview-sunset");
-            Core.SetBool("peter_backdrop", true);
-            Theme.Apply(ThemeMode.Peter); Pump(); ForceLayout(win); Shot(win, "overview-peter");
+            foreach (var m in Theme.Modes)
+            {
+                Theme.Apply(m); Pump(); ForceLayout(win);
+                Shot(win, "overview-" + Theme.Name(m));
+            }
+            foreach (var flv in Theme.System24Flavors)
+            {
+                Theme.ApplySystem24Flavor(flv); Pump(); ForceLayout(win);
+                Shot(win, "overview-system24-" + flv);
+            }
+            Theme.ApplySystem24Flavor(Theme.FlavorDefault);
+            NavCheck(win, "settings"); win.Height = 1000; ForceLayout(win); Shot(win, "section-settings-system24"); win.Height = 800; ForceLayout(win);
+            NavCheck(win, "overview");
             
             // Все разделы приложения в единой фирменной тёмной теме (Dark)
             Theme.Apply(ThemeMode.Dark); Pump(); ForceLayout(win);
             NavCheck(win, "overview"); ForceLayout(win); Shot(win, "section-overview");
             NavCheck(win, "strategies"); ForceLayout(win); Shot(win, "section-strategies");
             NavCheck(win, "check"); ForceLayout(win); Shot(win, "section-check");
+            var cpDiag = FindPage(win) as CheckPage;
+            if (cpDiag != null) { cpDiag.ShowTab("diag"); Pump(); ForceLayout(win); Shot(win, "section-check-diag"); }
+            Theme.Apply(ThemeMode.System24); Pump(); ForceLayout(win); Shot(win, "section-check-diag-system24");
+            Theme.Apply(ThemeMode.Dark);
+            if (cpDiag != null) { cpDiag.ShowTab("targets"); Pump(); ForceLayout(win); }
             NavCheck(win, "service"); ForceLayout(win); Shot(win, "section-service");
             NavCheck(win, "filters"); ForceLayout(win); Shot(win, "section-filters");
             NavCheck(win, "settings"); ForceLayout(win); Shot(win, "section-settings");
@@ -156,46 +339,145 @@ namespace ZapretStudio
             });
 
             // 6) Разные ширины окна (проверка сетки/раскладки)
-            foreach (var w in new double[] { 1120, 1000, 1300, 1600 })            {
-                Try("resize " + w, delegate { win.Width = w; Pump(); NavCheck(win, "strategies"); ForceLayout(win); MeasureGrid(win, w); });
+            foreach (var w in new double[] { 1120, 1000, 1300, 1600 })
+            {
+                double want = w;
+                Try("resize " + w, delegate
+                {
+                    win.Width = want;
+                    Pump();
+                    NavCheck(win, "strategies");
+                    ForceLayout(win);
+                    MeasureGrid(win, want);
+                    // Без проверки факта ширина могла не применяться (MinWidth,
+                    // Zoom, отказ макета), и «проверка сетки» шла на одной ширине.
+                    Assert(Math.Abs(win.ActualWidth - want) <= 1.0,
+                        "ширина не применилась: ActualWidth=" + win.ActualWidth.ToString("0") + ", ожидалось " + want.ToString("0"));
+                    Assert(win.ActualWidth >= win.MinWidth - 1.0,
+                        "ActualWidth ниже MinWidth: " + win.ActualWidth + " < " + win.MinWidth);
+                });
             }
 
             // 6b) Геометрический аудит каждой страницы на граничных ширинах и в
             //     двух языках: в английском подписи длиннее, и если что-то
             //     налезает друг на друга — вылезет именно там.
-            int layoutIssues = 0;
+            int layoutIssues = 0, layoutAudits = 0;
             foreach (var lang in new string[] { "ru", "en" })
             {
                 Loc.SetLang(lang); Pump();
-                foreach (var w in new double[] { 1000, 1120, 1600 })
+                // 820 — почти нижняя граница окна (MinWidth 760 плюс рамка): с тех
+                // пор как минимум перестал быть «половиной экрана», узкое окно стало
+                // реальным состоянием, и проверять надо именно его.
+                foreach (var w in new double[] { 820, 1000, 1120, 1600 })
                 {
                     win.Width = w; Pump(); ForceLayout(win);
                     foreach (var key in pages)
                     {
                         NavCheck(win, key);
-                        layoutIssues += LayoutAudit(win, lang + " " + w.ToString("0") + " " + key);
-                        if (key == "check") layoutIssues += AuditCheckTabs(win, lang + " " + w.ToString("0"));
+                        layoutAudits++; layoutIssues += LayoutAudit(win, lang + " " + w.ToString("0") + " " + key);
+                        if (key == "check") { layoutAudits++; layoutIssues += AuditCheckTabs(win, lang + " " + w.ToString("0")); }
                         if (key == "updates")
                         {
                             var up = FillUpdatesProgress(win);
                             if (up != null)
                             {
-                                layoutIssues += LayoutAudit(win, lang + " " + w.ToString("0") + " updates progress");
+                                layoutAudits++; layoutIssues += LayoutAudit(win, lang + " " + w.ToString("0") + " updates progress");
                                 up.HideDemoProgress();
                                 Pump(); ForceLayout(win);
+                                // История релизов на той же ширине: панель самая
+                                // плотная на странице, и резалась именно она.
+                                if (up.ShowDemoHistory())
+                                {
+                                    Pump(); ForceLayout(win);
+                                    layoutAudits++;
+                                    layoutIssues += LayoutAudit(win, lang + " " + w.ToString("0") + " updates history");
+                                    up.HideDemoHistory();
+                                    Pump(); ForceLayout(win);
+                                }
                             }
                         }
                     }
                 }
             }
             Loc.SetLang("ru"); Pump();
-            if (layoutIssues == 0) _pass++; else _fail++;
-            Line(layoutIssues == 0 ? "INFO" : "FAIL", "layout audit total issues=" + layoutIssues);
+            // №84: раньше весь аудит (2 языка x 3 ширины x 9 страниц) сводился к
+            // одному _pass/_fail — «3 обрезанных подписи» выглядели так же, как «300».
+            // Теперь зачёт пропорционален: каждый просмотренный экран в _pass, каждая
+            // найденная проблема отдельным _fail.
+            _pass += layoutAudits;
+            _fail += layoutIssues;
+            Line(layoutIssues == 0 ? "INFO" : "FAIL", "layout audit screens=" + layoutAudits + " total issues=" + layoutIssues);
 
             // 6c) Снимки на минимальной ширине окна: самые плотные страницы.
             win.Width = 1000; win.Height = 680; Pump(); ForceLayout(win);
             NavCheck(win, "overview"); Shot(win, "min-overview");
             ScrollEnd(win); Shot(win, "min-overview-bottom"); ScrollHome(win);
+            // Переход с главной в настройки: секция TG-прокси должна быть
+            // ниже первого экрана, к ней надо доскроллить, а не просто открыть
+            // настройки сверху.
+            Try("settings tg section", delegate
+            {
+                foreach (double tgWidth in new double[] { 820, 1000, 1120 })
+                {
+                    win.Width = tgWidth; Pump(); ForceLayout(win);
+                    win.OpenTgProxySettings();
+                    for (int i = 0; i < 50; i++) { System.Threading.Thread.Sleep(20); Pump(); }
+                    ForceLayout(win);
+                    var page = FindPage(win) as SettingsPage;
+                    Assert(page != null, "страница настроек не найдена");
+                    Assert(string.Equals(win.CurrentPageKey, "settings", StringComparison.Ordinal),
+                        "переход не в настройки: " + win.CurrentPageKey);
+                    Assert(page.ScrollOffset > 0, "к секции TG не прокрутило на " + tgWidth.ToString("0") + ": offset=" + page.ScrollOffset);
+                    int issues = AuditScope(page, win, Bounds(page, win), null, "settings tg section " + tgWidth.ToString("0"));
+                    Assert(issues == 0, "секция TG на " + tgWidth.ToString("0") + ": проблем разметки " + issues);
+                    if (Math.Abs(tgWidth - 1000) < 0.1) Shot(win, "settings-tg");
+                    page.ScrollOffset = 0;
+                    Pump(); ForceLayout(win);
+                }
+                win.Width = 1000; Pump(); ForceLayout(win);
+            });
+            // Три компактных чипа в одну линию: иконка+подпись не должны
+            // обрезаться и не должны растягиваться на всю карточку.
+            Try("settings tg chips", delegate
+            {
+                win.Width = 1000; Pump(); ForceLayout(win);
+                win.OpenTgProxySettings();
+                for (int i = 0; i < 50; i++) { System.Threading.Thread.Sleep(20); Pump(); }
+                ForceLayout(win);
+                var page = FindPage(win) as SettingsPage;
+                Assert(page != null, "страница настроек не найдена");
+                page.ShowDemoTgChips();
+                Pump(); ForceLayout(win);
+                Shot(win, "settings-tg-chips");
+
+                foreach (double tgWidth in new double[] { 820, 1000, 1120 })
+                {
+                    win.Width = tgWidth; Pump(); ForceLayout(win);
+                    page.ShowDemoTgChips();
+                    Pump(); ForceLayout(win);
+                    int issues = AuditScope(page, win, Bounds(page, win), null, "settings tg chips " + tgWidth.ToString("0"));
+                    Assert(issues == 0, "чипы TG на " + tgWidth.ToString("0") + ": проблем разметки " + issues);
+                }
+                page.HideDemoTgChips();
+                win.Width = 1000; Pump(); ForceLayout(win);
+            });
+            // Самая длинная комбинированная плашка статуса должна влезать
+            // в шапку на минимальной ширине, в том числе в акцентном цвете.
+            Try("top status long", delegate
+            {
+                win.Width = 820; Pump(); ForceLayout(win);
+                NavCheck(win, "overview");
+                win.ShowDemoTopStatus("state.bypassTg", true);
+                Pump(); ForceLayout(win);
+                int issues = LayoutAudit(win, "top status bypass+tg");
+                Assert(issues == 0, "длинная плашка статуса: проблем разметки " + issues);
+                win.ShowDemoTopStatus("state.tg", true);
+                Pump(); ForceLayout(win);
+                issues = LayoutAudit(win, "top status tg accent");
+                Assert(issues == 0, "плашка TG в акценте: проблем разметки " + issues);
+                win.RefreshTop();
+                win.Width = 1000; Pump(); ForceLayout(win);
+            });
             NavCheck(win, "settings"); Shot(win, "min-settings");
             NavCheck(win, "updates"); Shot(win, "min-updates");
             // Полоса загрузки обновления: дорожка во всю ширину карточки, на 0 %
@@ -215,6 +497,20 @@ namespace ZapretStudio
                 var up = FindPage(win) as UpdatesPage;
                 if (up != null) { up.HideDemoProgress(); Pump(); ForceLayout(win); }
             }
+            // Раскрытая панель истории релизов: снимок и аудит должны видеть её
+            // настоящей, а не свёрнутой — именно там текст резался и оставался
+            // сырой markdown.
+            Try("updates history panel", delegate
+            {
+                var up = FindPage(win) as UpdatesPage;
+                Assert(up != null, "страница обновлений не найдена");
+                Assert(up.ShowDemoHistory(), "панель истории не раскрылась");
+                Pump(); ForceLayout(win);
+                int issues = LayoutAudit(win, "updates history");
+                Assert(issues == 0, "панель истории релизов: проблем разметки " + issues);
+                Shot(win, "min-updates-history");
+                up.HideDemoHistory(); Pump(); ForceLayout(win);
+            });
             // Карточки версий: строка и кнопка «Обновить» появляются только когда
             // обновление действительно есть, иначе карточка молчит.
             Try("update notices only when needed", delegate
@@ -420,28 +716,37 @@ namespace ZapretStudio
                 }
                 break;
             }
-            // Клик (выбор) по первым карточкам-стратегиям СНАЧАЛА (фильтр = «все»).
-            int clicked = 0;
+            // Клики (выбор) по первым карточкам-стратегиям СНАЧАЛА (фильтр = «все»).
+            // Раньше Try засчитывал PASS просто за «не бросило»: карточка могла
+            // перестать быть кликабельной, и тест бы это не поймал.
+            int clicked = 0, selected = 0;
             foreach (var bd in Descendants<Border>(page))
             {
                 if (bd.Cursor == System.Windows.Input.Cursors.Hand && clicked < 3)
                 {
-                    Try("card select", delegate {
-                        bd.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(
+                    var card = bd;
+                    Try("card select", delegate
+                    {
+                        card.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(
                             System.Windows.Input.Mouse.PrimaryDevice, 0, System.Windows.Input.MouseButton.Left)
-                        { RoutedEvent = UIElement.MouseLeftButtonUpEvent, Source = bd });
+                        { RoutedEvent = UIElement.MouseLeftButtonUpEvent, Source = card });
                         Pump();
+                        Assert(!string.IsNullOrEmpty(win.CurrentStrategyFile()), "после клика по карточке стратегия не выбрана");
+                        selected++;
                     });
                     clicked++;
                 }
             }
-            Line("INFO", "card clicks attempted=" + clicked);
-            // Затем клики по всем чипам категорий.
-            foreach (var btn in Descendants<Button>(page))
+            Try("cards are clickable", delegate
             {
-                if (btn.Tag is Action)
-                    Try("chip click", delegate { btn.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); Pump(); });
-            }
+                Assert(clicked > 0, "на странице стратегий нет ни одной кликабельной карточки");
+                Assert(selected == clicked, "из " + clicked + " кликов по карточкам выбор подтверждён только для " + selected);
+            });
+            Line("INFO", "card clicks attempted=" + clicked);
+            // Петля по «чипам категорий» (Button с Tag is Action) удалена: таких
+            // кнопок на странице стратегий нет — Ctl.Button кладёт в Tag массив
+            // {border, brush, kind}, а фильтры категорий в UI не реализованы, так
+            // что цикл никогда не выполнялся ни одного теста.
         }
 
         // Содержимое шире внутренней области Border (рамка + Padding). Border с
@@ -508,29 +813,6 @@ namespace ZapretStudio
             if (page == null) return;
             foreach (var sv in Descendants<ScrollViewer>(page)) { sv.ScrollToHome(); break; }
             Pump(); ForceLayout(win);
-        }
-
-        // Диагностика: цепочка предков элемента с текстом и их ширины.
-        static void DumpChain(MainWindow win, string needle)
-        {
-            var page = FindPage(win);
-            if (page == null) return;
-            foreach (var tb in Descendants<TextBlock>(page))
-            {
-                if (string.IsNullOrEmpty(tb.Text) || tb.Text.IndexOf(needle, StringComparison.Ordinal) < 0) continue;
-                var sb = new StringBuilder("chain '" + tb.Text + "' trim=" + tb.TextTrimming + " wrap=" + tb.TextWrapping);
-                DependencyObject d = tb;
-                while (d != null)
-                {
-                    var fe = d as FrameworkElement;
-                    if (fe != null)
-                        sb.Append(" <- " + fe.GetType().Name + "(w=" + fe.ActualWidth.ToString("0") +
-                            ",des=" + fe.DesiredSize.Width.ToString("0") + (fe.ClipToBounds ? ",clip" : "") + ")");
-                    if (fe is Page) break;
-                    d = VisualTreeHelper.GetParent(d);
-                }
-                Line("MEAS", sb.ToString());
-            }
         }
 
         // Вкладки «Проверки соединения» строят разное содержимое — проверяем каждую.
@@ -718,17 +1000,44 @@ namespace ZapretStudio
 
         static void NavCheck(MainWindow win, string key)
         {
-            Try("nav " + key, delegate { win.Navigate(key); Pump(); ForceLayout(win); });
+            Try("nav " + key, delegate
+            {
+                win.Navigate(key);
+                Pump();
+                ForceLayout(win);
+                Assert(win.CurrentPageKey == key, "активен раздел '" + win.CurrentPageKey + "', ожидался '" + key + "'");
+                Assert(win.ActualHeight > 0, "окно нулевой высоты после Navigate('" + key + "')");
+            });
         }
 
         static void ThemeSwitch(string tag, ThemeMode m)
         {
-            Try("theme " + tag, delegate { Theme.Apply(m); Pump(); });
+            Try("theme " + tag, delegate
+            {
+                Theme.Apply(m);
+                Pump();
+                Assert(Theme.Mode == m, "Theme.Mode не переключился на " + m + ", стоит " + Theme.Mode);
+                // Кисти объявлены как readonly new SolidColorBrush() и потому ненулевые
+                // всегда; проверять надо, что Apply() выставил цвет (по умолчанию он
+                // полностью прозрачный).
+                Assert(Theme.BrText.Color.A != 0, "тема " + m + " не задала цвет текста");
+                Assert(Theme.BrBgDeep.Color.A != 0, "тема " + m + " не задала цвет фона");
+            });
         }
 
         static void LangSwitch(string tag, string lang)
         {
-            Try("lang " + tag, delegate { Loc.SetLang(lang); Pump(); });
+            Try("lang " + tag, delegate
+            {
+                Loc.SetLang(lang);
+                Pump();
+                Assert(string.Equals(Loc.Lang, lang, StringComparison.OrdinalIgnoreCase),
+                    "Loc.Lang = '" + Loc.Lang + "', ожидался '" + lang + "'");
+                // Пустая строка локализации — самый частый тихий регресс: UI остаётся
+                // целым, но подписи исчезают.
+                Assert(!string.IsNullOrEmpty(Loc.T("common.close")), "Loc.T(common.close) пуст при " + lang);
+                Assert(!Loc.T("common.close").StartsWith("common."), "ключ не переведён при " + lang + ": " + Loc.T("common.close"));
+            });
         }
 
         static void ForceLayout(DependencyObject root)
@@ -740,15 +1049,6 @@ namespace ZapretStudio
                 win.Arrange(new Rect(0, 0, win.Width, win.Height));
                 win.UpdateLayout();
             }
-        }
-
-        static void ScrollToBottom(DependencyObject root)
-        {
-            var sv = root as ScrollViewer;
-            if (sv != null) sv.ScrollToEnd();
-            int n = 0;
-            try { n = VisualTreeHelper.GetChildrenCount(root); } catch { return; }
-            for (int i = 0; i < n; i++) ScrollToBottom(VisualTreeHelper.GetChild(root, i));
         }
 
         static void Try(string what, Action act)
@@ -781,32 +1081,49 @@ namespace ZapretStudio
             catch (Exception ex) { Line("WARN", "shot " + fullPath + ": " + ex.Message); }
         }
 
-        static void Shot(MainWindow win, string name)
+        // Все снимки теста — в musor/photo (вне git): рабочие _shot_*.png и
+        // кадры документации с той же структурой, что в репозитории (docs/…).
+        // Раньше кадры сыпались в корень и _app, а docs правились прямо во
+        // время прогона; теперь репо после теста чист. Обновление
+        // документации: скопировать musor/photo/docs/. в docs/.
+        static string GetPhotoDir()
         {
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            string docsDir = Path.GetFullPath(Path.Combine(baseDir, "..", "docs"));
+            string root = Core.Root;
+            if (string.IsNullOrEmpty(root))
+                root = Directory.Exists(Path.Combine(baseDir, "docs"))
+                    ? baseDir
+                    : Path.GetFullPath(Path.Combine(baseDir, ".."));
+            return Path.Combine(root, "musor", "photo");
+        }
 
-            SavePng(win, Path.Combine(baseDir, "_shot_" + name + ".png"));
+        static void Shot(MainWindow win, string name)
+        {
+            string photoDir = GetPhotoDir();
+
+            SavePng(win, Path.Combine(photoDir, "_shot_" + name + ".png"));
 
             if (name.StartsWith("overview-"))
             {
-                SavePng(win, Path.Combine(docsDir, "themes", name + ".png"));
+                SavePng(win, Path.Combine(photoDir, "docs", "themes", name + ".png"));
                 if (name == "overview-dark")
                 {
-                    SavePng(win, Path.Combine(docsDir, "screenshot.png"));
-                    SavePng(win, Path.Combine(docsDir, "screens", "overview.png"));
+                    SavePng(win, Path.Combine(photoDir, "docs", "screenshot.png"));
+                    SavePng(win, Path.Combine(photoDir, "docs", "screens", "overview.png"));
                 }
             }
             else if (name.StartsWith("section-"))
             {
                 string sName = name.Substring("section-".Length);
-                SavePng(win, Path.Combine(docsDir, "screens", sName + ".png"));
+                SavePng(win, Path.Combine(photoDir, "docs", "screens", sName + ".png"));
             }
             else if (name == "collapsed")
             {
-                SavePng(win, Path.Combine(docsDir, "screens", "collapsed.png"));
+                SavePng(win, Path.Combine(photoDir, "docs", "screens", "collapsed.png"));
             }
         }
+
+
 
         static void Pump()
         {
@@ -830,6 +1147,134 @@ namespace ZapretStudio
 
         // ================= Юнит-тесты чистой логики =================
         // Никакого UI и сети: версии, парсеры, кодировки, кольцевой буфер.
+
+        // Реестр тем, парсер theme = и миграция конфигов старой сборки.
+        static void ThemeTests()
+        {
+            Try("theme реестр без дублей", delegate
+            {
+                Assert(Theme.Modes.Length >= 3, "в реестре подозрительно мало тем: " + Theme.Modes.Length);
+                for (int i = 0; i < Theme.Modes.Length; i++)
+                    for (int j = i + 1; j < Theme.Modes.Length; j++)
+                        Assert(Theme.Modes[i] != Theme.Modes[j], "дубль темы в реестре: " + Theme.Name(Theme.Modes[i]));
+            });
+
+            Try("theme имя и подпись", delegate
+            {
+                ThemeMode back;
+                foreach (var m in Theme.Modes)
+                {
+                    string key = "settings.theme." + Theme.Name(m);
+                    Assert(Theme.TryParse(Theme.Name(m), out back) && back == m,
+                        "имя темы не парсится обратно: " + Theme.Name(m));
+                    Assert(string.Equals(Theme.LocKey(m), key, StringComparison.Ordinal),
+                        "ключ подписи темы собрался неверно: " + Theme.Name(m));
+                    string label = Loc.T(key);
+                    Assert(!string.IsNullOrEmpty(label) && !label.StartsWith("settings."),
+                        "нет перевода темы " + Theme.Name(m));
+                }
+            });
+
+            // Удалённые темы не должны «протекать» обратно: ни парсером, ни кнопкой
+            // переключения. Иначе пользователь получает мёртвую тему из цикла тем.
+            Try("theme удалённые не живые", delegate
+            {
+                ThemeMode m;
+                string[] gone = { "aurora", "peter", "petergriffin", "midnight" };
+                foreach (var g in gone)
+                {
+                    Assert(!Theme.TryParse(g, out m), "удалённая тема всё ещё парсится: " + g);
+                    Assert(Theme.IsRemovedTheme(g), "удалённая тема не помечена как мигрирующая: " + g);
+                    Assert(!string.Equals(Theme.Name(Theme.RemovedThemeFallback(g)), g, StringComparison.OrdinalIgnoreCase),
+                        "фолбэк совпадает с самим удалённым именем: " + g);
+                }
+                Assert(!Theme.IsRemovedTheme("dark"), "живая тема помечена удалённой");
+                Assert(!Theme.IsRemovedTheme("garbage"), "мусор помечен удалённой темой — должен идти по ветке «неизвестное значение»");
+            });
+
+            Try("theme цикл = реестр", delegate
+            {
+                ThemeMode was = Theme.Mode;
+                try
+                {
+                    for (int i = 0; i < Theme.Modes.Length; i++)
+                    {
+                        Theme.Mode = Theme.Modes[i];
+                        ThemeMode next = Theme.NextMode();
+                        Assert(next == Theme.Modes[(i + 1) % Theme.Modes.Length],
+                            "цикл тем сломан после " + Theme.Name(Theme.Modes[i]) + ": дальше " + Theme.Name(next));
+                        Assert(Theme.IndexOf(next) >= 0, "цикл выдал тему вне реестра: " + Theme.Name(next));
+                    }
+                }
+                finally { Theme.Mode = was; }
+            });
+
+            // Сквозная миграция: реальный стартовый путь (App.ApplySavedTheme) должен
+            // не только включить правильную тему, но и записать её в gui-config.ini.
+            // Без записи тема «не сохраняется»: следующее сохранение конфига вернёт
+            // мёртвое имя, и пользователь будет терять выбор при каждом обновлении.
+            ThemeMigration("aurora", ThemeMode.Dark);
+            ThemeMigration("peter", ThemeMode.Light);
+            ThemeMigration("midnight", ThemeMode.Dark);
+        }
+
+        static void ThemeMigration(string saved, ThemeMode expect)
+        {
+            Try("theme миграция " + saved, delegate
+            {
+                ThemeMode was = Theme.Mode;
+                string wasSaved = Core.Get("theme", null);
+                byte[] fileWas = null;
+                try { string path = Core.ConfigFile; if (File.Exists(path)) fileWas = File.ReadAllBytes(path); }
+                catch { }
+                try
+                {
+                    Core.Set("theme", saved);
+                    App.ApplySavedTheme();
+                    Assert(Theme.Mode == expect, "theme = " + saved + " дал «" + Theme.Name(Theme.Mode)
+                        + "», ожидался «" + Theme.Name(expect) + "»");
+                    string inMem = Core.Get("theme", null);
+                    Assert(string.Equals(inMem, Theme.Name(expect), StringComparison.Ordinal),
+                        "миграция не обновила тему в памяти: «" + inMem + "»");
+                    if (!string.IsNullOrEmpty(Core.Root))
+                    {
+                        string onDisk = ConfigValueOnDisk("theme");
+                        Assert(string.Equals(onDisk, Theme.Name(expect), StringComparison.Ordinal),
+                            "в gui-config.ini осталось «theme = " + onDisk + "», ожидалось «" + Theme.Name(expect) + "»");
+                    }
+                }
+                finally
+                {
+                    if (wasSaved == null) Core.Unset("theme"); else Core.Set("theme", wasSaved);
+                    // Файл возвращаем сразу, а не в конце прогона: запуск, убитый
+                    // посреди тестов, оставлял в gui-config.ini тестовое значение,
+                    // и пользователь терял свою тему.
+                    try { if (fileWas != null) File.WriteAllBytes(Core.ConfigFile, fileWas); }
+                    catch { }
+                    Theme.Apply(was);
+                }
+            });
+        }
+
+        static string ConfigValueOnDisk(string key)
+        {
+            try
+            {
+                string path = Core.ConfigFile;
+                if (!File.Exists(path)) return null;
+                foreach (var l in File.ReadAllLines(path))
+                {
+                    string s = l.Trim();
+                    int eq = s.IndexOf('=');
+                    if (eq <= 0) continue;
+                    if (string.Equals(s.Substring(0, eq).Trim(), key, StringComparison.OrdinalIgnoreCase))
+                        return s.Substring(eq + 1).Trim();
+                }
+            }
+            catch { }
+            return null;
+        }
+
         static void PureTests()
         {
             // --- Версии ---
@@ -843,6 +1288,238 @@ namespace ZapretStudio
 
             // --- Естественная сортировка стратегий ---
             Try("natkey pad", delegate { Assert(Core.NaturalKey("a2bat") == "a00000002bat"); });
+
+            // --- Темы: реестр, парсер theme = и миграция удалённых имён ---
+            ThemeTests();
+
+            // --- История релизов: разбор массива ответов GitHub ---
+            Try("releases parser", delegate
+            {
+                string relJson = "[{\"tag_name\":\"v1.2.3\",\"published_at\":\"2026-01-02T03:04:05Z\",\"body\":\"line1\\n- item\"," +
+                              "\"assets\":[{\"name\":\"asset.zip\",\"uploader\":{\"login\":\"bot\"}}],\"author\":{\"login\":\"Flowseal\"}}," +
+                              "{\"tag_name\":\"v1.2.2\",\"body\":\"second\",\"assets\":[]}]";
+                var rel = Endpoints.Releases(relJson);
+                Assert(rel.Count == 2, "релизов разобрано: " + rel.Count);
+                Assert(rel[0].Tag == "v1.2.3", "tag_name верхнего уровня не прочитан: " + rel[0].Tag);
+                Assert(rel[0].Notes != null && rel[0].Notes.Contains("line1"), "body не прочитан: " + rel[0].Notes);
+                Assert(rel[1].Tag == "v1.2.2", "второй релиз потерян: " + rel[1].Tag);
+                Assert(!string.IsNullOrEmpty(rel[0].Date), "published_at не прочитан");
+                Assert(Endpoints.ReleaseDate(rel[0].Date).Length == 10,
+                    "дата не в формате dd.MM.yyyy: " + Endpoints.ReleaseDate(rel[0].Date));
+            });
+            Try("releases parser чужой формат", delegate
+            {
+                Assert(Endpoints.Releases("{\"tag_name\":\"v1\"}").Count == 0, "объект вместо массива распарсился");
+                Assert(Endpoints.Releases(null).Count == 0, "null уронил парсер");
+                Assert(Endpoints.Releases("[{\"name\":\"x\"}]").Count == 0, "релиз без tag_name попал в список");
+            });
+
+            // --- TG-прокси: разбор config.json и сборка tg:// ссылки ---
+            Try("tg config parse", delegate
+            {
+                string cfgJson = "{\"port\": 1443, \"host\": \"127.0.0.1\", \"secret\": \"0123456789ABCDEF0123456789abcdef\"}";
+                TgProxySettings s;
+                string err;
+                Assert(Core.ParseTgProxySettings(cfgJson, out s, out err), "config не разобран: " + err);
+                Assert(s.Port == 1443 && s.Host == "127.0.0.1", "host/port прочитаны неверно");
+                Assert(s.Secret == "0123456789abcdef0123456789abcdef", "secret не приведён к нижнему регистру");
+                Assert(s.Link == "tg://proxy?server=127.0.0.1&port=1443&secret=dd0123456789abcdef0123456789abcdef",
+                    "ссылка собрана неверно: " + s.Link);
+            });
+            Try("tg link 0.0.0.0", delegate
+            {
+                var s = new TgProxySettings { Host = "0.0.0.0", Port = 1443, Secret = new string('a', 32) };
+                Assert(s.LinkHost == "127.0.0.1", "0.0.0.0 не заменён на loopback: " + s.LinkHost);
+                Assert(s.Endpoint == "127.0.0.1:1443", "endpoint неверный: " + s.Endpoint);
+                Assert(s.Link.StartsWith("tg://proxy?server=127.0.0.1&port=1443&secret=dd", StringComparison.Ordinal),
+                    "ссылка для 0.0.0.0 неверна: " + s.Link);
+            });
+            Try("tg config rejects bad", delegate
+            {
+                TgProxySettings s;
+                string err;
+                Assert(!Core.ParseTgProxySettings("{\"port\":0,\"secret\":\"" + new string('a', 32) + "\"}", out s, out err),
+                    "порт 0 принят");
+                Assert(!Core.ParseTgProxySettings("{\"port\":1443,\"secret\":\"xyz\"}", out s, out err),
+                    "короткий secret принят");
+                Assert(!Core.ParseTgProxySettings(null, out s, out err), "null принят");
+            });
+
+            // --- Ряды кнопок: структура набора и поведение при нехватке места ---
+            Try("button rows group", delegate
+            {
+                var group = Ctl.ButtonRows(
+                    new FrameworkElement[] { new Button(), new Button(), new Button(), new Button() },
+                    new FrameworkElement[] { new Button(), new Button(), new Button() });
+                var host = group as StackPanel;
+                Assert(host != null && host.Children.Count == 2, "ButtonRows не вернул два ряда");
+                var r1 = host.Children[0] as CellRow;
+                var r2 = host.Children[1] as CellRow;
+                Assert(r1 != null && r2 != null, "ряды собраны не CellRow");
+                Assert(r1.ForceCols == 4 && r2.ForceCols == 3,
+                    "ряд кнопок не растянут на блок равными колонками: " + r1.ForceCols + " и " + r2.ForceCols);
+                // UniformCols: ряд из трёх кнопок обязан иметь ту же ширину ячейки,
+                // что и ряд из четырёх над ним, иначе кнопки «разными по размеру».
+                Assert(r1.UniformCols == 4 && r2.UniformCols == 4,
+                    "UniformCols не выровнен по длинному ряду: " + r1.UniformCols + " и " + r2.UniformCols);
+                var avail = new Size(812, double.PositiveInfinity);
+                r1.Measure(avail); r2.Measure(avail);
+                r1.Arrange(new Rect(0, 0, avail.Width, 200));
+                r2.Arrange(new Rect(0, 0, avail.Width, 200));
+                double w1 = ((FrameworkElement)r1.Children[0]).ActualWidth;
+                Assert(w1 > 100, "кнопка не получила ширину: " + w1);
+                for (int i = 0; i < r2.Children.Count; i++)
+                    Assert(Math.Abs(((FrameworkElement)r2.Children[i]).ActualWidth - w1) < 0.6,
+                        "ряд из трёх кнопок шире ряда из четырёх: " + ((FrameworkElement)r2.Children[i]).ActualWidth + " против " + w1);
+            });
+
+            // --- Полоса табов: пять равных ячеек закрывают ширину целиком ---
+            Try("cell row tiles full width", delegate
+            {
+                var row = new CellRow { Gap = 6, EvenRows = false, MinCell = 0, ForceCols = 5 };
+                for (int i = 0; i < 5; i++) row.Children.Add(new Button());
+                double[] widths = { 600, 812, 1100 };
+                foreach (double w in widths)
+                {
+                    row.Measure(new Size(w, double.PositiveInfinity));
+                    row.Arrange(new Rect(0, 0, w, 40));
+                    double cw = ((FrameworkElement)row.Children[0]).ActualWidth;
+                    for (int i = 1; i < 5; i++)
+                        Assert(Math.Abs(((FrameworkElement)row.Children[i]).ActualWidth - cw) < 0.6,
+                            "ячейки табов разные по ширине при " + w);
+                    double right = cw * 5 + 6 * 4;
+                    Assert(Math.Abs(right - w) < 1.5,
+                        "ряд не доходит до правого края: " + right + " при " + w);
+                }
+            });
+
+            // --- Justify: компактные элементы распределены по всей ширине ---
+            Try("cell row justify fills width", delegate
+            {
+                string[] texts = { "A", "BB", "CCC", "DDDD", "EEEEEE" };
+                var row = new CellRow { Gap = 6, EvenRows = false, MinCell = 0, ForceCols = 5, Justify = true };
+                for (int i = 0; i < texts.Length; i++)
+                    row.Children.Add(new TextBlock { Text = texts[i], FontSize = 16 });
+                double w = 600;
+                row.Measure(new Size(w, double.PositiveInfinity));
+                row.Arrange(new Rect(0, 0, w, 30));
+
+                double sum = 0;
+                var xs = new double[texts.Length];
+                var ws = new double[texts.Length];
+                for (int i = 0; i < texts.Length; i++)
+                {
+                    var ch = (FrameworkElement)row.Children[i];
+                    xs[i] = ch.TranslatePoint(new Point(0, 0), row).X;
+                    ws[i] = ch.ActualWidth;
+                    sum += ws[i];
+                    Assert(ws[i] < 120, "компактный элемент растянут на колонку: " + ws[i]);
+                }
+                Assert(Math.Abs(xs[0]) < 0.6, "первый элемент не прижат к левому краю: " + xs[0]);
+                Assert(Math.Abs(xs[texts.Length - 1] + ws[texts.Length - 1] - w) < 0.6,
+                    "ряд не доходит до правого края: " + (xs[texts.Length - 1] + ws[texts.Length - 1]) + " при " + w);
+                double gap = (w - sum) / (texts.Length - 1);
+                Assert(gap >= 6 - 0.01, "зазор меньше минимального: " + gap);
+                for (int i = 1; i < texts.Length; i++)
+                    Assert(Math.Abs((xs[i] - xs[i - 1] - ws[i - 1]) - gap) < 0.6,
+                        "зазоры между элементами равными не вышли: " + (xs[i] - xs[i - 1] - ws[i - 1]) + " против " + gap);
+            });
+
+            // --- Фокус-кольцо не должно двигать содержимое ---
+            Try("focus ring keeps layout", delegate
+            {
+                var bd = new Border { BorderThickness = new Thickness(1) };
+                Ctl.SetFocusRing(bd, true);
+                Assert(bd.BorderThickness == new Thickness(1),
+                    "фокус меняет толщину рамки (" + bd.BorderThickness + ") — содержимое смещается на пиксель");
+                Assert(bd.Effect != null, "фокус не показан кольцом");
+                Ctl.SetFocusRing(bd, false);
+                Assert(bd.Effect == null, "кольцо фокуса не снято");
+            });
+
+            // --- Закрытый ComboBox не должен съедать колесо ---
+            Try("closed combo does not eat wheel", delegate
+            {
+                var cb = new System.Windows.Controls.ComboBox();
+                Assert(!SmoothScrollViewer.IsInsideDropdown(cb, cb),
+                    "закрытый ComboBox перехватывает колесо — страница залипает при прокрутке");
+            });
+
+            // --- Разделение заливки не должно сжимать её в полоску ---
+            Try("split surface fills hit area", delegate
+            {
+                var s = new Border
+                {
+                    Background = Brushes.Black,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Child = new TextBlock { Text = "github.com" }
+                };
+                var root = Ctl.SplitSurface(s);
+                Assert(s.HorizontalAlignment == HorizontalAlignment.Stretch,
+                    "заливка не растянулась — от пилюли останется тонкая полоска");
+                Assert(root.Background != null,
+                    "у кнопки нет hit-test фона — клики по тексту не дойдут");
+                Assert(root.HorizontalAlignment == HorizontalAlignment.Left,
+                    "кнопка потеряла исходное выравнивание");
+                Assert(root.Children.Count == 2, "заливка и содержимое не разделены");
+            });
+
+            // --- Неон кнопки не должен ложиться на содержимое с подписью ---
+            Try("button glow stays off content", delegate
+            {
+                var btn = Ctl.Button("Тест", null, 1);
+                var surface = Ctl.Surface(btn);
+                var host = Ctl.ContentHost(btn);
+                Assert(surface != null, "у кнопки нет заливки");
+                Assert(host != null && host.Child != null, "контент не отделён от заливки");
+                Assert(surface.Child == null, "подпись осталась внутри заливки — эффект размоет текст");
+                Ctl.SetGlow(surface, true, false);
+                Assert(surface.Effect != null, "подсветка не включилась");
+                Ctl.SetGlow(surface, false, false);
+                Assert(surface.Effect == null, "подсветка не снялась");
+            });
+
+            Try("button rows span block", delegate
+            {
+                var a = Ctl.Button("Пауза", Icons.Pause, 1);
+                var b2 = Ctl.Button("Копировать диагностику", Icons.Shield, 1);
+                var row = Ctl.ButtonRow(a, b2);
+                row.Measure(new Size(900, double.PositiveInfinity));
+                row.Arrange(new Rect(0, 0, 900, 40));
+                // Ряд = ширина блока: равные колонки, край в край, одна линия.
+                Assert(Math.Abs(a.ActualWidth - b2.ActualWidth) < 0.6,
+                    "кнопки в ряду не равны: " + a.ActualWidth + " / " + b2.ActualHeight);
+                Assert(Math.Abs((a.ActualWidth + b2.ActualWidth + 12) - 900) < 1.5,
+                    "ряд не растянут на весь блок: " + (a.ActualWidth + b2.ActualWidth + 12));
+                Assert(Math.Abs(a.ActualHeight - b2.ActualHeight) < 0.6,
+                    "высота кнопок в одном ряду разная: " + a.ActualHeight + " / " + b2.ActualHeight);
+                double ax = a.TranslatePoint(new Point(0, 0), row).X;
+                double bx = b2.TranslatePoint(new Point(0, 0), row).X;
+                Assert(Math.Abs(ax) < 0.6, "первая кнопка не у левого края ряда: " + ax);
+                Assert(Math.Abs((bx + b2.ActualWidth) - 900) < 1.5,
+                    "правый край ряда не совпадает с краем блока: " + (bx + b2.ActualWidth));
+            });
+
+            Try("release notes markdown", delegate
+            {
+                string md = "## What's new\n\n- **Fixed** `crash` on [Discord](https://discord.com)\n" +
+                            "> note\n![badge](https://img/shield.png)\n**bold** and *italic* and ~~strike~~\n";
+                string outp = Endpoints.FormatReleaseNotes(md);
+                Assert(!outp.Contains("**"), "жирный не вычищен: " + outp);
+                Assert(!outp.Contains("`"), "inline-код не вычищен: " + outp);
+                Assert(!outp.Contains("]("), "ссылка не вычищена: " + outp);
+                Assert(!outp.Contains("shield.png"), "картинка-бейдж не удалена: " + outp);
+                Assert(!outp.Contains("##"), "заголовок не вычищен: " + outp);
+                Assert(!outp.Contains("~~"), "зачёркивание не вычищено: " + outp);
+                Assert(outp.Contains("• Fixed crash on Discord"), "строка списка собралась неверно: " + outp);
+                Assert(outp.Contains("note"), "цитата потерялась: " + outp);
+                Assert(outp.Contains("bold and italic and strike"), "инлайн-маркеры съели текст: " + outp);
+            });
+            Try("release notes пустые строки", delegate
+            {
+                string spaced = Endpoints.FormatReleaseNotes("a\n\n\n\nb");
+                Assert(spaced.Split('\n').Length == 3, "пустые строки не схлопнуты в одну: [" + spaced + "]");
+            });
 
             // --- Сборка аргументов winws из .bat ---
             BuildArgsTests();
@@ -881,12 +1558,33 @@ namespace ZapretStudio
             // --- Кольцевой буфер вывода winws ---
             Try("winws ring buffer", delegate
             {
-                Core.WinwsLogClear();
-                for (int i = 0; i < 450; i++) Core.WinwsLogAppend("line" + i);
-                string tail = Core.WinwsLogTail(400);
-                Assert(tail.StartsWith("...") && tail.Contains("line449") && !tail.Contains("line49\n"));
-                Core.WinwsLogClear();
-                Assert(Core.WinwsLogAll().Length == 0);
+                // 6e: буфер общий и живой — из него читают «Вывод winws» и
+                // Core.Diagnostics(). Снимаем состояние и возвращаем после теста.
+                string was = Core.WinwsLogAll();
+                try
+                {
+                    Core.WinwsLogClear();
+                    for (int i = 0; i < 450; i++) Core.WinwsLogAppend("line" + i);
+                    string tail = Core.WinwsLogTail(400);
+                    Assert(tail.StartsWith("..."));
+                    Assert(HasLine(tail, "line449"));
+                    // №83: прежняя проверка !tail.Contains("line49\n") была тавтологией —
+                    // WinwsLogTail склеивает строки через AppendLine (\r\n), подстрока не
+                    // появлялась ни при каком состоянии буфера. Плюс "line49" — префикс
+                    // "line490", так что сравнивать можно только целыми строками.
+                    Assert(!HasLine(tail, "line49"));
+                    Assert(HasLine(tail, "line50"));
+                    Core.WinwsLogClear();
+                    Assert(Core.WinwsLogAll().Length == 0);
+                }
+                finally
+                {
+                    Core.WinwsLogClear();
+                    string[] lines = LogLines(was);
+                    // Первая строка "..." — маркер усечения от WinwsLogTail, а не вывод winws.
+                    int from = (lines.Length > 0 && lines[0] == "...") ? 1 : 0;
+                    for (int i = from; i < lines.Length; i++) Core.WinwsLogAppend(lines[i]);
+                }
             });
 
             // --- Разбор .sha256 файла установщика ---
@@ -932,26 +1630,6 @@ namespace ZapretStudio
                 Assert(Core.Arg(null) == "\"\"");
             });
 
-            // --- ID3-кодировки ---
-            Try("id3 utf8", delegate
-            {
-                var data = new List<byte> { 3 };
-                data.AddRange(Encoding.UTF8.GetBytes("Тест"));
-                Assert(AudioTagReader.DecodeId3Text(data.ToArray()) == "Тест");
-            });
-            Try("id3 cp1251", delegate
-            {
-                var data = new List<byte> { 0 };
-                data.AddRange(Encoding.GetEncoding(1251).GetBytes("Тест"));
-                Assert(AudioTagReader.DecodeId3Text(data.ToArray()) == "Тест");
-            });
-            Try("id3 double-encoded", delegate
-            {
-                // Реальный случай: файл помечен enc=0 (ANSI), но байты — сырой UTF-8.
-                var data = new List<byte> { 0 };
-                data.AddRange(Encoding.UTF8.GetBytes("Привет"));
-                Assert(AudioTagReader.DecodeId3Text(data.ToArray()) == "Привет");
-            });
 
             // --- Режимы ipset на изолированном корне (каталог exe selftest) ---
             IpsetModeTests();
@@ -960,10 +1638,23 @@ namespace ZapretStudio
             Try("quick probes count", delegate { Assert(Core.QuickProbes().Count == 3); });
 
             // --- Человекочитаемые размеры ---
-            Try("humansize smoke", delegate
+            // №84: прежняя проверка (Length > 0) проходила даже на заглушке,
+            // возвращающей любую непустую строку.
+            Try("humansize units", delegate
             {
-                Assert(Core.HumanSize(0).Length > 0 && Core.HumanSize(2048).Length > 0);
-                Assert(Core.HumanSpeed(1024).Length > 0);
+                // Разделитель дробной части зависит от локали — сравниваем с тем же форматом.
+                Assert(Core.HumanSize(-1) == "?");
+                Assert(NumOf(Core.HumanSize(0)) == "0");
+                Assert(NumOf(Core.HumanSize(1023)) == "1023");
+                Assert(NumOf(Core.HumanSize(2048)) == (2.0).ToString("0.0"));
+                Assert(NumOf(Core.HumanSize(5L * 1024 * 1024 * 1024)) == (5.0).ToString("0.0"));
+                // Единицы обязаны расти, иначе получилось бы «1024 КБ» вместо «1,0 МБ».
+                Assert(UnitOf(Core.HumanSize(0)) != UnitOf(Core.HumanSize(1024)));
+                Assert(UnitOf(Core.HumanSize(1024)) != UnitOf(Core.HumanSize(1024 * 1024)));
+                Assert(UnitOf(Core.HumanSize(1024 * 1024)) != UnitOf(Core.HumanSize(1024L * 1024 * 1024)));
+                // Скорость — тот же размер плюс суффикс «/с».
+                Assert(Core.HumanSpeed(2048).StartsWith(Core.HumanSize(2048), StringComparison.Ordinal));
+                Assert(Core.HumanSpeed(2048).EndsWith(Loc.T("unit.perSec"), StringComparison.Ordinal));
             });
         }
 
@@ -1063,6 +1754,62 @@ namespace ZapretStudio
                 Core.GameMode = "off";
                 Core.GameFilterTcpPorts = "1024-65535";
                 Core.GameFilterUdpPorts = "1024-65535";
+
+                // 5) №23: голый %GameFilter% (без суффикса TCP/UDP). В эталонных
+                // .bat он стоит в режиме all и обязан раскрываться в TCP-порты —
+                // прежний код подставлял туда udp, то есть фильтр заводился не на то.
+                string batG = Path.Combine(root, "t2.bat");
+                File.WriteAllText(batG,
+                    "@echo off\r\n" +
+                    "start \"z\" /min \"%BIN%winws.exe\" --wf-tcp=%GameFilter% --wf-udp=%GameFilter%\r\n");
+                string tcpPorts = "1111-2222", udpPorts = "3333-4444";
+                Core.GameFilterTcpPorts = tcpPorts;
+                Core.GameFilterUdpPorts = udpPorts;
+                // В off/tcp-режимах %GameFilter% обязан раскрываться в TCP-значения
+                // GameValues(): off → служебные «12», all/tcp → кастомные TCP-порты.
+                foreach (var kv in new string[][] {
+                    new string[] { "off", "12" },
+                    new string[] { "all", tcpPorts },
+                    new string[] { "tcp", tcpPorts } })
+                {
+                    string mode = kv[0], expect = kv[1];
+                    Core.GameMode = mode;
+                    string a = Core.BuildArgs("t2.bat");
+                    Try("gamefilter bare subst mode=" + mode, delegate
+                    {
+                        Assert(!a.Contains("%GameFilter"), "остался неразвёрнутый %GameFilter%: " + a);
+                        Assert(a.Contains("--wf-tcp=" + expect) && a.Contains("--wf-udp=" + expect),
+                            "в режиме " + mode + " %GameFilter% обязан раскрываться в '" + expect + "': " + a);
+                    });
+                }
+                Core.GameMode = "udp";
+                Try("gamefilter bare subst mode=udp", delegate
+                {
+                    string a = Core.BuildArgs("t2.bat");
+                    Assert(a.Contains("--wf-tcp=" + udpPorts), "в режиме udp %GameFilter% обязан раскрываться в UDP-порты: " + a);
+                });
+
+                // 6) №69: плейсхолдер сразу перед кавычкой. Core.Bin/Core.Lists
+                // заканчиваются на бэкслеш, и наивная подстановка даёт lists\", где
+                // \" съедает кавычку при разборе argv. Форма обязана стоять внутри
+                // самой команды winws: парсер берёт строки, начиная с той, где
+                // встречается winws.exe (Core.Strategies.cs:315).
+                string batQ = Path.Combine(root, "t3.bat");
+                File.WriteAllText(batQ,
+                    "@echo off\r\n" +
+                    "start \"z\" /min \"%BIN%winws.exe\" --wf-tcp=443 ^\r\n" +
+                    "--hostlist=\"%LISTS%\"aux.txt\r\n");
+                string aq = Core.BuildArgs("t3.bat");
+                Try("buildargs quoted BIN/LISTS subst", delegate
+                {
+                    Assert(!aq.Contains("%BIN%") && !aq.Contains("%LISTS%"), "плейсхолдеры не развернулись: " + aq);
+                    Assert(aq.IndexOf("\\\"", StringComparison.Ordinal) < 0,
+                        "путь закончился на бэкслеш перед кавычкой (\\\" съедает кавычку): " + aq);
+                });
+
+                Core.GameMode = "off";
+                Core.GameFilterTcpPorts = "1024-65535";
+                Core.GameFilterUdpPorts = "1024-65535";
             }
             finally
             {
@@ -1120,6 +1867,32 @@ namespace ZapretStudio
         {
             if (!cond) throw new Exception("assertion failed");
         }
+
+        // Тот же_assert_ с расшифровкой: без текста провала Differ-тесты вроде
+        // подстановки аргументов winws приходится дебагать вслепую.
+        static void Assert(bool cond, string message)
+        {
+            if (!cond) throw new Exception("assertion failed: " + message);
+        }
+
+        // Строки текста, разделённого AppendLine (\r\n).
+        static string[] LogLines(string text)
+        {
+            if (text == null) return new string[0];
+            return text.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        }
+
+        // Сравнение целой строкой: подстрока "line49" есть и в "line490".
+        static bool HasLine(string text, string line)
+        {
+            foreach (var s in LogLines(text)) if (s == line) return true;
+            return false;
+        }
+
+        // HumanSize возвращает "<число> <единица>"; единицы локализованы, поэтому
+        // проверяем только числовую часть и то, что единицы различаются.
+        static string NumOf(string s) { int i = s.IndexOf(' '); return i < 0 ? s : s.Substring(0, i); }
+        static string UnitOf(string s) { int i = s.IndexOf(' '); return i < 0 ? "" : s.Substring(i + 1); }
     }
 }
 #endif

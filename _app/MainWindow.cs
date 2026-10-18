@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
@@ -19,6 +20,9 @@ namespace ZapretStudio
         readonly Dictionary<string, Button> _navButtons = new Dictionary<string, Button>();
         ContentControl _host;
         string _current = "";
+        // Только для автотеста: раньше NavCheck ограничивался «не бросило исключение»,
+        // и упавшая навигация засчитывалась как PASS.
+        internal string CurrentPageKey { get { return _current; } }
         Border _topStatusPill;
         Border _topAdminPill;
         OverviewPage _overview;
@@ -32,10 +36,17 @@ namespace ZapretStudio
         {
             Title = Core.AppName;
             try { var wi = Core.AppIconSource(); if (wi != null) Icon = wi; } catch { }
-            Width = 1120;
-            Height = Math.Min(740, Math.Max(560, SystemParameters.WorkArea.Height - 30));
-            MinWidth = 1000;
-            MinHeight = Math.Min(580, Math.Max(500, SystemParameters.WorkArea.Height - 40));
+            double waH = SystemParameters.WorkArea.Height;
+            double waW = SystemParameters.WorkArea.Width;
+            // Минимальный размер — это про запас раскладки, а не про «почти весь
+            // экран». Раньше min = clamp(760..920) по рабочей области, и на любом
+            // мониторе окно физически нельзя было сузить ниже 920 px: за край его
+            // тянешь, а оно стоит. Нижняя граница 760 — с запасом над самой плотной
+            // страницей; проверяется аудитом разметки на 820 (SelfTest, 6b).
+            MinHeight = 480;
+            MinWidth = 760;
+            Height = Math.Min(740, Math.Max(MinHeight, waH - 30));
+            Width = Math.Min(1120, Math.Max(MinWidth, waW - 60));
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             Background = Theme.BrBgDeep;
             UseLayoutRounding = true;
@@ -50,7 +61,11 @@ namespace ZapretStudio
             _lastTgLatest = Core.Get("latest_tg", null);
             _lastAppLatest = Core.Get("latest_app", null);
             if (_lastZapretLatest != null || _lastTgLatest != null || _lastAppLatest != null)
+            {
                 _haveUpdateResults = true;
+                _lastZapretLocal = Core.ZapretVersion();
+                _lastTgLocal = Core.TgProxyInstalled() ? Core.TgProxyLocalVersion() : null;
+            }
 
             AllowsTransparency = false;
             BuildChrome();
@@ -86,20 +101,50 @@ namespace ZapretStudio
                 }
                 catch { }
             };
+            PreviewKeyDown += (s, e) =>
+            {
+                if (e.Key == Key.B && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+                {
+                    ToggleCollapse();
+                    e.Handled = true;
+                }
+            };
             StateChanged += (s, e) =>
             {
-                if (WindowState == WindowState.Minimized) Core.TrimMemory();
+                if (WindowState == WindowState.Minimized)
+                {
+                    PauseActivePage();
+                    Core.TrimMemory();
+                }
+                else if (WindowState == WindowState.Normal || WindowState == WindowState.Maximized)
+                {
+                    ResumeActivePage();
+                }
             };
             Loaded += (s, e) =>
             {
                 Navigate("overview");
                 if (_overview != null) _overview.StartTimer();
+#if SELFTEST
+                // Автотест ограничивается построением интерфейса: AfterLoad ходит в
+                // сеть (CheckUpdates), поднимает обход по autostart_run, запускает
+                // TgWsProxy и вешает 15-секундный монитор падения.
+#else
                 AfterLoad();
+#endif
                 if (startInTray)
                 {
+                    PauseActivePage();
                     Hide();
                     Notify(string.Format(Loc.T("mw.tray.minTitle"), Core.AppName), Loc.T("mw.tray.minBody"));
                     Core.TrimMemory();
+                }
+                else
+                {
+                    Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, (Action)delegate
+                    {
+                        BringToFront();
+                    });
                 }
             };
             Closing += OnClosing;
@@ -113,66 +158,96 @@ namespace ZapretStudio
         {
             try
             {
+                // Страховка от застрявшего мышиного захвата: если пересборку всё же
+                // запустили из обработчика выбора комбо, его Popup мог не успеть
+                // закрыться, и ввод (колесо, клики) навсегда уходил в отцепленный
+                // элемент. Явно отпускаем захват перед пересборкой.
+                try { System.Windows.Input.Mouse.Capture(null); } catch { }
+
+                FontFamily = Theme.UiFont;
                 double savedScroll = 0;
                 if (!string.IsNullOrEmpty(_current) && _pages.ContainsKey(_current))
                 {
                     try { savedScroll = _pages[_current].ScrollOffset; } catch { }
                 }
 
-                foreach (var p in _pages.Values) { try { p.OnHide(); } catch { } }
+                // Запоминаем текущий элемент с фокусом ввода, чтобы после пересборки страницы
+                // фокус не сбрасывался в самый верх окна (кнопка темы / заголовок)
+                string savedFocusName = null;
+                string savedFocusTag = null;
+                Type savedFocusType = null;
+                var curFocused = FocusManager.GetFocusedElement(this) as DependencyObject;
+                if (curFocused != null)
+                {
+                    savedFocusName = System.Windows.Automation.AutomationProperties.GetName(curFocused);
+                    savedFocusType = curFocused.GetType();
+                    if (curFocused is FrameworkElement) savedFocusTag = ((FrameworkElement)curFocused).Tag as string;
+                }
+
+                RenderTargetBitmap oldBmp = null;
+                if (Theme.AnimationsEnabled && ActualWidth > 0 && ActualHeight > 0 && Content is FrameworkElement)
+                {
+                    try
+                    {
+                        int rw = (int)Math.Max(1, ActualWidth);
+                        int rh = (int)Math.Max(1, ActualHeight);
+                        oldBmp = new RenderTargetBitmap(rw, rh, 96, 96, PixelFormats.Pbgra32);
+                        oldBmp.Render((FrameworkElement)Content);
+                        oldBmp.Freeze();
+                    }
+                    catch { oldBmp = null; }
+                }
+
+                foreach (var p in _pages.Values)
+                {
+                    try
+                    {
+                        var chk = p as CheckPage;
+                        if (chk != null) chk.CancelAll();
+                        p.OnHide();
+                    }
+                    catch { }
+                }
                 _pages.Clear();
                 _navButtons.Clear();
                 _activeNavKey = null;
                 _overview = null;
-                // Старый виджет плеера подписан на события живущего контроллера —
-                // отписываем, иначе обработчики накапливаются при каждой смене темы.
-                if (_peterSidebarWidget != null)
-                {
-                    try { _peterSidebarWidget.Detach(); } catch { }
-                    _peterSidebarWidget = null;
-                }
+                CloseFlavorPopup();
                 BuildChrome();
                 RebuildTray();
+                try { if (_trayWidget != null) { _trayWidget.Close(); _trayWidget = null; } } catch { }
                 Navigate(string.IsNullOrEmpty(_current) ? "overview" : _current, true);
                 if (_overview != null) _overview.StartTimer();
                 RefreshTop();
 
-                // Восстанавливаем скролл, чтобы при смене темы/языка не выбрасывало наверх страницы
-                if (savedScroll > 0 && !string.IsNullOrEmpty(_current) && _pages.ContainsKey(_current))
+                // Восстанавливаем скролл и фокус, чтобы при смене темы/языка не выбрасывало наверх
+                if (!string.IsNullOrEmpty(_current) && _pages.ContainsKey(_current))
                 {
                     var curPage = _pages[_current];
-                    curPage.ScrollOffset = savedScroll;
+                    if (savedScroll > 0) curPage.ScrollOffset = savedScroll;
                     Dispatcher.BeginInvoke(DispatcherPriority.Loaded, (Action)delegate
                     {
-                        try { curPage.ScrollOffset = savedScroll; } catch { }
+                        try
+                        {
+                            if (savedScroll > 0) curPage.ScrollOffset = savedScroll;
+                            if (!string.IsNullOrEmpty(savedFocusTag) || !string.IsNullOrEmpty(savedFocusName))
+                            {
+                                var match = FindElementForRestore(curPage, savedFocusTag, savedFocusName, savedFocusType);
+                                if (match != null)
+                                {
+                                    match.Focus();
+                                    Keyboard.Focus(match);
+                                }
+                            }
+                        }
+                        catch { }
                     });
                 }
 
-                // Единая кинематографичная анимация смены темы и языка (Затухание + Блюр).
-                // При выключенных анимациях (reduce_motion) — мгновенная смена без эффектов.
-                if (Theme.AnimationsEnabled && Content is FrameworkElement)
+                // Сочная радиальная анимация смены темы (Telegram-style Circular Reveal)
+                if (Theme.AnimationsEnabled && oldBmp != null && _rootGrid != null)
                 {
-                    var el = (FrameworkElement)Content;
-                    var blur = new System.Windows.Media.Effects.BlurEffect
-                    {
-                        Radius = 6,
-                        RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance
-                    };
-                    el.Effect = blur;
-
-                    var dur = TimeSpan.FromMilliseconds(220);
-                    var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-
-                    var fadeAnim = new DoubleAnimation(0.45, 1.0, dur) { EasingFunction = ease };
-                    var blurAnim = new DoubleAnimation(6.0, 0.0, dur) { EasingFunction = ease };
-
-                    blurAnim.Completed += (s, e) =>
-                    {
-                        el.Effect = null;
-                    };
-
-                    el.BeginAnimation(OpacityProperty, fadeAnim);
-                    blur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, blurAnim);
+                    PlayCircularReveal(oldBmp);
                 }
                 else if (Content is UIElement)
                 {
@@ -185,9 +260,181 @@ namespace ZapretStudio
             catch { }
         }
 
+        static FrameworkElement FindElementForRestore(DependencyObject parent, string tag, string name, Type type)
+        {
+            if (parent == null) return null;
+            int count = VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is FrameworkElement)
+                {
+                    var fe = (FrameworkElement)child;
+                    if (type == null || fe.GetType() == type)
+                    {
+                        if (!string.IsNullOrEmpty(tag) && string.Equals(fe.Tag as string, tag, StringComparison.OrdinalIgnoreCase))
+                            return fe;
+                        if (!string.IsNullOrEmpty(name) && string.Equals(System.Windows.Automation.AutomationProperties.GetName(fe), name, StringComparison.OrdinalIgnoreCase))
+                            return fe;
+                    }
+                }
+                var sub = FindElementForRestore(child, tag, name, type);
+                if (sub != null) return sub;
+            }
+            return null;
+        }
+
+        Point _themeOrigin = new Point(-1, -1);
+
+        public void SetThemeOrigin(Point pt) { _themeOrigin = pt; }
+
+        void PlayCircularReveal(RenderTargetBitmap oldBmp)
+        {
+            try
+            {
+                if (_rootGrid == null) return;
+
+                var oldImage = new Image
+                {
+                    Source = oldBmp,
+                    Width = ActualWidth,
+                    Height = ActualHeight,
+                    Stretch = Stretch.Fill,
+                    IsHitTestVisible = false,
+                    RenderTransformOrigin = new Point(0.5, 0.5),
+                    RenderTransform = new ScaleTransform(1.0, 1.0)
+                };
+
+                Point origin;
+                if (_themeOrigin.X >= 0 && _themeOrigin.Y >= 0)
+                {
+                    origin = _themeOrigin;
+                }
+                else
+                {
+                    try
+                    {
+                        Point mousePt = System.Windows.Input.Mouse.GetPosition(this);
+                        if (mousePt.X >= 0 && mousePt.X <= ActualWidth && mousePt.Y >= 0 && mousePt.Y <= ActualHeight)
+                            origin = mousePt;
+                        else
+                            origin = new Point(ActualWidth > 0 ? ActualWidth - 160 : 1000, 24);
+                    }
+                    catch
+                    {
+                        origin = new Point(ActualWidth > 0 ? ActualWidth - 160 : 1000, 24);
+                    }
+                }
+                _themeOrigin = new Point(-1, -1);
+
+                double dX = Math.Max(origin.X, Math.Max(0, ActualWidth - origin.X));
+                double dY = Math.Max(origin.Y, Math.Max(0, ActualHeight - origin.Y));
+                double maxRadius = Math.Sqrt(dX * dX + dY * dY) + 36;
+
+                var glowRing = new System.Windows.Shapes.Ellipse
+                {
+                    Width = 0,
+                    Height = 0,
+                    Stroke = Theme.BrAccentHi,
+                    StrokeThickness = 3,
+                    Opacity = 0.7,
+                    IsHitTestVisible = false,
+                    Effect = new System.Windows.Media.Effects.DropShadowEffect
+                    {
+                        Color = Theme.AccentMain,
+                        BlurRadius = 16,
+                        ShadowDepth = 0,
+                        Opacity = 0.9
+                    }
+                };
+                Canvas.SetLeft(glowRing, origin.X);
+                Canvas.SetTop(glowRing, origin.Y);
+
+                var overlayCanvas = new Canvas
+                {
+                    Width = ActualWidth,
+                    Height = ActualHeight,
+                    IsHitTestVisible = false,
+                    ClipToBounds = true
+                };
+                overlayCanvas.Children.Add(oldImage);
+                overlayCanvas.Children.Add(glowRing);
+
+                Grid.SetRow(overlayCanvas, 0);
+                Grid.SetRowSpan(overlayCanvas, 2);
+                Grid.SetColumn(overlayCanvas, 0);
+                Grid.SetColumnSpan(overlayCanvas, 2);
+                Panel.SetZIndex(overlayCanvas, 9999);
+                _rootGrid.Children.Add(overlayCanvas);
+
+                var dur = TimeSpan.FromMilliseconds(400);
+                var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+
+                var imgOpacityAnim = new DoubleAnimation(1.0, 0.0, dur) { EasingFunction = ease };
+                var imgScaleAnim = new DoubleAnimation(1.0, 1.02, dur) { EasingFunction = ease };
+
+                var ringSizeAnim = new DoubleAnimation(0, maxRadius * 2, dur) { EasingFunction = ease };
+                var ringXAnim = new DoubleAnimation(origin.X, origin.X - maxRadius, dur) { EasingFunction = ease };
+                var ringYAnim = new DoubleAnimation(origin.Y, origin.Y - maxRadius, dur) { EasingFunction = ease };
+                var ringFade = new DoubleAnimation(0.7, 0.0, dur) { EasingFunction = ease };
+
+                imgOpacityAnim.Completed += (s, e) =>
+                {
+                    try 
+                    {
+                        if (overlayCanvas == null) return;
+                        if (_rootGrid != null && _rootGrid.Children != null)
+                        {
+                            _rootGrid.Children.Remove(overlayCanvas);
+                        }
+                        oldImage.Source = null;
+                        overlayCanvas.Children.Clear();
+                        oldBmp = null;
+                        Core.TrimMemory();
+                    } 
+                    catch { }
+                };
+
+                oldImage.BeginAnimation(UIElement.OpacityProperty, imgOpacityAnim);
+                var scaleTransform = oldImage.RenderTransform as ScaleTransform;
+                if (scaleTransform != null)
+                {
+                    scaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, imgScaleAnim);
+                    scaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, imgScaleAnim);
+                }
+
+                glowRing.BeginAnimation(FrameworkElement.WidthProperty, ringSizeAnim);
+                glowRing.BeginAnimation(FrameworkElement.HeightProperty, ringSizeAnim);
+                glowRing.BeginAnimation(Canvas.LeftProperty, ringXAnim);
+                glowRing.BeginAnimation(Canvas.TopProperty, ringYAnim);
+                glowRing.BeginAnimation(UIElement.OpacityProperty, ringFade);
+            }
+            catch { }
+        }
+
+        void CleanupTray()
+        {
+            try { if (_trayClickTimer != null) { _trayClickTimer.Stop(); _trayClickTimer = null; } } catch { }
+            try
+            {
+                if (_tray != null)
+                {
+                    _tray.Visible = false;
+                    if (_tray.ContextMenuStrip != null)
+                    {
+                        _tray.ContextMenuStrip.Dispose();
+                        _tray.ContextMenuStrip = null;
+                    }
+                    _tray.Dispose();
+                    _tray = null;
+                }
+            }
+            catch { }
+        }
+
         void RebuildTray()
         {
-            try { if (_tray != null) { _tray.Visible = false; _tray.Dispose(); _tray = null; } } catch { }
+            CleanupTray();
             BuildTray();
             RefreshTop();
         }
@@ -212,6 +459,7 @@ namespace ZapretStudio
 
         void BuildChrome()
         {
+            FontFamily = Theme.UiFont;
             // Кастомная рамка окна
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.CanResize;
@@ -222,7 +470,10 @@ namespace ZapretStudio
             };
             System.Windows.Shell.WindowChrome.SetWindowChrome(this, chrome);
 
+            Background = Theme.BrBgBase;
+
             var root = new Grid();
+            root.Background = Brushes.Transparent;
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(48) });  // topbar
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // sidebar (own width)
@@ -238,20 +489,17 @@ namespace ZapretStudio
 
             _host = new ContentControl();
             var contentLayer = new Grid { ClipToBounds = true };
-            if (Theme.Mode == ThemeMode.Peter && Core.GetBool("peter_backdrop", true))
-            {
-                var source = PeterBackdrop();
-                if (source != null)
-                {
-                    contentLayer.Children.Add(new Image { Source = source, Width = 560, Opacity = 0.28,
-                        Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Right,
-                        VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 20, 0),
-                        IsHitTestVisible = false });
-                    contentLayer.Children.Add(new Border { Background = Theme.Alpha(Theme.BgDeep, 150), IsHitTestVisible = false });
-                }
-            }
             contentLayer.Children.Add(_host);
-            var hostBorder = new Border { Child = contentLayer, Background = Theme.BrBgDeep };
+            var hostBorder = new Border
+            {
+                Child = contentLayer,
+                Background = Theme.BrBgDeep,
+                CornerRadius = new CornerRadius(0),
+                BorderThickness = new Thickness(0),
+                BorderBrush = Brushes.Transparent,
+                Margin = new Thickness(0),
+                ClipToBounds = true
+            };
             Grid.SetRow(hostBorder, 1); Grid.SetColumn(hostBorder, 1);
             root.Children.Add(hostBorder);
 
@@ -262,72 +510,19 @@ namespace ZapretStudio
             Panel.SetZIndex(_toastHost, 100);
             root.Children.Add(_toastHost);
 
+            root.PreviewMouseWheel += (s, e) =>
+            {
+                if (SmoothScrollViewer.IsInsideDropdown(e.OriginalSource as DependencyObject, e.Source)) return;
+                CloseFlavorPopup();
+                SmoothScrollViewer.CloseAnyOpenDropdown(this);
+            };
+
             _rootGrid = root;
             Content = root;
         }
 
         Grid _rootGrid;
         StackPanel _toastHost;
-        PeterMusicWidget _peterSidebarWidget;
-        public readonly PeterMusicController PeterMusic = new PeterMusicController();
-        static ImageSource _peterBackdrop;
-
-        public static ImageSource PeterBackdrop()
-        {
-            if (_peterBackdrop != null) return _peterBackdrop;
-            try
-            {
-                var asm = System.Reflection.Assembly.GetExecutingAssembly();
-                using (var stream = asm.GetManifestResourceStream("ZapretStudio.Assets.PeterGriffin"))
-                {
-                    if (stream == null) return null;
-                    var image = new BitmapImage();
-                    image.BeginInit();
-                    image.CacheOption = BitmapCacheOption.OnLoad;
-                    image.StreamSource = stream;
-                    image.EndInit();
-                    image.Freeze();
-                    _peterBackdrop = image;
-                    return _peterBackdrop;
-                }
-            }
-            catch { return null; }
-        }
-
-        public void TogglePeterMusic()
-        {
-            try
-            {
-                PeterMusic.ScanTracks();
-                if (PeterMusic.TrackCount == 0)
-                {
-                    ShowToast(Loc.T("settings.peter.song.none"), Sev.Warn);
-                    return;
-                }
-                bool started = PeterMusic.ToggleMusic(PeterBackdrop());
-                if (started && PeterMusic.CurrentTrack != null)
-                    ShowToast(string.Format(Loc.T("settings.peter.song.playing"), PeterMusic.CurrentTrack.Title), Sev.Ok);
-            }
-            catch (Exception ex) { Core.Fail(ex.Message); ShowToast(Loc.T("settings.peter.song.none"), Sev.Warn); }
-        }
-
-        public void PlayRandomPeterSong()
-        {
-            try
-            {
-                PeterMusic.ScanTracks();
-                if (PeterMusic.TrackCount == 0) { ShowToast(Loc.T("settings.peter.song.none"), Sev.Warn); return; }
-                PeterMusic.PlayRandom(PeterBackdrop());
-                if (PeterMusic.CurrentTrack != null)
-                    ShowToast(string.Format(Loc.T("settings.peter.song.playing"), PeterMusic.CurrentTrack.Title), Sev.Ok);
-            }
-            catch (Exception ex) { Core.Fail(ex.Message); ShowToast(Loc.T("settings.peter.song.none"), Sev.Warn); }
-        }
-
-        public void StopPeterSong()
-        {
-            PeterMusic.Stop();
-        }
 
         // Toast-стек: быстрые уведомления отображаются одно над другим, без наложения.
         public void ShowToast(string text, Sev sev)
@@ -378,7 +573,7 @@ namespace ZapretStudio
 
             var brand = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(18, 0, 0, 0) };
-            var logo = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(6),
+            var logo = new Border { Width = 22, Height = 22, CornerRadius = Theme.R6,
                 Background = Theme.BrAccent, VerticalAlignment = VerticalAlignment.Center };
             logo.Child = UI.Icon(Icons.Lantern, 14, Theme.BrOnAccent, 1.8);
             brand.Children.Add(logo);
@@ -414,8 +609,39 @@ namespace ZapretStudio
             Grid.SetColumn(drag, 3); g.Children.Add(drag);
 
             var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            right.Children.Add(TopIcon(Theme.Mode == ThemeMode.Light ? Icons.Moon : Icons.Sun,
-                Loc.T("settings.theme"), delegate { ToggleTheme(); }));
+            Button themeBtn = null;
+            themeBtn = TopIcon(Theme.Mode == ThemeMode.Light ? Icons.Moon : Icons.Sun,
+                Loc.T("settings.theme"), delegate
+                {
+                    try
+                    {
+                        if (themeBtn != null)
+                            _themeOrigin = themeBtn.TranslatePoint(new Point(themeBtn.ActualWidth / 2, themeBtn.ActualHeight / 2), this);
+                    }
+                    catch { _themeOrigin = new Point(ActualWidth - 160, 24); }
+                    ToggleTheme();
+                });
+            right.Children.Add(themeBtn);
+            // Подсказка: показываем какая тема будет следующей
+            string nextKey = Theme.LocKey(Theme.NextMode());
+            themeBtn.ToolTip = Loc.T("settings.theme") + ": " + Loc.T(nextKey);
+            if (Theme.Mode == ThemeMode.System24)
+            {
+                Button flavorBtn = null;
+                flavorBtn = TopIcon(Icons.Palette, Loc.T("settings.system24.flavor"), delegate
+                {
+                    ShowSystem24FlavorMenu(flavorBtn);
+                });
+                flavorBtn.PreviewKeyDown += (s, e) =>
+                {
+                    if (e.Key == Key.Down)
+                    {
+                        ShowSystem24FlavorMenu(flavorBtn);
+                        e.Handled = true;
+                    }
+                };
+                right.Children.Add(flavorBtn);
+            }
             // Перезапуск в шапке поднимает заново весь рабочий набор: обход в своём
             // режиме и Telegram-прокси, плюс перепроверку версий. Тему не трогает.
             _topRestartBtn = TopIcon(Icons.Restart, Loc.T("mw.restartAllTip"), delegate { RestartAll(); }, out _topRestartIcon);
@@ -426,7 +652,13 @@ namespace ZapretStudio
             right.Children.Add(WinBtn(Icons.Cross, Loc.T("common.close"), delegate { Close(); }, true));
             Grid.SetColumn(right, 4); g.Children.Add(right);
 
-            return new Border { Child = g, BorderBrush = Theme.BrStroke, BorderThickness = new Thickness(0, 0, 0, 1) };
+            return new Border
+            {
+                Child = g,
+                Background = Theme.BrBgBase,
+                BorderBrush = Theme.BrStroke,
+                BorderThickness = new Thickness(0, 0, 0, 1)
+            };
         }
 
         Button TopIcon(string icon, string name, Action act)
@@ -441,27 +673,72 @@ namespace ZapretStudio
         {
             var b = new Button { Cursor = Cursors.Hand, Width = 38, Height = 38, Margin = new Thickness(2, 0, 2, 0) };
             Ctl.StripChrome(b);
-            var bd = new Border { CornerRadius = Theme.R10, Background = Brushes.Transparent };
+            var bd = new Border { CornerRadius = Theme.R10, Background = Brushes.Transparent,
+                BorderThickness = new Thickness(1), BorderBrush = Brushes.Transparent };
             var ic = UI.Icon(icon, 17, Theme.BrMuted, 1.8);
             bd.Child = ic;
-            b.Content = bd;
+            b.Content = Ctl.SplitSurface(bd);
             var animType = (icon == Icons.Restart || icon == Icons.Refresh) ? IconAnimType.Rotate360 : (icon == Icons.Gear ? IconAnimType.Rotate90 : IconAnimType.ScaleBounce);
             UI.AttachIconHoverAnimation(b, ic, animType);
-            b.MouseEnter += (s, e) => bd.Background = Theme.BrSurfaceHi;
-            b.MouseLeave += (s, e) => bd.Background = Brushes.Transparent;
-            b.Click += (s, e) => act();
+            b.MouseEnter += (s, e) =>
+            {
+                bd.Background = Theme.BrSurfaceHi;
+                if (Theme.Mode == ThemeMode.System24)
+                {
+                    if (Theme.AnimationsEnabled)
+                    {
+                        var bAnim = new ColorAnimation(Colors.Transparent, Theme.AccentMain, TimeSpan.FromMilliseconds(200))
+                        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                        var brush = new SolidColorBrush(Colors.Transparent);
+                        bd.BorderBrush = brush;
+                        brush.BeginAnimation(SolidColorBrush.ColorProperty, bAnim);
+                    }
+                    else bd.BorderBrush = Theme.BrAccent;
+                }
+            };
+            b.MouseLeave += (s, e) =>
+            {
+                bd.Background = Brushes.Transparent;
+                if (Theme.Mode == ThemeMode.System24)
+                {
+                    if (Theme.AnimationsEnabled)
+                    {
+                        var bAnim = new ColorAnimation(Theme.AccentMain, Colors.Transparent, TimeSpan.FromMilliseconds(200))
+                        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                        var brush = new SolidColorBrush(Theme.AccentMain);
+                        bd.BorderBrush = brush;
+                        brush.BeginAnimation(SolidColorBrush.ColorProperty, bAnim);
+                    }
+                    else bd.BorderBrush = Brushes.Transparent;
+                }
+                else bd.BorderBrush = Brushes.Transparent;
+            };
+            // WindowChrome area — FocusVisualStyle не работает, рисуем рамку вручную.
+            b.GotKeyboardFocus += (s, e) =>
+            {
+                bd.BorderBrush = Theme.BrAccentHi;
+                bd.BorderThickness = new Thickness(2);
+            };
+            b.LostKeyboardFocus += (s, e) =>
+            {
+                bd.BorderBrush = Brushes.Transparent;
+                bd.BorderThickness = new Thickness(1);
+            };
+            b.Click += (s, e) => { if (act != null) act(); };
             Ctl.AutomationSetName(b, name);
             b.ToolTip = name;
             System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(b, true);
+            Ctl.AttachGlow(b, bd);
             iconShape = ic;
             return b;
         }
 
         Button WinBtn(string icon, string name, Action act, bool danger)
         {
-            var b = new Button { Cursor = Cursors.Hand, Width = 44, Height = 48 };
+            var b = new Button { Cursor = Cursors.Hand, Width = 38, Height = 38, Margin = new Thickness(2, 0, 2, 0) };
             Ctl.StripChrome(b);
-            var bd = new Border { Background = Brushes.Transparent };
+            var bd = new Border { CornerRadius = Theme.R10, Background = Brushes.Transparent,
+                BorderThickness = new Thickness(1), BorderBrush = Brushes.Transparent };
             var ic = UI.Icon(icon, 14, Theme.BrMuted, 1.6);
             bd.Child = ic;
             b.Content = bd;
@@ -473,14 +750,52 @@ namespace ZapretStudio
                     if (ic.Stroke != null) ic.Stroke = Brushes.White;
                     if (ic.Fill != null && ic.Fill != Brushes.Transparent) ic.Fill = Brushes.White;
                 }
+                if (Theme.Mode == ThemeMode.System24 && !danger)
+                {
+                    if (Theme.AnimationsEnabled)
+                    {
+                        var bAnim = new ColorAnimation(Colors.Transparent, Theme.AccentMain, TimeSpan.FromMilliseconds(200))
+                        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                        var brush = new SolidColorBrush(Colors.Transparent);
+                        bd.BorderBrush = brush;
+                        brush.BeginAnimation(SolidColorBrush.ColorProperty, bAnim);
+                    }
+                    else bd.BorderBrush = Theme.BrAccent;
+                }
             };
             b.MouseLeave += (s, e) =>
             {
                 bd.Background = Brushes.Transparent;
                 if (ic.Stroke != null) ic.Stroke = Theme.BrMuted;
                 if (ic.Fill != null && ic.Fill != Brushes.Transparent) ic.Fill = Theme.BrMuted;
+                if (Theme.Mode == ThemeMode.System24)
+                {
+                    if (Theme.AnimationsEnabled)
+                    {
+                        var bAnim = new ColorAnimation(Theme.AccentMain, Colors.Transparent, TimeSpan.FromMilliseconds(200))
+                        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                        var brush = new SolidColorBrush(Theme.AccentMain);
+                        bd.BorderBrush = brush;
+                        brush.BeginAnimation(SolidColorBrush.ColorProperty, bAnim);
+                    }
+                    else bd.BorderBrush = Brushes.Transparent;
+                }
+                else bd.BorderBrush = Brushes.Transparent;
             };
-            b.Click += (s, e) => act();
+            // WindowChrome area не имеет AdornerLayer — FocusVisualStyle не рисуется.
+            // Показываем рамку фокуса вручную через BorderBrush при навигации Tab.
+            b.GotKeyboardFocus += (s, e) =>
+            {
+                bd.BorderBrush = Theme.BrAccentHi;
+                bd.BorderThickness = new Thickness(2);
+            };
+            b.LostKeyboardFocus += (s, e) =>
+            {
+                bd.BorderBrush = Brushes.Transparent;
+                bd.BorderThickness = new Thickness(1);
+            };
+            UI.AttachIconHoverAnimation(b, ic, IconAnimType.ScaleBounce);
+            b.Click += (s, e) => { if (act != null) act(); };
             Ctl.AutomationSetName(b, name);
             b.ToolTip = name;
             System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(b, true);
@@ -492,15 +807,259 @@ namespace ZapretStudio
         void ToggleTheme()
         {
             var next = Theme.NextMode();
-            Core.Set("theme",
-                next == ThemeMode.Light ? "light" :
-                next == ThemeMode.Amoled ? "amoled" :
-                next == ThemeMode.Aurora ? "aurora" :
-                next == ThemeMode.Sunset ? "sunset" :
-                next == ThemeMode.Peter ? "peter" : "dark");
+            Core.Set("theme", Theme.Name(next));
             Core.SaveConfig();
             Theme.Apply(next);
         }
+
+        System.Windows.Controls.Primitives.Popup _system24FlavorPopup;
+
+        public void CloseFlavorPopup()
+        {
+            if (_system24FlavorPopup != null)
+            {
+                try { _system24FlavorPopup.IsOpen = false; } catch { }
+                _system24FlavorPopup = null;
+            }
+        }
+
+        void ShowSystem24FlavorMenu(Button anchor)
+        {
+            if (anchor == null) return;
+            if (_system24FlavorPopup != null && _system24FlavorPopup.IsOpen)
+            {
+                CloseFlavorPopup();
+                return;
+            }
+
+            var pop = new System.Windows.Controls.Primitives.Popup
+            {
+                PlacementTarget = anchor,
+                Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
+                StaysOpen = false,
+                AllowsTransparency = true,
+                PopupAnimation = System.Windows.Controls.Primitives.PopupAnimation.None
+            };
+
+            var stack = new StackPanel { Margin = new Thickness(0) };
+
+            var headerTb = new TextBlock
+            {
+                Text = Loc.T("settings.system24.flavor"),
+                Foreground = Theme.Frozen(Theme.TextFaint),
+                FontSize = Theme.FsSmall,
+                FontWeight = FontWeights.SemiBold,
+                FontFamily = Theme.UiFont,
+                Margin = new Thickness(12, 8, 12, 6)
+            };
+            stack.Children.Add(headerTb);
+
+            stack.Children.Add(new Border
+            {
+                Height = 1,
+                Background = Theme.Frozen(Theme.StrokeSoft),
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+
+            string currentFlavor = Theme.System24Flavor;
+            Button focusTarget = null;
+
+            foreach (var f in Theme.System24Flavors)
+            {
+                string flavorKey = f;
+                bool isSelected = string.Equals(flavorKey, currentFlavor, StringComparison.OrdinalIgnoreCase);
+
+                var row = new Grid { MinWidth = 200 };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
+
+                Color dotColor = Theme.GetFlavorAccent(flavorKey);
+                var dot = new System.Windows.Shapes.Rectangle
+                {
+                    Width = 8,
+                    Height = 8,
+                    Fill = Theme.Frozen(dotColor),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center
+                };
+                Grid.SetColumn(dot, 0);
+                row.Children.Add(dot);
+
+                var tb = new TextBlock
+                {
+                    Text = Theme.GetFlavorName(flavorKey),
+                    Foreground = isSelected ? Theme.Frozen(dotColor) : Theme.Frozen(Theme.Text),
+                    FontWeight = isSelected ? FontWeights.SemiBold : FontWeights.Normal,
+                    FontSize = Theme.FsBody,
+                    FontFamily = Theme.UiFont,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(2, 0, 6, 0)
+                };
+                Grid.SetColumn(tb, 1);
+                row.Children.Add(tb);
+
+                if (isSelected)
+                {
+                    var chk = UI.Icon(Icons.Check, 13, Theme.Frozen(dotColor), 2.0);
+                    chk.VerticalAlignment = VerticalAlignment.Center;
+                    chk.HorizontalAlignment = HorizontalAlignment.Center;
+                    Grid.SetColumn(chk, 2);
+                    row.Children.Add(chk);
+                }
+
+                var itemBtn = new Button
+                {
+                    Background = isSelected ? Theme.Alpha(dotColor, 28) : (Brush)Brushes.Transparent,
+                    BorderBrush = isSelected ? Theme.Alpha(dotColor, 80) : (Brush)Brushes.Transparent,
+                    BorderThickness = new Thickness(1),
+                    Padding = new Thickness(8, 7, 8, 7),
+                    Margin = new Thickness(3, 1, 3, 1),
+                    Cursor = Cursors.Hand,
+                    Content = row,
+                    FocusVisualStyle = null
+                };
+                Ctl.StripChrome(itemBtn);
+                itemBtn.FocusVisualStyle = null;
+                Ctl.AutomationSetName(itemBtn, Theme.GetFlavorName(flavorKey));
+
+                // Ручной шаблон: Border с привязкой к свойствам кнопки
+                var tmpl = new ControlTemplate(typeof(Button));
+                var tBd = new FrameworkElementFactory(typeof(Border));
+                tBd.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding("Background") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
+                tBd.SetBinding(Border.BorderBrushProperty, new System.Windows.Data.Binding("BorderBrush") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
+                tBd.SetBinding(Border.BorderThicknessProperty, new System.Windows.Data.Binding("BorderThickness") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
+                tBd.SetBinding(Border.PaddingProperty, new System.Windows.Data.Binding("Padding") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
+                var tCp = new FrameworkElementFactory(typeof(ContentPresenter));
+                tBd.AppendChild(tCp);
+                tmpl.VisualTree = tBd;
+                itemBtn.Template = tmpl;
+
+                itemBtn.MouseEnter += (s, e) =>
+                {
+                    if (!itemBtn.IsKeyboardFocused && !isSelected) itemBtn.Background = Theme.Frozen(Theme.SurfaceHi);
+                };
+                itemBtn.MouseLeave += (s, e) =>
+                {
+                    if (!itemBtn.IsKeyboardFocused && !isSelected) itemBtn.Background = Brushes.Transparent;
+                };
+
+                // Подсветка и автопрокрутка при Tab/Arrow навигации
+                itemBtn.GotKeyboardFocus += (s, e) =>
+                {
+                    itemBtn.BorderBrush = Theme.BrAccentHi;
+                    itemBtn.Background = isSelected ? Theme.Alpha(dotColor, 45) : Theme.Frozen(Theme.SurfaceHi);
+                    itemBtn.BringIntoView();
+                };
+                itemBtn.LostKeyboardFocus += (s, e) =>
+                {
+                    itemBtn.BorderBrush = isSelected ? Theme.Alpha(dotColor, 80) : (Brush)Brushes.Transparent;
+                    itemBtn.Background = isSelected ? Theme.Alpha(dotColor, 28) : (Brush)Brushes.Transparent;
+                };
+
+                if (isSelected) focusTarget = itemBtn;
+
+                itemBtn.Click += (s, e) =>
+                {
+                    pop.IsOpen = false;
+                    try
+                    {
+                        if (anchor != null)
+                            _themeOrigin = anchor.TranslatePoint(new Point(anchor.ActualWidth / 2, anchor.ActualHeight / 2), this);
+                    }
+                    catch { _themeOrigin = new Point(ActualWidth - 160, 24); }
+
+                    Theme.ApplySystem24Flavor(flavorKey);
+                    if (anchor != null) anchor.Focus();
+                };
+
+                stack.Children.Add(itemBtn);
+            }
+
+            if (focusTarget == null)
+            {
+                for (int i = 0; i < stack.Children.Count; i++)
+                {
+                    var b = stack.Children[i] as Button;
+                    if (b != null) { focusTarget = b; break; }
+                }
+            }
+
+            var scroll = new ScrollViewer
+            {
+                Content = stack,
+                MaxHeight = 360,
+                CanContentScroll = false,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Focusable = false
+            };
+
+            var outerBorder = new Border
+            {
+                Background = Theme.Frozen(Theme.Surface),
+                BorderBrush = Theme.Frozen(Theme.Stroke),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(2, 4, 2, 4),
+                CornerRadius = new CornerRadius(0),
+                Effect = new DropShadowEffect
+                {
+                    Color = Colors.Black,
+                    BlurRadius = 12,
+                    ShadowDepth = 3,
+                    Opacity = 0.55,
+                    Direction = 270
+                },
+                Child = scroll
+            };
+
+            FocusManager.SetIsFocusScope(outerBorder, true);
+            if (focusTarget != null)
+            {
+                FocusManager.SetFocusedElement(outerBorder, focusTarget);
+            }
+            KeyboardNavigation.SetTabNavigation(outerBorder, KeyboardNavigationMode.Cycle);
+            KeyboardNavigation.SetDirectionalNavigation(outerBorder, KeyboardNavigationMode.Cycle);
+            KeyboardNavigation.SetTabNavigation(stack, KeyboardNavigationMode.Cycle);
+            KeyboardNavigation.SetDirectionalNavigation(stack, KeyboardNavigationMode.Cycle);
+
+            outerBorder.PreviewKeyDown += (s, e) =>
+            {
+                if (e.Key == Key.Escape)
+                {
+                    CloseFlavorPopup();
+                    if (anchor != null) anchor.Focus();
+                    e.Handled = true;
+                }
+            };
+
+            outerBorder.PreviewMouseWheel += (s, e) =>
+            {
+                SmoothWheel.Scroll(scroll, e.Delta, 36);
+                e.Handled = true;
+            };
+
+            pop.Child = outerBorder;
+            _system24FlavorPopup = pop;
+
+            pop.Opened += (s, e) =>
+            {
+                UiAnim.Popup(outerBorder);
+                pop.Dispatcher.BeginInvoke(DispatcherPriority.Input, (Action)delegate
+                {
+                    if (focusTarget != null)
+                    {
+                        focusTarget.Focus();
+                        Keyboard.Focus(focusTarget);
+                        focusTarget.BringIntoView();
+                    }
+                });
+            };
+
+            pop.IsOpen = true;
+        }
+
+
 
         Border _sidebar;
         StackPanel _navPanel;
@@ -509,7 +1068,7 @@ namespace ZapretStudio
         Button _collapseBtn;
         bool _collapsed;
         int _sidebarAnimationId;
-        const double SideWide = 248, SideNarrow = 64;
+        const double SideWide = 260, SideNarrow = 64;
 
         Border BuildSidebar()
         {
@@ -518,7 +1077,7 @@ namespace ZapretStudio
             outer.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
             _navLabels.Clear();
-            var nav = new StackPanel { Margin = new Thickness(12, 12, 12, 0) };
+            var nav = new StackPanel();
             _navPanel = nav;
             nav.Children.Add(NavItem("overview", Icons.Home, Loc.T("nav.overview")));
             nav.Children.Add(NavItem("strategies", Icons.Grid, Loc.T("nav.strategies")));
@@ -529,20 +1088,43 @@ namespace ZapretStudio
             nav.Children.Add(NavItem("updates", Icons.Download, Loc.T("nav.updates")));
             nav.Children.Add(NavItem("log", Icons.List, Loc.T("nav.log")));
             nav.Children.Add(NavItem("about", Icons.Info, Loc.T("nav.about")));
-            var sv = new SmoothScrollViewer { Content = nav, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            KeyboardNavigation.SetDirectionalNavigation(nav, KeyboardNavigationMode.Contained);
+            KeyboardNavigation.SetTabNavigation(nav, KeyboardNavigationMode.Continue);
+
+            var navHost = new Grid { Margin = _collapsed ? new Thickness(4, 6, 4, 0) : new Thickness(12, 6, 12, 0) };
+            _navHost = navHost;
+            _navPill = new Border
+            {
+                Background = Theme.BrAccent,
+                CornerRadius = Theme.R8,
+                BorderThickness = new Thickness(1),
+                BorderBrush = (Theme.Mode == ThemeMode.System24) ? Theme.BrAccent : Brushes.Transparent,
+                Height = 38,
+                HorizontalAlignment = _collapsed ? HorizontalAlignment.Center : HorizontalAlignment.Stretch,
+                Width = _collapsed ? 44 : double.NaN,
+                VerticalAlignment = VerticalAlignment.Top,
+                IsHitTestVisible = false
+            };
+            var navPillTx = new TranslateTransform(0, 0);
+            _navPill.RenderTransform = navPillTx;
+            _navPillTx = navPillTx;
+            _navPillInitialized = false;
+
+            navHost.Children.Add(_navPill);
+            navHost.Children.Add(nav);
+
+            var sv = new SmoothScrollViewer { Content = navHost, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
             Grid.SetRow(sv, 0); outer.Children.Add(sv);
 
             // низ: кнопка сворачивания + плеер + версия, github, обновление
-            var bottomWrap = new StackPanel { Margin = new Thickness(12, 8, 12, 12) };
+            var bottomWrap = new StackPanel { Margin = new Thickness(10, 4, 10, 6) };
 
-            _peterSidebarWidget = new PeterMusicWidget(PeterMusic);
-            bottomWrap.Children.Add(_peterSidebarWidget);
-
-            _collapseBtn = new Button { Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 0, 8),
+            _collapseBtn = new Button { Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 0, 4),
                 HorizontalContentAlignment = HorizontalAlignment.Stretch };
             Ctl.StripChrome(_collapseBtn);
-            _collapseBd = new Border { CornerRadius = Theme.R10, Padding = new Thickness(12, 9, 12, 9), Background = Brushes.Transparent };
+            _collapseBd = new Border { CornerRadius = Theme.R10, Padding = new Thickness(12, 7, 12, 7),
+                Background = Brushes.Transparent, BorderThickness = new Thickness(1), BorderBrush = Brushes.Transparent };
             var cbSp = new StackPanel { Orientation = Orientation.Horizontal };
             _collapseSp = cbSp;
             _collapseIcon = UI.Icon(Icons.Menu, 18, Theme.BrMuted, 1.8);
@@ -555,30 +1137,79 @@ namespace ZapretStudio
             cbSp.Children.Add(_collapseLabel);
             var cbBd = _collapseBd;
             cbBd.Child = cbSp; _collapseBtn.Content = cbBd;
-            _collapseBtn.MouseEnter += (s, e) => cbBd.Background = Theme.BrSurface;
-            _collapseBtn.MouseLeave += (s, e) => cbBd.Background = Brushes.Transparent;
+            _collapseBtn.MouseEnter += (s, e) =>
+            {
+                cbBd.Background = Theme.BrSurface;
+                if (Theme.Mode == ThemeMode.System24)
+                {
+                    if (Theme.AnimationsEnabled)
+                    {
+                        var bAnim = new ColorAnimation(Colors.Transparent, Theme.AccentMain, TimeSpan.FromMilliseconds(200))
+                        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                        var brush = new SolidColorBrush(Colors.Transparent);
+                        cbBd.BorderBrush = brush;
+                        brush.BeginAnimation(SolidColorBrush.ColorProperty, bAnim);
+                    }
+                    else cbBd.BorderBrush = Theme.BrAccent;
+                }
+            };
+            _collapseBtn.MouseLeave += (s, e) =>
+            {
+                cbBd.Background = Brushes.Transparent;
+                if (Theme.Mode == ThemeMode.System24)
+                {
+                    if (Theme.AnimationsEnabled)
+                    {
+                        var bAnim = new ColorAnimation(Theme.AccentMain, Colors.Transparent, TimeSpan.FromMilliseconds(200))
+                        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                        var brush = new SolidColorBrush(Theme.AccentMain);
+                        cbBd.BorderBrush = brush;
+                        brush.BeginAnimation(SolidColorBrush.ColorProperty, bAnim);
+                    }
+                    else cbBd.BorderBrush = Brushes.Transparent;
+                }
+                else cbBd.BorderBrush = Brushes.Transparent;
+            };
+            _collapseBtn.GotKeyboardFocus += (s, e) =>
+            {
+                cbBd.BorderBrush = Theme.BrAccentHi;
+                cbBd.BorderThickness = new Thickness(2);
+                cbBd.Background = Theme.BrSurface;
+                _collapseLabel.Foreground = Theme.BrText;
+                if (_collapseIcon.Stroke != null) _collapseIcon.Stroke = Theme.BrText;
+            };
+            _collapseBtn.LostKeyboardFocus += (s, e) =>
+            {
+                cbBd.BorderBrush = Brushes.Transparent;
+                cbBd.BorderThickness = new Thickness(1);
+                cbBd.Background = Brushes.Transparent;
+                _collapseLabel.Foreground = Theme.BrMuted;
+                if (_collapseIcon.Stroke != null) _collapseIcon.Stroke = Theme.BrMuted;
+            };
             _collapseBtn.Click += (s, e) => ToggleCollapse();
             Ctl.AutomationSetName(_collapseBtn, Loc.T("mw.collapse"));
             bottomWrap.Children.Add(_collapseBtn);
 
-            _bottomBox = new StackPanel { Margin = new Thickness(4, 0, 4, 0) };
-            var line = new Border { Height = 1, Background = Theme.BrStroke, Margin = new Thickness(0, 0, 0, 12) };
+            _bottomBox = new StackPanel { Margin = new Thickness(2, 0, 2, 0) };
+            var line = new Border { Height = 1, Background = Theme.BrStroke, Margin = new Thickness(0, 0, 0, 4) };
             _bottomBox.Children.Add(line);
-            _updateLine = new TextBlock { Text = string.Format(Loc.T("mw.verLine"), SettingsPage.NormVer(Core.ZapretVersion())), Foreground = Theme.BrFaint,
-                FontSize = Theme.FsTiny, FontFamily = Theme.UiFont, TextWrapping = TextWrapping.Wrap };
+            _updateLine = new TextBlock { Foreground = Theme.BrFaint,
+                FontSize = 10.5, FontFamily = Theme.UiFont, TextWrapping = TextWrapping.NoWrap };
             _bottomBox.Children.Add(_updateLine);
-            _tgVerSidebar = new TextBlock { Text = TgSidebarText(), Foreground = Theme.BrFaint,
-                FontSize = Theme.FsTiny, FontFamily = Theme.UiFont, TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 4, 0, 0) };
+            _tgVerSidebar = new TextBlock { Foreground = Theme.BrFaint,
+                FontSize = 10.5, FontFamily = Theme.UiFont, TextWrapping = TextWrapping.NoWrap,
+                Margin = new Thickness(0, 1, 0, 0) };
             _bottomBox.Children.Add(_tgVerSidebar);
 
             _appVerSidebar = new TextBlock { Foreground = Theme.BrFaint,
-                FontSize = Theme.FsTiny, FontFamily = Theme.UiFont, TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 4, 0, 0) };
+                FontSize = 10.5, FontFamily = Theme.UiFont, TextWrapping = TextWrapping.NoWrap,
+                Margin = new Thickness(0, 1, 0, 0) };
             _bottomBox.Children.Add(_appVerSidebar);
+            UpdateZapretSidebarVersion();
+            UpdateTgSidebarVersion();
             UpdateAppSidebarVersion();
 
-            var gh = new Button { Cursor = Cursors.Hand, Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
+            var gh = new Button { Cursor = Cursors.Hand, Margin = new Thickness(0, 4, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
             Ctl.StripChrome(gh);
             var ghsp = new StackPanel { Orientation = Orientation.Horizontal };
             ghsp.Children.Add(UI.Icon(Icons.Github, 15, Theme.BrMuted, 1.6));
@@ -589,13 +1220,22 @@ namespace ZapretStudio
             Ctl.AutomationSetName(gh, Loc.T("mw.openGithub"));
             _bottomBox.Children.Add(gh);
 
-            _bottomBoxContainer = new Border { Child = _bottomBox, ClipToBounds = true };
+            _bottomBoxContainer = new Border { Child = _bottomBox, ClipToBounds = _collapsed };
             bottomWrap.Children.Add(_bottomBoxContainer);
 
             Grid.SetRow(bottomWrap, 1); outer.Children.Add(bottomWrap);
 
-            _sidebar = new Border { Child = outer, BorderBrush = Theme.BrStroke, BorderThickness = new Thickness(0, 0, 1, 0),
-                Width = _collapsed ? SideNarrow : SideWide, ClipToBounds = true };
+            _sidebar = new Border
+            {
+                Child = outer,
+                Background = Brushes.Transparent,
+                BorderBrush = Theme.BrStroke,
+                BorderThickness = new Thickness(0, 0, 1, 0),
+                CornerRadius = new CornerRadius(0),
+                Margin = new Thickness(0),
+                Width = _collapsed ? SideNarrow : SideWide,
+                ClipToBounds = true
+            };
             ApplyCollapsedState(false);
             return _sidebar;
         }
@@ -623,13 +1263,27 @@ namespace ZapretStudio
 
             if (_sidebar == null) return;
 
+            // --- Немедленно отменяем все текущие анимации, чтобы при быстрых кликах
+            // не накапливались обработчики Completed с конфликтующими состояниями ---
+            _sidebar.BeginAnimation(FrameworkElement.WidthProperty, null);
+            foreach (var lbl in _navLabels) lbl.BeginAnimation(OpacityProperty, null);
+            if (_bottomBox != null) _bottomBox.BeginAnimation(OpacityProperty, null);
+            if (_bottomBoxContainer != null)
+            {
+                _bottomBoxContainer.BeginAnimation(FrameworkElement.HeightProperty, null);
+                if (!_collapsed)
+                {
+                    _bottomBoxContainer.Height = double.NaN;
+                    _bottomBoxContainer.ClipToBounds = false;
+                }
+            }
+            if (_bottomBox != null && !_collapsed) _bottomBox.Visibility = Visibility.Visible;
+
             if (!animate || !Theme.AnimationsEnabled)
             {
-                _sidebar.BeginAnimation(FrameworkElement.WidthProperty, null);
                 _sidebar.Width = target;
                 foreach (var lbl in _navLabels)
                 {
-                    lbl.BeginAnimation(OpacityProperty, null);
                     lbl.Opacity = _collapsed ? 0 : 1;
                     lbl.Visibility = _collapsed ? Visibility.Collapsed : Visibility.Visible;
                 }
@@ -637,23 +1291,30 @@ namespace ZapretStudio
                 {
                     var arr = (object[])kv.Value.Tag;
                     var bd = (Border)arr[0]; var sp = (StackPanel)arr[3];
-                    bd.Padding = _collapsed ? new Thickness(0, 10, 0, 10) : new Thickness(12, 10, 12, 10);
+                    var tx = sp.RenderTransform as TranslateTransform;
+                    if (tx != null) { tx.BeginAnimation(TranslateTransform.XProperty, null); tx.X = 0; }
+                    bd.Padding = _collapsed ? new Thickness(0, 8, 0, 8) : new Thickness(12, 8, 12, 8);
                     sp.HorizontalAlignment = _collapsed ? HorizontalAlignment.Center : HorizontalAlignment.Left;
                     kv.Value.Width = _collapsed ? 44 : double.NaN;
                     kv.Value.HorizontalAlignment = _collapsed ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
                 }
-                if (_navPanel != null) _navPanel.Margin = _collapsed ? new Thickness(4, 12, 4, 0) : new Thickness(12, 12, 12, 0);
+                if (_navPill != null)
+                {
+                    _navPill.Width = _collapsed ? 44 : double.NaN;
+                    _navPill.HorizontalAlignment = _collapsed ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
+                }
+                if (_navHost != null) _navHost.Margin = _collapsed ? new Thickness(4, 6, 4, 0) : new Thickness(12, 6, 12, 0);
                 if (_collapseSp != null) _collapseSp.HorizontalAlignment = _collapsed ? HorizontalAlignment.Center : HorizontalAlignment.Left;
-                if (_collapseBd != null) _collapseBd.Padding = _collapsed ? new Thickness(0, 9, 0, 9) : new Thickness(12, 9, 12, 9);
-                if (_peterSidebarWidget != null) _peterSidebarWidget.SetCollapsedMode(_collapsed);
+                if (_collapseBd != null) _collapseBd.Padding = _collapsed ? new Thickness(0, 7, 0, 7) : new Thickness(12, 7, 12, 7);
+
                 if (_bottomBoxContainer != null)
                 {
-                    _bottomBoxContainer.BeginAnimation(FrameworkElement.HeightProperty, null);
                     _bottomBoxContainer.Height = _collapsed ? 0 : double.NaN;
+                    _bottomBoxContainer.ClipToBounds = _collapsed;
                 }
                 if (_bottomBox != null)
                 {
-                    _bottomBox.BeginAnimation(OpacityProperty, null);
+                    _bottomBox.Visibility = _collapsed ? Visibility.Collapsed : Visibility.Visible;
                     _bottomBox.Opacity = _collapsed ? 0 : 1;
                 }
                 return;
@@ -679,7 +1340,9 @@ namespace ZapretStudio
                 }
                 if (_bottomBoxContainer != null)
                 {
-                    double curH = _bottomBoxContainer.ActualHeight > 0 ? _bottomBoxContainer.ActualHeight : 92;
+                    _bottomBoxContainer.ClipToBounds = true;
+                    _bottomBox.Measure(new Size(SideWide, double.PositiveInfinity));
+                    double curH = _bottomBoxContainer.ActualHeight > 0 ? _bottomBoxContainer.ActualHeight : (_bottomBox.DesiredSize.Height > 0 ? _bottomBox.DesiredSize.Height : 100);
                     var hAnim = new DoubleAnimation(curH, 0, TimeSpan.FromMilliseconds(200))
                     { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut } };
                     _bottomBoxContainer.BeginAnimation(FrameworkElement.HeightProperty, hAnim);
@@ -696,15 +1359,24 @@ namespace ZapretStudio
                     {
                         var arr = (object[])kv.Value.Tag;
                         var bd = (Border)arr[0]; var sp = (StackPanel)arr[3];
-                        bd.Padding = new Thickness(0, 10, 0, 10);
+                        var tx = sp.RenderTransform as TranslateTransform;
+                        if (tx != null) { tx.BeginAnimation(TranslateTransform.XProperty, null); tx.X = 0; }
+                        bd.Padding = new Thickness(0, 8, 0, 8);
                         sp.HorizontalAlignment = HorizontalAlignment.Center;
                         kv.Value.Width = 44;
                         kv.Value.HorizontalAlignment = HorizontalAlignment.Center;
                     }
-                    if (_navPanel != null) _navPanel.Margin = new Thickness(4, 12, 4, 0);
+                    if (_navPill != null)
+                    {
+                        _navPill.Width = 44;
+                        _navPill.HorizontalAlignment = HorizontalAlignment.Center;
+                    }
+                    if (_navHost != null) _navHost.Margin = new Thickness(4, 6, 4, 0);
                     if (_collapseSp != null) _collapseSp.HorizontalAlignment = HorizontalAlignment.Center;
-                    if (_collapseBd != null) _collapseBd.Padding = new Thickness(0, 9, 0, 9);
-                    if (_peterSidebarWidget != null) _peterSidebarWidget.SetCollapsedMode(true);
+                    if (_collapseBd != null) _collapseBd.Padding = new Thickness(0, 7, 0, 7);
+                    // В сложенном виде нижний блок полностью снят с раскладки:
+                    // иначе его тексты остаются Visible и аудит видит их обрезанными.
+                    if (_bottomBox != null) _bottomBox.Visibility = Visibility.Collapsed;
                 };
                 _sidebar.BeginAnimation(FrameworkElement.WidthProperty, widthAnim);
             }
@@ -715,24 +1387,35 @@ namespace ZapretStudio
                 {
                     var arr = (object[])kv.Value.Tag;
                     var bd = (Border)arr[0]; var sp = (StackPanel)arr[3];
-                    bd.Padding = new Thickness(12, 10, 12, 10);
+                    bd.Padding = new Thickness(12, 8, 12, 8);
                     sp.HorizontalAlignment = HorizontalAlignment.Left;
                     kv.Value.Width = double.NaN;
                     kv.Value.HorizontalAlignment = HorizontalAlignment.Stretch;
                 }
-                if (_navPanel != null) _navPanel.Margin = new Thickness(12, 12, 12, 0);
+                if (_navPill != null)
+                {
+                    _navPill.Width = double.NaN;
+                    _navPill.HorizontalAlignment = HorizontalAlignment.Stretch;
+                }
+                if (_navHost != null) _navHost.Margin = new Thickness(12, 6, 12, 0);
                 if (_collapseSp != null) _collapseSp.HorizontalAlignment = HorizontalAlignment.Left;
-                if (_collapseBd != null) _collapseBd.Padding = new Thickness(12, 9, 12, 9);
-                if (_peterSidebarWidget != null) _peterSidebarWidget.SetCollapsedMode(false);
+                if (_collapseBd != null) _collapseBd.Padding = new Thickness(12, 7, 12, 7);
 
                 if (_bottomBoxContainer != null)
                 {
-                    var hAnim = new DoubleAnimation(0, 92, TimeSpan.FromMilliseconds(200))
+                    if (_bottomBox != null) _bottomBox.Visibility = Visibility.Visible;
+                    _bottomBox.Measure(new Size(SideWide, double.PositiveInfinity));
+                    double targetH = _bottomBox.DesiredSize.Height > 0 ? _bottomBox.DesiredSize.Height : 105;
+                    double curH = _bottomBoxContainer.ActualHeight;
+                    var hAnim = new DoubleAnimation(curH, targetH, TimeSpan.FromMilliseconds(200))
                     { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut } };
                     hAnim.Completed += (s, e) =>
                     {
                         if (animationId == _sidebarAnimationId && !_collapsed)
+                        {
                             _bottomBoxContainer.Height = double.NaN;
+                            _bottomBoxContainer.ClipToBounds = false;
+                        }
                     };
                     _bottomBoxContainer.BeginAnimation(FrameworkElement.HeightProperty, hAnim);
                 }
@@ -770,57 +1453,50 @@ namespace ZapretStudio
         TextBlock _tgVerSidebar;
         TextBlock _appVerSidebar;
 
-        static string TgSidebarText()
+        void UpdateZapretSidebarVersion()
         {
-            if (!Core.TgProxyInstalled()) return Loc.T("mw.tgVer.none");
-            string v = Core.TgProxyLocalVersion();
-            return string.Format(Loc.T("mw.tgVer"), string.IsNullOrEmpty(v) ? "?" : SettingsPage.NormVer(v));
+            if (_updateLine == null) return;
+            string local = SettingsPage.NormVer(Core.ZapretVersion());
+            bool hasLatest = !string.IsNullOrEmpty(_lastZapretLatest);
+            bool hasUpdate = hasLatest && SettingsPage.CompareVersions(_lastZapretLatest, local) > 0;
+            string key = hasUpdate ? "mw.verUpdate" : (hasLatest ? "mw.verCurrent" : "mw.verLine");
+            _updateLine.Text = string.Format(Loc.T(key), local);
+            _updateLine.Foreground = hasUpdate ? Theme.BrWarn : Theme.BrFaint;
+        }
+
+        void UpdateTgSidebarVersion()
+        {
+            if (_tgVerSidebar == null) return;
+            if (!Core.TgProxyInstalled())
+            {
+                _tgVerSidebar.Text = Loc.T("mw.tgVer.none");
+                _tgVerSidebar.Foreground = Theme.BrFaint;
+                return;
+            }
+            string tgLocal = Core.TgProxyLocalVersion();
+            string tgLv = string.IsNullOrEmpty(tgLocal) ? "?" : SettingsPage.NormVer(tgLocal);
+            bool hasLatest = !string.IsNullOrEmpty(_lastTgLatest);
+            bool hasUpdate = hasLatest && !string.IsNullOrEmpty(tgLocal) && SettingsPage.CompareVersions(_lastTgLatest, tgLocal) > 0;
+            string key = hasUpdate ? "mw.tgVer.update" : (hasLatest ? "mw.tgVer" : "mw.tgVerPlain");
+            _tgVerSidebar.Text = string.Format(Loc.T(key), tgLv);
+            _tgVerSidebar.Foreground = hasUpdate ? Theme.BrWarn : Theme.BrFaint;
         }
 
         void UpdateAppSidebarVersion()
         {
             if (_appVerSidebar == null) return;
             string appNorm = SettingsPage.NormVer(Core.AppVersion);
-            bool hasData = !string.IsNullOrEmpty(_lastAppLatest);
-            bool hasUpdate = hasData && SettingsPage.CompareVersions(_lastAppLatest, Core.AppVersion) > 0;
-            // Единая честная логика с zapret/TG: «актуально» — только когда
-            // последняя версия подтверждена проверкой; без данных — просто версия.
-            string key = hasUpdate ? "mw.appShell.update" : hasData ? "mw.appShell" : "mw.appShellPlain";
+            bool hasLatest = !string.IsNullOrEmpty(_lastAppLatest);
+            bool hasUpdate = hasLatest && SettingsPage.CompareVersions(_lastAppLatest, Core.AppVersion) > 0;
+            string key = hasUpdate ? "mw.appShell.update" : (hasLatest ? "mw.appShell" : "mw.appShellPlain");
             _appVerSidebar.Text = string.Format(Loc.T(key), appNorm);
             _appVerSidebar.Foreground = hasUpdate ? Theme.BrWarn : Theme.BrFaint;
         }
 
         public void RefreshSidebarVersions()
         {
-            if (_updateLine != null)
-            {
-                string local = SettingsPage.NormVer(Core.ZapretVersion());
-                if (!string.IsNullOrEmpty(_lastZapretLatest) && SettingsPage.CompareVersions(_lastZapretLatest, local) <= 0)
-                    _updateLine.Text = string.Format(Loc.T("mw.verCurrent"), local);
-                else
-                    _updateLine.Text = string.Format(Loc.T("mw.verLine"), local);
-            }
-            if (_tgVerSidebar != null)
-            {
-                string tgLocal = Core.TgProxyInstalled() ? Core.TgProxyLocalVersion() : null;
-                if (!string.IsNullOrEmpty(tgLocal))
-                {
-                    string tgLv = SettingsPage.NormVer(tgLocal);
-                    bool tgHasData = !string.IsNullOrEmpty(_lastTgLatest);
-                    bool tgUpdate = tgHasData && SettingsPage.CompareVersions(_lastTgLatest, tgLocal) > 0;
-                    _tgVerSidebar.Text = tgUpdate
-                        ? string.Format(Loc.T("mw.tgVer.update"), tgLv)
-                        : tgHasData
-                            ? string.Format(Loc.T("mw.tgVer"), tgLv)
-                            : string.Format(Loc.T("mw.tgVerPlain"), tgLv);
-                    _tgVerSidebar.Foreground = tgUpdate ? Theme.BrWarn : Theme.BrFaint;
-                }
-                else
-                {
-                    _tgVerSidebar.Text = TgSidebarText();
-                    _tgVerSidebar.Foreground = Theme.BrFaint;
-                }
-            }
+            UpdateZapretSidebarVersion();
+            UpdateTgSidebarVersion();
             UpdateAppSidebarVersion();
             Page updatesPage;
             if (_pages.TryGetValue("updates", out updatesPage))
@@ -844,10 +1520,13 @@ namespace ZapretStudio
 
         Button NavItem(string key, string icon, string label)
         {
-            var b = new Button { Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 0, 4), HorizontalContentAlignment = HorizontalAlignment.Stretch };
+            var b = new Button { Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 0, 3), HorizontalContentAlignment = HorizontalAlignment.Stretch };
             Ctl.StripChrome(b);
-            var bd = new Border { CornerRadius = Theme.R8, Padding = new Thickness(12, 10, 12, 10), Background = Brushes.Transparent };
+            var bd = new Border { CornerRadius = Theme.R8, Padding = new Thickness(12, 8, 12, 8),
+                Background = Brushes.Transparent, BorderThickness = new Thickness(1), BorderBrush = Brushes.Transparent };
             var sp = new StackPanel { Orientation = Orientation.Horizontal };
+            var navTx = new TranslateTransform(0, 0);
+            sp.RenderTransform = navTx;
             var ic = UI.Icon(icon, 18, Theme.BrMuted, 1.8);
             ic.VerticalAlignment = VerticalAlignment.Center;
             var animType = key == "settings" ? IconAnimType.Rotate90 :
@@ -867,9 +1546,35 @@ namespace ZapretStudio
             b.ToolTip = label;
             b.MouseEnter += (s, e) =>
             {
+                if (Theme.Mode == ThemeMode.System24 && !_collapsed)
+                {
+                    if (Theme.AnimationsEnabled)
+                    {
+                        var slide = new DoubleAnimation(6, TimeSpan.FromMilliseconds(200))
+                        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                        navTx.BeginAnimation(TranslateTransform.XProperty, slide);
+                    }
+                    else
+                    {
+                        navTx.BeginAnimation(TranslateTransform.XProperty, null);
+                        navTx.X = 6;
+                    }
+                }
                 if (_current != key)
                 {
                     bd.Background = Theme.BrSurface;
+                    if (Theme.Mode == ThemeMode.System24)
+                    {
+                        if (Theme.AnimationsEnabled)
+                        {
+                            var bAnim = new ColorAnimation(Colors.Transparent, Theme.AccentMain, TimeSpan.FromMilliseconds(200))
+                            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                            var brush = new SolidColorBrush(Colors.Transparent);
+                            bd.BorderBrush = brush;
+                            brush.BeginAnimation(SolidColorBrush.ColorProperty, bAnim);
+                        }
+                        else bd.BorderBrush = Theme.BrAccent;
+                    }
                     if (ic.Stroke != null) ic.Stroke = Theme.BrText;
                     if (ic.Fill != null && ic.Fill != Brushes.Transparent) ic.Fill = Theme.BrText;
                     tb.Foreground = Theme.BrText;
@@ -877,12 +1582,69 @@ namespace ZapretStudio
             };
             b.MouseLeave += (s, e) =>
             {
+                if (Theme.Mode == ThemeMode.System24)
+                {
+                    if (Theme.AnimationsEnabled)
+                    {
+                        var slide = new DoubleAnimation(0, TimeSpan.FromMilliseconds(200))
+                        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                        navTx.BeginAnimation(TranslateTransform.XProperty, slide);
+                    }
+                    else
+                    {
+                        navTx.BeginAnimation(TranslateTransform.XProperty, null);
+                        navTx.X = 0;
+                    }
+                }
+                else if (navTx.X != 0)
+                {
+                    navTx.BeginAnimation(TranslateTransform.XProperty, null);
+                    navTx.X = 0;
+                }
+
                 if (_current != key)
                 {
                     bd.Background = Brushes.Transparent;
+                    if (Theme.Mode == ThemeMode.System24)
+                    {
+                        if (Theme.AnimationsEnabled)
+                        {
+                            var bAnim = new ColorAnimation(Theme.AccentMain, Colors.Transparent, TimeSpan.FromMilliseconds(200))
+                            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                            var brush = new SolidColorBrush(Theme.AccentMain);
+                            bd.BorderBrush = brush;
+                            brush.BeginAnimation(SolidColorBrush.ColorProperty, bAnim);
+                        }
+                        else bd.BorderBrush = Brushes.Transparent;
+                    }
+                    else bd.BorderBrush = Brushes.Transparent;
                     if (ic.Stroke != null) ic.Stroke = Theme.BrMuted;
                     if (ic.Fill != null && ic.Fill != Brushes.Transparent) ic.Fill = Theme.BrMuted;
                     tb.Foreground = Theme.BrMuted;
+                }
+            };
+            b.GotKeyboardFocus += (s, e) =>
+            {
+                bd.BorderBrush = Theme.BrAccentHi;
+                bd.BorderThickness = new Thickness(2);
+                if (_current != key) bd.Background = Theme.BrSurface;
+                tb.Foreground = Theme.BrText;
+                if (ic.Stroke != null) ic.Stroke = Theme.BrText;
+                b.BringIntoView();
+            };
+            b.LostKeyboardFocus += (s, e) =>
+            {
+                bd.BorderThickness = new Thickness(1);
+                if (_current != key)
+                {
+                    bd.BorderBrush = Brushes.Transparent;
+                    bd.Background = Brushes.Transparent;
+                    tb.Foreground = Theme.BrMuted;
+                    if (ic.Stroke != null) ic.Stroke = Theme.BrMuted;
+                }
+                else
+                {
+                    bd.BorderBrush = (Theme.Mode == ThemeMode.System24) ? Theme.BrAccent : Brushes.Transparent;
                 }
             };
             b.Click += (s, e) => Navigate(key);
@@ -892,10 +1654,20 @@ namespace ZapretStudio
         }
 
         string _activeNavKey;
+        Border _navPill;
+        TranslateTransform _navPillTx;
+        Grid _navHost;
+        bool _navPillInitialized;
+        int _navPillGen;
 
         void PaintNav()
         {
-            // Единый цикл по всем пунктам — тот же паттерн, что в PaintTabs (CheckPage).
+            int pillGen = ++_navPillGen;
+            Button targetBtn = null;
+            if (!string.IsNullOrEmpty(_current) && _navButtons.ContainsKey(_current))
+                targetBtn = _navButtons[_current];
+
+            // Единый цикл по всем пунктам — обновляем цвета текста и иконки
             foreach (var kv in _navButtons)
             {
                 var arr = (object[])kv.Value.Tag;
@@ -903,15 +1675,58 @@ namespace ZapretStudio
                 var ic = (System.Windows.Shapes.Path)arr[1];
                 var tb = (TextBlock)arr[2];
                 bool on = kv.Key == _current;
-                bd.Background = on ? Theme.BrAccent : Brushes.Transparent;
+                bd.Background = Brushes.Transparent;
+                bd.BorderThickness = new Thickness(1);
+                bd.BorderBrush = (on && Theme.Mode == ThemeMode.System24) ? Theme.BrAccent : Brushes.Transparent;
                 Brush fg = on ? Theme.BrOnAccent : Theme.BrMuted;
                 if (ic.Stroke != null) ic.Stroke = fg;
                 if (ic.Fill != null && ic.Fill != Brushes.Transparent) ic.Fill = fg;
                 tb.Foreground = fg;
                 bd.InvalidateVisual();
             }
+
+            if (_navPill != null && targetBtn != null && _navPillTx != null && _navPanel != null)
+            {
+                Action updatePill = delegate
+                {
+                    // Пока ждали раскладку, пользователь мог уйти на другой раздел:
+                    // устаревший колбэк не должен дёргать пилюлю назад.
+                    if (pillGen != _navPillGen) return;
+                    try
+                    {
+                        Point pt = targetBtn.TranslatePoint(new Point(0, 0), _navPanel);
+                        double targetY = pt.Y;
+                        double targetH = targetBtn.ActualHeight;
+                        if (targetH <= 0) targetH = _navPill.ActualHeight > 0 ? _navPill.ActualHeight : 44;
+                        _navPill.Height = targetH;
+
+                        if (!_navPillInitialized || !Theme.AnimationsEnabled)
+                        {
+                            _navPillTx.BeginAnimation(TranslateTransform.YProperty, null);
+                            _navPillTx.Y = targetY;
+                            _navPillInitialized = true;
+                        }
+                        else
+                        {
+                            // Стартуем от ТЕКУЩЕГО положения, а не от базового Y:
+                            // иначе при быстром переключении пилюля сначала прыгает
+                            // к предыдущему пункту и на промежуточном кадре обрезается.
+                            double fromY = _navPillTx.Y;
+                            var anim = new DoubleAnimation(fromY, targetY, TimeSpan.FromMilliseconds(220))
+                            {
+                                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                            };
+                            _navPillTx.BeginAnimation(TranslateTransform.YProperty, anim);
+                        }
+                    }
+                    catch { }
+                };
+
+                if (targetBtn.IsLoaded && targetBtn.ActualHeight > 0) updatePill();
+                else Dispatcher.BeginInvoke(DispatcherPriority.Loaded, updatePill);
+            }
             _activeNavKey = _current;
-            Title = Core.AppName + "  ·  " + _current;
+            Title = Core.AppName + "  ·  " + Loc.T("nav." + _current);
         }
 
         Page PageFor(string key)
@@ -948,32 +1763,36 @@ namespace ZapretStudio
             p.OnShow();
             var updates = p as UpdatesPage;
             if (updates != null && _haveUpdateResults)
-                updates.SetAutomaticUpdateResults(_lastZapretLatest, _lastZapretLocal,
-                    _lastTgLatest, _lastTgLocal, _lastAppLatest, Core.AppVersion);
+            {
+                string zapLocal = _lastZapretLocal ?? Core.ZapretVersion();
+                string tgLocal = _lastTgLocal ?? (Core.TgProxyInstalled() ? Core.TgProxyLocalVersion() : null);
+                updates.SetAutomaticUpdateResults(_lastZapretLatest, zapLocal,
+                    _lastTgLatest, tgLocal, _lastAppLatest, Core.AppVersion);
+            }
             PaintNav();
             if (_navPanel != null) _navPanel.UpdateLayout();
-            if (!isUiSwitch && Theme.AnimationsEnabled && !Core.GetBool("reduce_motion", false))
+            // Появление экрана (Fade + Slide). UiAnim сам раскладывает страницу до
+            // старта часов, иначе тяжёлая вёрстка съедает первые кадры и переход
+            // выглядит мгновенным.
+            if (!isUiSwitch) UiAnim.Appear(p, 10, 220, 260);
+            else UiAnim.Reset(p);
+            if (!isUiSwitch)
             {
-                // Аккуратное и плавное появление экрана (Fade + Slide)
-                var fade = new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160))
-                { EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut } };
-                p.BeginAnimation(OpacityProperty, fade);
-
-                var tt = new TranslateTransform(0, 6);
-                p.RenderTransform = tt;
-                var slide = new System.Windows.Media.Animation.DoubleAnimation(6, 0, TimeSpan.FromMilliseconds(180))
-                { EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut } };
-                tt.BeginAnimation(TranslateTransform.YProperty, slide);
-            }
-            else
-            {
-                p.BeginAnimation(OpacityProperty, null);
-                p.Opacity = 1;
-                p.RenderTransform = null;
+                Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, (Action)delegate
+                {
+                    GC.Collect(1, GCCollectionMode.Optimized);
+                });
             }
         }
 
         // ---------- Публичный API для страниц ----------
+        public void OpenTgProxySettings()
+        {
+            Navigate("settings");
+            var s = PageFor("settings") as SettingsPage;
+            if (s != null) s.RevealTgSection();
+        }
+
         public bool IsActive2() { return Core.ServiceState() == "running" || Core.IsWinwsRunning(); }
         public string CurrentMode() { return Core.ServiceState() == "running" ? Loc.T("mode.service") : (Core.IsWinwsRunning() ? Loc.T("mode.manual") : "—"); }
         public string CurrentStrategyFile() { return _currentStrategyFile; }
@@ -984,8 +1803,19 @@ namespace ZapretStudio
         }
         public string UptimeText()
         {
-            if (!Core.StartedAt.HasValue || !IsActive2()) return "—";
-            var d = DateTime.Now - Core.StartedAt.Value;
+            if (!IsActive2()) return "—";
+            DateTime? started = Core.StartedAt;
+            if (!started.HasValue)
+            {
+                if (Core.IsWinwsRunning()) started = Core.WinwsProcessStartTime();
+            }
+            if (!started.HasValue)
+            {
+                if (Core.ServiceState() == "running") return Loc.T("ov.up.unknown");
+                return "—";
+            }
+            var d = DateTime.UtcNow - started.Value.ToUniversalTime();
+            if (d.TotalSeconds < 0) d = TimeSpan.Zero;
             if (d.TotalHours >= 1) return (int)d.TotalHours + Loc.T("time.h") + d.Minutes + Loc.T("time.m").TrimEnd();
             if (d.TotalMinutes >= 1) return d.Minutes + Loc.T("time.m") + d.Seconds + Loc.T("time.s");
             return d.Seconds + Loc.T("time.s");
@@ -1006,14 +1836,24 @@ namespace ZapretStudio
             }
         }
 
+        int _strategyRequest;
+
         // Выбрать стратегию без запуска. Если обход уже активен — перезапустить с новой.
         public void SelectStrategy(string file)
         {
+            System.Threading.Interlocked.Increment(ref _strategyRequest);
             _currentStrategyFile = file;
+#if SELFTEST
+            // Автотест кликает по карточкам стратегий ради проверки вёрстки: писать
+            // рабочую last_strategy и перезапускать обход (стоп службы до 20 с) ему
+            // нельзя. Обновление шапки оставляем — иначе пропадает покрытие раскладки.
+            RefreshTop();
+#else
             Core.Set("last_strategy", file); Core.SaveConfig();
             if (Core.IsWinwsRunning()) RunStrategy(file);
             else Core.Info(string.Format(Loc.T("mw.stratSelected"), Core.PrettyName(file)));
             RefreshTop();
+#endif
         }
 
         // Выполнить действие в UI-потоке. Вызывать можно из любого потока: фоновые
@@ -1033,34 +1873,52 @@ namespace ZapretStudio
         public void RunStrategy(string file)
         {
             if (!Core.IsAdmin()) { UiPost(delegate { NeedAdmin(Loc.T("mw.startBypassAct")); }); return; }
+            int req = System.Threading.Interlocked.Increment(ref _strategyRequest);
             UiPost(delegate { if (_overview != null) _overview.SetZapretTransition(true); });
             // Раньше запуск выполнялся через Dispatcher.BeginInvoke, то есть в
             // UI-потоке: остановка службы (до 20 с) и ожидание завершения winws
             // полностью замораживали окно. Теперь работа идёт в пуле потоков,
             // а сам метод можно вызывать из любого потока.
-            System.Threading.ThreadPool.QueueUserWorkItem(delegate { RunStrategyCore(file); });
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate { RunStrategyCore(file, req); });
         }
 
         // Возвращает признак успеха: он нужен полному перезапуску (RestartAll),
         // чтобы отличить «перезапущено» от «перезапуск с ошибками».
         bool RunStrategyCore(string file)
         {
+            return RunStrategyCore(file, _strategyRequest);
+        }
+
+        bool RunStrategyCore(string file, int req)
+        {
             if (!Core.TryBeginWinwsOperation())
             {
                 Warn(Loc.T("mw.busy"));
-                UiPost(delegate { if (_overview != null) _overview.SetZapretTransition(false); });
+                if (req == _strategyRequest)
+                {
+                    UiPost(delegate { if (_overview != null) _overview.SetZapretTransition(false); });
+                }
                 return false;
             }
             bool ok = false;
             try
             {
                 Core.Info(string.Format(Loc.T("mw.startingLog"), Core.PrettyName(file)));
-                if (Core.ServiceState() == "running" && !Core.StopService())
-                    throw new Exception("Could not stop Windows service");
+                if (Core.ServiceState() == "running")
+                {
+                    if (!Core.StopService()) throw new Exception("Could not stop Windows service");
+                    // «sc stop» возвращает управление на STOP_PENDING: без ожидания
+                    // следующий шаг (KillWinws / замена файлов) работал с ещё живым
+                    // winws.exe и отменял обновление как «файлы заняты».
+                    Core.WaitServiceStopped(8000);
+                }
                 Core.KillWinws();
                 if (!Core.StartWinws(file)) throw new Exception("winws.exe was not started");
-                _currentStrategyFile = file;
-                Core.Set("last_strategy", file); Core.SaveConfig();
+                if (req == _strategyRequest)
+                {
+                    _currentStrategyFile = file;
+                    Core.Set("last_strategy", file); Core.SaveConfig();
+                }
                 ok = true;
                 Core.Good(string.Format(Loc.T("mw.startedToast"), Core.PrettyName(file)));
                 UiPost(delegate
@@ -1075,7 +1933,10 @@ namespace ZapretStudio
                 Core.EndWinwsOperation();
                 UiPost(delegate
                 {
-                    if (_overview != null) _overview.SetZapretTransition(false);
+                    if (req == _strategyRequest)
+                    {
+                        if (_overview != null) _overview.SetZapretTransition(false);
+                    }
                     RefreshTop();
                 });
             }
@@ -1096,8 +1957,14 @@ namespace ZapretStudio
             bool ok = false;
             try
             {
-                if (Core.ServiceState() == "running" && !Core.StopService())
-                    throw new Exception("Could not stop Windows service");
+                if (Core.ServiceState() == "running")
+                {
+                    if (!Core.StopService()) throw new Exception("Could not stop Windows service");
+                    // «sc stop» возвращает управление на STOP_PENDING: без ожидания
+                    // следующий шаг (KillWinws / замена файлов) работал с ещё живым
+                    // winws.exe и отменял обновление как «файлы заняты».
+                    Core.WaitServiceStopped(8000);
+                }
                 if (!Core.KillWinws()) throw new Exception("Could not stop winws.exe");
                 ok = true;
                 Core.Info(Loc.T("mw.stopped"));
@@ -1218,6 +2085,7 @@ namespace ZapretStudio
             {
                 Core.Info(Loc.T("mw.restartSvc"));
                 if (!Core.StopService()) throw new Exception("Could not stop Windows service");
+                Core.WaitServiceStopped(8000);
                 Core.KillWinws();
                 if (!Core.ServiceExists()) throw new Exception("Windows service is not installed");
                 if (!Core.StartService()) throw new Exception("Could not start Windows service");
@@ -1226,6 +2094,32 @@ namespace ZapretStudio
             }
             catch (Exception ex) { Core.Fail(string.Format(Loc.T("mw.startErr"), ex.Message)); return false; }
             finally { Core.EndWinwsOperation(); }
+        }
+
+        public void RestartInSameMode(bool wasService, bool wasManual, string prevStrat)
+        {
+            try
+            {
+                if (wasService)
+                {
+                    Core.StartService();
+                }
+                else if (wasManual && !string.IsNullOrEmpty(prevStrat))
+                {
+                    RunStrategy(prevStrat);
+                }
+            }
+            catch (Exception ex)
+            {
+                Core.Warn("RestartInSameMode: " + Core.Short(ex.Message));
+            }
+        }
+
+        public void RestartInSameMode(string prevStrat)
+        {
+            bool asService = Core.ServiceState() == "running";
+            bool asManual = !asService && Core.IsWinwsRunning();
+            RestartInSameMode(asService, asManual, prevStrat);
         }
 
         bool RestartTgProxyCore()
@@ -1283,30 +2177,48 @@ namespace ZapretStudio
             }
         }
 
-        void Warn(string t) { Core.Warn(t); }
+        public void Warn(string t) { Core.Warn(t); ShowToast(t, Sev.Warn); }
 
-        void RefreshTop()
+        public void RefreshTop()
         {
-            bool on = IsActive2();
-            var np = Pill.Make(on ? Sev.Ok : Sev.Neutral, on ? Loc.T("state.running") : Loc.T("state.stopped"));
-            np.VerticalAlignment = VerticalAlignment.Center;
-            np.Margin = new Thickness(16, 0, 0, 0);
-            var g = _topStatusPill.Parent as Grid;
-            if (g != null)
-            {
-                int idx = g.Children.IndexOf(_topStatusPill);
-                if (idx >= 0)
-                {
-                    Grid.SetColumn(np, 1);
-                    g.Children.RemoveAt(idx);
-                    g.Children.Insert(idx, np);
-                    _topStatusPill = np;
-                }
-            }
+            bool bypass = IsActive2();
+            bool tg = Core.TgProxyRunning();
+            Border np;
+            if (bypass && tg) np = Pill.Make(Theme.AccentMain, Loc.T("state.bypassTg"));
+            else if (bypass) np = Pill.Make(Theme.AccentMain, Loc.T("state.bypass"));
+            else if (tg) np = Pill.Make(Theme.AccentMain, Loc.T("state.tg"));
+            else np = Pill.Make(Sev.Neutral, Loc.T("state.stopped"));
+            np.ToolTip = string.Format(Loc.T("state.tooltip"),
+                bypass ? Loc.T("state.running") : Loc.T("state.stopped"),
+                tg ? Loc.T("state.running") : Loc.T("state.stopped"));
+            ReplaceTopPill(np);
             if (_topAdminPill != null)
                 _topAdminPill.Visibility = Core.IsAdmin() ? Visibility.Collapsed : Visibility.Visible;
-            UpdateTray(on);
+            UpdateTray(bypass, tg);
         }
+
+        void ReplaceTopPill(Border np)
+        {
+            np.VerticalAlignment = VerticalAlignment.Center;
+            np.Margin = new Thickness(16, 0, 0, 0);
+            if (_topStatusPill == null) return;
+            var g = _topStatusPill.Parent as Grid;
+            if (g == null) return;
+            int idx = g.Children.IndexOf(_topStatusPill);
+            if (idx < 0) return;
+            Grid.SetColumn(np, 1);
+            g.Children.RemoveAt(idx);
+            g.Children.Insert(idx, np);
+            _topStatusPill = np;
+        }
+
+#if SELFTEST
+        public void ShowDemoTopStatus(string locKey, bool accent)
+        {
+            var np = accent ? Pill.Make(Theme.AccentMain, Loc.T(locKey)) : Pill.Make(Sev.Ok, Loc.T(locKey));
+            ReplaceTopPill(np);
+        }
+#endif
 
         // ---------- Обновления ----------
         volatile bool _updating;
@@ -1355,34 +2267,25 @@ namespace ZapretStudio
 
                     Dispatcher.Invoke((Action)delegate
                     {
-                        _lastZapretLatest = latest; _lastZapretLocal = local;
-                        _lastTgLatest = tgLatest; _lastTgLocal = tgLocal;
-                        _lastAppLatest = appLatest; _haveUpdateResults = true;
-                        // Сохраняем успешный результат: следующий запуск покажет
-                        // статус версий даже без сети.
-                        if (latest != null) Core.Set("latest_zapret", latest);
-                        if (tgLatest != null) Core.Set("latest_tg", tgLatest);
-                        if (appLatest != null) Core.Set("latest_app", appLatest);
+                        if (latest != null) { _lastZapretLatest = latest; Core.Set("latest_zapret", latest); }
+                        _lastZapretLocal = local;
+                        if (tgLatest != null) { _lastTgLatest = tgLatest; Core.Set("latest_tg", tgLatest); }
+                        _lastTgLocal = tgLocal;
+                        if (appLatest != null) { _lastAppLatest = appLatest; Core.Set("latest_app", appLatest); }
+                        _haveUpdateResults = true;
                         if (latest != null || tgLatest != null || appLatest != null) Core.SaveConfig();
                         string zapLatestNorm = SettingsPage.NormVer(latest);
                         string zapLocalNorm = SettingsPage.NormVer(local);
 
                         // --- zapret ---
                         if (latest == null) { Core.Warn(Loc.T("mw.verFail")); }
-                        else if (SettingsPage.CompareVersions(latest, local) == 0)
+                        else if (SettingsPage.CompareVersions(latest, local) <= 0)
                         {
                             Core.Good(string.Format(Loc.T("mw.zapVerOk"), zapLocalNorm));
-                            _updateLine.Text = string.Format(Loc.T("mw.verCurrent"), zapLocalNorm);
-                        }
-                        else if (SettingsPage.CompareVersions(latest, local) < 0)
-                        {
-                            Core.Info(string.Format(Loc.T("mw.zapLocalNewer"), zapLocalNorm, zapLatestNorm));
-                            _updateLine.Text = string.Format(Loc.T("mw.verLine"), zapLocalNorm);
                         }
                         else
                         {
                             Core.Warn(string.Format(Loc.T("mw.zapVerNew"), zapLatestNorm, zapLocalNorm));
-                            _updateLine.Text = string.Format(Loc.T("mw.verUpdate"), zapLocalNorm);
                         }
 
                         // --- TG proxy ---
@@ -1392,12 +2295,10 @@ namespace ZapretStudio
                             string tgLt = SettingsPage.NormVer(tgLatest);
                             if (tgLatest != null && SettingsPage.CompareVersions(tgLatest, tgLocal) > 0)
                             {
-                                _tgVerSidebar.Text = string.Format(Loc.T("mw.tgVer.update"), tgLv);
                                 Core.Warn(string.Format(Loc.T("mw.tgVerNew"), tgLt, tgLv));
                             }
-                            else
+                            else if (tgLatest != null)
                             {
-                                _tgVerSidebar.Text = string.Format(Loc.T("mw.tgVer"), tgLv);
                                 Core.Good(string.Format(Loc.T("mw.tgVerOk"), tgLv));
                             }
                         }
@@ -1407,10 +2308,11 @@ namespace ZapretStudio
                         string appLt = SettingsPage.NormVer(appLatest);
                         if (appLatest != null && SettingsPage.CompareVersions(appLatest, Core.AppVersion) > 0)
                             Core.Warn(string.Format(Loc.T("mw.appVerNew"), appLt, appLv));
-                        else if (appLatest != null && SettingsPage.CompareVersions(appLatest, Core.AppVersion) == 0)
-                            Core.Good(string.Format(Loc.T("mw.appVerOk"), appLv));
                         else if (appLatest != null)
-                            Core.Info(string.Format(Loc.T("mw.appLocalNewer"), appLv, appLt));
+                            Core.Good(string.Format(Loc.T("mw.appVerOk"), appLv));
+
+                        UpdateZapretSidebarVersion();
+                        UpdateTgSidebarVersion();
                         UpdateAppSidebarVersion();
 
                         Page updatesPage;
@@ -1442,18 +2344,47 @@ namespace ZapretStudio
             });
         }
 
+        // Архив + распаковка в %TEMP% + замена файлов в корне: запас берём с
+        // избытком, потому что реальный размер архива до скачивания неизвестен.
+        const long UpdateFreeSpaceNeeded = 300L * 1024 * 1024;
+
         void DoUpdate(string ver)
         {
             if (_updating) return;
             _updating = true;
-            bool restartService = Core.ServiceState() == "running";
-            bool restartManual = !restartService && Core.IsWinwsRunning();
-            string restartStrategy = _currentStrategyFile;
-            string zip = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "zapret_update.zip");
-            string root = Core.Root;
-            Core.Info(string.Format(Loc.T("mw.updStart"), ver));
-            _updateLine.Text = Loc.T("mw.updProgress");
-            SetZapretUpdateProgress(Loc.T("settings.update.downloading"), 0);
+            string tmpDir = null, zip = null, root = null, restartStrategy = null;
+            bool restartService = false, restartManual = false;
+            // №16: подготовка (ServiceState, IsWinwsRunning, CreateDirectory в %TEMP%,
+            // доступ к _updateLine) шла ДО try — исключение здесь оставляло
+            // _updating == true навсегда, и кнопка «Обновить» не отвечала до
+            // перезапуска приложения.
+            try
+            {
+                restartService = Core.ServiceState() == "running";
+                restartManual = !restartService && Core.IsWinwsRunning();
+                restartStrategy = _currentStrategyFile;
+                tmpDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "lantern_" + Guid.NewGuid().ToString("N"));
+                System.IO.Directory.CreateDirectory(tmpDir);
+                zip = System.IO.Path.Combine(tmpDir, "zapret_update.zip");
+                root = Core.Root;
+                Core.Info(string.Format(Loc.T("mw.updStart"), ver));
+                _updateLine.Text = Loc.T("mw.updProgress");
+                SetZapretUpdateProgress(Loc.T("settings.update.downloading"), 0);
+            }
+            catch (Exception exPrep)
+            {
+                _updating = false;
+                Core.DeleteDirSafe(tmpDir);
+                string msg = Loc.T("mw.updFail") + ": " + Core.Short(exPrep.Message);
+                try
+                {
+                    _updateLine.Text = Loc.T("mw.updFail");
+                    FinishZapretUpdate(msg, false);
+                }
+                catch { }
+                Core.Fail(string.Format(Loc.T("mw.updErr"), Core.Short(exPrep.Message)));
+                return;
+            }
 
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
@@ -1463,9 +2394,53 @@ namespace ZapretStudio
                     // держит файлы в bin. Ждём здесь, в фоновом потоке: асинхронный
                     // StopAll() не давал такой гарантии, а синхронный вызов в
                     // UI-потоке замораживал окно на время «sc stop».
-                    if (restartService || restartManual) StopAllCore();
-                    string url = Core.ZapretDownloadUrl(ver);
-                    bool ok = Core.DownloadFile(url, zip, delegate (DlProgress p)
+                    // №8: результат больше не отбрасывается — при незавершённой
+                    // остановке пофайловая замена оставляла установку из двух версий.
+                    if ((restartService || restartManual) && !StopAllCore())
+                    {
+                        Dispatcher.Invoke((Action)delegate
+                        {
+                            _updateLine.Text = Loc.T("mw.updStopFail");
+                            FinishZapretUpdate(Loc.T("mw.updStopFail"), false);
+                            Core.Fail(Loc.T("mw.updStopFail"));
+                        });
+                        return;
+                    }
+                    // №8: архив и распаковка идут в %TEMP%, замена файлов — в корень
+                    // zapret. Без проверки места оба этапа обрывались на середине.
+                    long freeTmp = Core.FreeSpaceOf(System.IO.Path.GetTempPath());
+                    long freeRoot = Core.FreeSpaceOf(root);
+                    long worst = Math.Min(freeTmp < 0 ? long.MaxValue : freeTmp,
+                                          freeRoot < 0 ? long.MaxValue : freeRoot);
+                    if (worst >= 0 && worst < UpdateFreeSpaceNeeded)
+                    {
+                        string noSpace = string.Format(Loc.T("mw.updNoSpace"),
+                            Core.HumanSize(worst), Core.HumanSize(UpdateFreeSpaceNeeded));
+                        Dispatcher.Invoke((Action)delegate
+                        {
+                            _updateLine.Text = noSpace;
+                            FinishZapretUpdate(noSpace, false);
+                            Core.Fail(noSpace);
+                        });
+                        return;
+                    }
+                    // №33: имя архива и его SHA-256 берём из GitHub API одним
+                    // запросом. Без контрольной суммы обновление не ставим:
+                    // bin\winws.exe из архива затем работает службой SYSTEM.
+                    string url, zipSha;
+                    if (!Core.ZapretZipAssets(out url, out zipSha))
+                    {
+                        Dispatcher.Invoke((Action)delegate
+                        {
+                            _updateLine.Text = Loc.T("mw.updFail");
+                            FinishZapretUpdate(Loc.T("dl.hashMissing"), false);
+                            Core.Fail(Loc.T("dl.hashMissing"));
+                        });
+                        return;
+                    }
+                    Core.Info(string.Format(Loc.T("upd.zipSource"), url));
+                    string dlErr;
+                    bool ok = Core.DownloadVerified(url, zipSha, zip, delegate (DlProgress p)
                     {
                         try
                         {
@@ -1480,15 +2455,16 @@ namespace ZapretStudio
                             });
                         }
                         catch { }
-                    }, null);
+                    }, null, out dlErr);
 
                     if (!ok)
                     {
+                        string failMsg = string.IsNullOrEmpty(dlErr) ? Loc.T("mw.updFail") : dlErr;
                         Dispatcher.Invoke((Action)delegate
                         {
                             _updateLine.Text = Loc.T("mw.updFail");
-                            FinishZapretUpdate(Loc.T("mw.updFail"), false);
-                            Core.Fail(Loc.T("mw.updFail"));
+                            FinishZapretUpdate(failMsg, false);
+                            Core.Fail(failMsg);
                         });
                         return;
                     }
@@ -1508,7 +2484,7 @@ namespace ZapretStudio
                         }
                         catch { }
                     });
-                    try { System.IO.File.Delete(zip); } catch { }
+                    Core.DeleteDirSafe(tmpDir);
 
                     string changelog = null;
                     if (ex) { try { changelog = Core.FetchChangelog(); } catch { } }
@@ -1538,6 +2514,10 @@ namespace ZapretStudio
                             string msg = string.Format(Loc.T("mw.updDone"), newVer);
                             if (!string.IsNullOrEmpty(changelog))
                                 msg += "\n\n" + Loc.T("mw.changelog") + ":\n" + changelog;
+                            else
+                                // Раньше при недоступном API окно молча выходило без
+                                // описания, и это читалось как «обновление пустое».
+                                msg += "\n\n" + Loc.T("mw.changelogUnavailable");
                             MessageBox.Show(msg, Loc.T("mw.verDlgTitle"), MessageBoxButton.OK, MessageBoxImage.Information);
                             Page strategiesPage;
                             if (_pages.TryGetValue("strategies", out strategiesPage))
@@ -1548,8 +2528,11 @@ namespace ZapretStudio
                         }
                         else
                         {
+                            // №8: причина (занятые файлы, путь к списку незаменённых)
+                            // уходит в карточку «Центра обновлений» и в журнал.
+                            // В боковой строке оставляем короткий текст: у неё NoWrap.
                             _updateLine.Text = Loc.T("mw.updFail");
-                            FinishZapretUpdate(Loc.T("mw.updFail"), false);
+                            FinishZapretUpdate(Loc.T("mw.updFail") + (string.IsNullOrEmpty(err) ? "" : ": " + err), false);
                             Core.Fail(string.Format(Loc.T("dl.failExtract"), err != null ? ": " + err : ""));
                         }
                     });
@@ -1562,16 +2545,38 @@ namespace ZapretStudio
                         else if (restartManual && !string.IsNullOrEmpty(restartStrategy)) RunStrategy(restartStrategy);
                     }
                 }
-                catch { }
-                finally { try { Dispatcher.Invoke((Action)delegate { _updating = false; }); } catch { _updating = false; } }
+                catch (Exception exUpd)
+                {
+                    // №8: здесь было catch { } — сбой обновления не попадал ни в
+                    // журнал, ни в «Центр обновлений», а флаг _updating сбрасывался
+                    // так, будто всё прошло штатно.
+                    Core.Fail(string.Format(Loc.T("mw.updErr"), Core.Short(exUpd.Message)));
+                    try
+                    {
+                        Dispatcher.Invoke((Action)delegate
+                        {
+                            _updateLine.Text = Loc.T("mw.updFail");
+                            FinishZapretUpdate(Loc.T("mw.updFail") + ": " + Core.Short(exUpd.Message), false);
+                        });
+                    }
+                    catch { }
+                }
+                finally
+                {
+                    // №8: без этого в %TEMP% оставался lantern_<guid>\zapret_update.zip
+                    // после каждой попытки, включая неудачное скачивание.
+                    Core.DeleteDirSafe(tmpDir);
+                    try { Dispatcher.Invoke((Action)delegate { _updating = false; }); } catch { _updating = false; }
+                }
             });
         }
 
-        public void UpdateZapret(string latestVersion)
+        public void UpdateZapret(string latestVersion, bool force = false)
         {
-            if (string.IsNullOrEmpty(latestVersion)) { Core.Warn(Loc.T("mw.verFail")); return; }
-            if (SettingsPage.CompareVersions(latestVersion, Core.ZapretVersion()) <= 0) return;
-            DoUpdate(latestVersion);
+            string ver = string.IsNullOrEmpty(latestVersion) ? Core.ZapretVersion() : latestVersion;
+            if (!force && (string.IsNullOrEmpty(ver) || SettingsPage.CompareVersions(ver, Core.ZapretVersion()) <= 0)) return;
+            if (string.IsNullOrEmpty(ver)) { Core.Warn(Loc.T("mw.verFail")); return; }
+            DoUpdate(ver);
         }
 
         void AfterLoad()
@@ -1595,9 +2600,27 @@ namespace ZapretStudio
                 if (Core.TgProxyStart(out tgErr)) Core.Good(Loc.T("tg.startedOk"));
                 else Core.Fail(string.Format(Loc.T("tg.startErr"), tgErr));
             }
+            // Автозапуск TG мог изменить состояние после первого RefreshTop.
+            RefreshTop();
             if (!Core.IsAdmin())
                 Core.Warn(Loc.T("mw.noAdminWarn"));
             StartBypassMonitor();
+
+            // Фоновая проверка целостности: журнал предупредит о пропавших или
+            // повреждённых файлах, а «Обновления» предложат восстановить их.
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                var z = Core.EngineIntegrityIssues();
+                var t = Core.TgProxyIntegrityIssues();
+                int n = (z == null ? 0 : z.Count) + (t == null ? 0 : t.Count);
+                foreach (string issue in z) Core.Warn("Integrity zapret: " + issue);
+                foreach (string issue in t) Core.Warn("Integrity TG: " + issue);
+                if (n > 0)
+                {
+                    Core.Warn(string.Format(Loc.T("updates.integrity.found"), n));
+                    UiPost(delegate { ShowToast(Loc.T("updates.integrity.startupToast"), Sev.Warn); });
+                }
+            });
         }
 
         // ---------- Монитор падения обхода (лёгкий, без переключения) ----------
@@ -1616,7 +2639,14 @@ namespace ZapretStudio
                 if (Core.WinwsOperationActive()) return;
                 bool now = Core.IsWinwsRunning();
                 if (_wasRunning && !now)
+                {
                     Notify(Loc.T("mw.bypassDown.title"), Loc.T("mw.bypassDown.body"));
+                    if (Core.GetBool("watchdog_enabled", false))
+                    {
+                        Core.Warn("Watchdog: winws stopped unexpectedly, restarting in same mode...");
+                        RestartInSameMode(_currentStrategyFile);
+                    }
+                }
                 _wasRunning = now;
             };
             _bypassMonitor.Start();
@@ -1627,6 +2657,7 @@ namespace ZapretStudio
         {
             try
             {
+                CleanupTray();
                 _tray = new System.Windows.Forms.NotifyIcon();
                 _tray.Text = Core.AppName;
                 _tray.Icon = Core.AppIcon() ?? System.Drawing.SystemIcons.Shield;
@@ -1678,12 +2709,111 @@ namespace ZapretStudio
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
         static extern int RegisterWindowMessage(string message);
         static readonly int WM_TASKBARCREATED = RegisterWindowMessage("TaskbarCreated");
+        const int WM_GETMINMAXINFO = 0x0024;
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct POINT { public int x; public int y; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct MINMAXINFO
+        {
+            public POINT ptReserved;
+            public POINT ptMaxSize;
+            public POINT ptMaxPosition;
+            public POINT ptMinTrackSize;
+            public POINT ptMaxTrackSize;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct RECT { public int left, top, right, bottom; }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        class MONITORINFO
+        {
+            public int cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+            public RECT rcMonitor = new RECT();
+            public RECT rcWork = new RECT();
+            public int dwFlags = 0;
+        }
+
+        [DllImport("user32.dll")]
+        static extern IntPtr MonitorFromWindow(IntPtr handle, int flags);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        static extern bool GetMonitorInfo(IntPtr hMonitor, MONITORINFO lpmi);
+
+        void WmGetMinMaxInfo(IntPtr hwnd, IntPtr lParam)
+        {
+            try
+            {
+                var mmi = (MINMAXINFO)Marshal.PtrToStructure(lParam, typeof(MINMAXINFO));
+                const int MONITOR_DEFAULTTONEAREST = 0x00000002;
+                IntPtr monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                if (monitor != IntPtr.Zero)
+                {
+                    var monitorInfo = new MONITORINFO();
+                    if (GetMonitorInfo(monitor, monitorInfo))
+                    {
+                        var rcWorkArea = monitorInfo.rcWork;
+                        var rcMonitorArea = monitorInfo.rcMonitor;
+                        mmi.ptMaxPosition.x = Math.Abs(rcWorkArea.left - rcMonitorArea.left);
+                        mmi.ptMaxPosition.y = Math.Abs(rcWorkArea.top - rcMonitorArea.top);
+                        mmi.ptMaxSize.x = Math.Abs(rcWorkArea.right - rcWorkArea.left);
+                        mmi.ptMaxSize.y = Math.Abs(rcWorkArea.bottom - rcWorkArea.top);
+                    }
+                }
+                // Сохраняем минимальный размер окна (MinWidth / MinHeight задаются в конструкторе)
+                double minW = MinWidth > 0 ? MinWidth : 760;
+                double minH = MinHeight > 0 ? MinHeight : 420;
+                mmi.ptMinTrackSize.x = (int)(minW * _dpiScaleX);
+                mmi.ptMinTrackSize.y = (int)(minH * _dpiScaleY);
+                Marshal.StructureToPtr(mmi, lParam, true);
+            }
+            catch { }
+        }
+
+        static double _dpiScaleX = 1.0;
+        static double _dpiScaleY = 1.0;
+        static void EnsureDpiScale(IntPtr hwnd)
+        {
+            try
+            {
+                if (hwnd != IntPtr.Zero)
+                {
+                    var src = System.Windows.Interop.HwndSource.FromHwnd(hwnd);
+                    if (src != null && src.CompositionTarget != null)
+                    {
+                        _dpiScaleX = src.CompositionTarget.TransformToDevice.M11;
+                        _dpiScaleY = src.CompositionTarget.TransformToDevice.M22;
+                        return;
+                    }
+                }
+                var main = Application.Current != null ? Application.Current.MainWindow : null;
+                if (main != null)
+                {
+                    var src = PresentationSource.FromVisual(main);
+                    if (src != null && src.CompositionTarget != null)
+                    {
+                        _dpiScaleX = src.CompositionTarget.TransformToDevice.M11;
+                        _dpiScaleY = src.CompositionTarget.TransformToDevice.M22;
+                        return;
+                    }
+                }
+            }
+            catch { }
+        }
 
         IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
             if (msg == App.WmShowWindow)
             {
                 ShowWindow();
+                handled = true;
+            }
+            else if (msg == WM_GETMINMAXINFO)
+            {
+                EnsureDpiScale(hwnd);
+                WmGetMinMaxInfo(hwnd, lParam);
                 handled = true;
             }
             else if (msg == WM_TASKBARCREATED)
@@ -1713,9 +2843,15 @@ namespace ZapretStudio
             m.Items.Add(it);
         }
 
-        void UpdateTray(bool on)
+        void UpdateTray(bool bypass, bool tg)
         {
-            if (_trayStatus != null) _trayStatus.Text = on ? Loc.T("state.running") + " · " + (CurrentStrategyName() ?? "") : Loc.T("state.stopped");
+            if (_trayStatus != null)
+            {
+                if (bypass && tg) _trayStatus.Text = Loc.T("state.bypassTg");
+                else if (bypass) _trayStatus.Text = Loc.T("state.bypass") + " · " + (CurrentStrategyName() ?? "");
+                else if (tg) _trayStatus.Text = Loc.T("state.tg");
+                else _trayStatus.Text = Loc.T("state.stopped");
+            }
             if (_trayWidget != null) _trayWidget.Refresh();
         }
 
@@ -1725,10 +2861,62 @@ namespace ZapretStudio
             try { if (_tray != null) { _tray.BalloonTipTitle = title; _tray.BalloonTipText = text; _tray.ShowBalloonTip(2500); } } catch { }
         }
 
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        static extern bool BringWindowToTop(IntPtr hWnd);
+
+        public void BringToFront()
+        {
+            try
+            {
+                var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                if (handle != IntPtr.Zero)
+                {
+                    BringWindowToTop(handle);
+                    SetForegroundWindow(handle);
+                }
+                Topmost = true;
+                Topmost = false;
+                Activate();
+                Focus();
+            }
+            catch { }
+        }
+
+        void PauseActivePage()
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(_current) && _pages.ContainsKey(_current))
+                    _pages[_current].OnHide();
+                else if (_overview != null)
+                    _overview.StopTimer();
+            }
+            catch { }
+        }
+
+        void ResumeActivePage()
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(_current) && _pages.ContainsKey(_current))
+                    _pages[_current].OnShow();
+                else if (_overview != null)
+                    _overview.StartTimer();
+            }
+            catch { }
+        }
+
         void ShowWindow()
         {
             ShowInTaskbar = true;
-            Show(); WindowState = WindowState.Normal; Activate(); Topmost = true; Topmost = false;
+            Show(); WindowState = WindowState.Normal;
+            ResumeActivePage();
+            BringToFront();
         }
 
         // Используется виджетом: сам виджет не знает о внутренней навигации окна.
@@ -1742,18 +2930,21 @@ namespace ZapretStudio
                 Navigate("overview");
                 return;
             }
-            if (Core.TgProxyRunning())
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
-                Core.TgProxyStop();
-                Core.Info(Loc.T("tg.stoppedOk"));
-            }
-            else
-            {
-                string error;
-                if (Core.TgProxyStart(out error)) Core.Good(Loc.T("tg.startedOk"));
-                else Core.Fail(string.Format(Loc.T("tg.startErr"), error));
-            }
-            RefreshTop();
+                if (Core.TgProxyRunning())
+                {
+                    Core.TgProxyStop();
+                    Core.Info(Loc.T("tg.stoppedOk"));
+                }
+                else
+                {
+                    string error;
+                    if (Core.TgProxyStart(out error)) Core.Good(Loc.T("tg.startedOk"));
+                    else Core.Fail(string.Format(Loc.T("tg.startErr"), error));
+                }
+                UiPost(delegate { RefreshTop(); });
+            });
         }
 
         void ToggleTrayWidget()
@@ -1765,21 +2956,25 @@ namespace ZapretStudio
 
         void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
         {
-            if (!_forceClose && Core.GetBool("tray_on_close", true))
+            // №61: App.ForceShutdown ставится перед Application.Shutdown() (перезапуск
+            // с правами администратора). Без него при tray_on_close = true закрытие
+            // превращалось в сворачивание в трей, Shutdown() молча отменялся, и после
+            // рестарта оставалось «призрачное» второе окно с иконкой.
+            if (!_forceClose && !App.ForceShutdown && Core.GetBool("tray_on_close", true))
             {
                 e.Cancel = true;
+                PauseActivePage();
                 Hide();
                 Notify(string.Format(Loc.T("mw.tray.minTitle"), Core.AppName), Loc.T("mw.tray.minBody"));
                 Core.TrimMemory();
                 return;
             }
             try { if (_bypassMonitor != null) _bypassMonitor.Stop(); } catch { }
-            StopPeterSong();
             foreach (var p in _pages.Values) { try { p.OnHide(); } catch { } }
             Loc.LanguageChanged -= OnUiChanged;
             Theme.ThemeChanged -= OnUiChanged;
             try { if (_trayWidget != null) { _trayWidget.Close(); _trayWidget = null; } } catch { }
-            try { if (_tray != null) { _tray.Visible = false; _tray.Dispose(); _tray = null; } } catch { }
+            CleanupTray();
         }
     }
 }

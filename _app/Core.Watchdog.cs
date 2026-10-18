@@ -16,6 +16,62 @@ namespace ZapretStudio
             public double AvgMs;
             // Проверка не выполнена: операция winws занята другим действием.
             public bool Busy;
+            public bool Error;
+            public string ErrorMessage;
+        }
+
+        // Сколько проб держать одновременно. utils/test zapret.ps1 (его запускает
+        // service.bat → «Проверить стратегии») держит ровно 8 ранспейсов, а каждый
+        // CurlCheck внутри плодит ещё по 3 процесса curl.exe. Раньше пробы
+        // стартовали все разом: на полном списке целей из utils/targets.txt это
+        // десятки curl.exe, они толкались за сеть и процессор, часть умирала по
+        // своему же таймауту — и стратегия, которая в service.bat числилась
+        // рабочей, в приложении получала «не работает».
+        public const int MaxParallelProbes = 8;
+
+        // Прогрев WinDivert перед пробами. В test zapret.ps1 — Start-Sleep 5 с;
+        // прежние 2 с не хватало, чтобы драйвер и все группы правил (--new)
+        // успели перехватить первые пакеты.
+        public const int ProbeWarmupMs = 5000;
+
+        // Окно ожидания на весь набор проб: CurlCheck ждёт до timeoutSec*1000+1500
+        // (для 5 с — 6500 мс), пробы идут пачками по MaxParallelProbes.
+        public static int ProbeBudgetMs(int probeCount)
+        {
+            int batches = (probeCount + MaxParallelProbes - 1) / MaxParallelProbes;
+            if (batches < 1) batches = 1;
+            return batches * 7000 + 2000;
+        }
+
+        // Прогнать пробы не более чем в MaxParallelProbes потоков.
+        // Возвращает true, если все цели отработали в срок.
+        public static bool RunProbes(List<Target> probes, Action<Target> one, Func<bool> cancel, out int missed)
+        {
+            int idx = -1;
+            int done = 0;
+            var barrier = new WorkBarrier(probes.Count);
+            int workers = Math.Min(MaxParallelProbes, probes.Count);
+            for (int w = 0; w < workers; w++)
+                ThreadPool.QueueUserWorkItem(delegate
+                {
+                    try
+                    {
+                        while (true)
+                        {
+                            int i = Interlocked.Increment(ref idx);
+                            if (i >= probes.Count) break;
+                            try { if (cancel == null || !cancel()) one(probes[i]); }
+                            catch { }
+                            // Signal обязан быть при любом исходе, иначе барьер
+                            // не соберётся и весь прогон упрётся в таймаут.
+                            finally { Interlocked.Increment(ref done); barrier.Signal(); }
+                        }
+                    }
+                    catch { }
+                });
+            bool allInTime = barrier.Wait(ProbeBudgetMs(probes.Count));
+            missed = probes.Count - done;
+            return allInTime && missed <= 0;
         }
 
         // Быстрые пробы для мониторинга (меньше чем StratProbes — только ключевые).
@@ -52,48 +108,41 @@ namespace ZapretStudio
             try
             {
                 KillWinws();
-                StartWinws(batFile);
-                for (int i = 0; i < 20 && (cancel == null || !cancel()); i++) Thread.Sleep(100); // 2000ms прогрев для WinDivert
+                if (!StartWinws(batFile))
+                {
+                    sc.Error = true;
+                    sc.ErrorMessage = Loc.T("check.strat.notStarted");
+                    return;
+                }
+                for (int i = 0; i < ProbeWarmupMs / 100 && (cancel == null || !cancel()); i++) Thread.Sleep(100);
                 long msSum = 0; int msCount = 0;
                 int ok = 0;
-                var barrier = new WorkBarrier(probes.Count);
-                foreach (var t in probes)
+                int missed;
+                bool complete = RunProbes(probes, delegate(Target tt)
                 {
-                    var tt = t;
-                    ThreadPool.QueueUserWorkItem(delegate
+                    if (tt.Kind == "PING")
                     {
-                        try
+                        var pr = TestPing(tt.Host, 4000);
+                        if (pr.State == "reachable")
                         {
-                            if (cancel == null || !cancel())
-                            {
-                                if (tt.Kind == "PING")
-                                {
-                                    var pr = TestPing(tt.Host, 4000);
-                                    if (pr.State == "reachable")
-                                    {
-                                        Interlocked.Increment(ref ok);
-                                        if (pr.Ms >= 0) { Interlocked.Add(ref msSum, pr.Ms); Interlocked.Increment(ref msCount); }
-                                    }
-                                }
-                                else
-                                {
-                                    var cr = CurlCheck(tt.Url, 5);
-                                    if (cr.Verdict == "ok")
-                                    {
-                                        Interlocked.Increment(ref ok);
-                                        if (cr.Ms >= 0) { Interlocked.Add(ref msSum, cr.Ms); Interlocked.Increment(ref msCount); }
-                                    }
-                                }
-                            }
+                            Interlocked.Increment(ref ok);
+                            if (pr.Ms >= 0) { Interlocked.Add(ref msSum, pr.Ms); Interlocked.Increment(ref msCount); }
                         }
-                        catch { }
-                        finally { barrier.Signal(); }
-                    });
-                }
-                // CurlCheck сам ждёт до 4,5 с, поэтому окно ожидания с запасом:
-                // прежние 4000 мс истекали почти всегда, и результаты читались,
-                // пока пробы ещё шли.
-                barrier.Wait(9000);
+                    }
+                    else
+                    {
+                        var cr = CurlCheck(tt.Url, 5);
+                        if (cr.Verdict == "ok")
+                        {
+                            Interlocked.Increment(ref ok);
+                            if (cr.Ms >= 0) { Interlocked.Add(ref msSum, cr.Ms); Interlocked.Increment(ref msCount); }
+                        }
+                    }
+                }, cancel, out missed);
+                // №15: результат барьера не выбрасывается — недобранное число проб
+                // иначе молча уходило в заниженный счётчик «работает».
+                if (!complete)
+                    Warn(string.Format(Loc.T("net.probesTimeout"), missed, probes.Count));
                 sc.Ok = ok;
                 if (msCount > 0) sc.AvgMs = (double)msSum / msCount;
             }
@@ -101,48 +150,11 @@ namespace ZapretStudio
             finally { try { KillWinws(); } catch { } }
         }
 
-        // ---- Автопереключение (watchdog) ----
-        public static bool WatchdogEnabled
-        {
-            get { return GetBool("watchdog_enabled", false); }
-            set { SetBool("watchdog_enabled", value); SaveConfig(); }
-        }
-        public static int WatchdogIntervalMin
-        {
-            get { return GetInt("watchdog_interval", 5); }
-            set { SetInt("watchdog_interval", value); SaveConfig(); }
-        }
-
-        // Проверить, работает ли текущая стратегия. Возвращает true если всё ок.
-        public static bool QuickCheck()
-        {
-            var probes = QuickProbes();
-            int ok = 0;
-            foreach (var t in probes)
-            {
-                var res = TestTarget(t, 5000);
-                if (res.State == "reachable") ok++;
-            }
-            return ok > 0; // хотя бы один эндпоинт доступен
-        }
-
-        // Найти следующую рабочую стратегию (перебор по кругу).
-        public static string FindWorkingStrategy(string currentFile, Func<bool> cancel)
-        {
-            var files = GetStrategyFiles();
-            if (files.Count == 0) return null;
-            int start = files.IndexOf(currentFile);
-            if (start < 0) start = 0;
-            var probes = QuickProbes();
-            for (int i = 1; i <= files.Count; i++)
-            {
-                if (cancel != null && cancel()) return null;
-                string f = files[(start + i) % files.Count];
-                if (f == currentFile) continue;
-                var sc = TestStrategy(f, probes, cancel);
-                if (sc.Ok > 0) return f;
-            }
-            return null;
-        }
+        // Автопереключение (watchdog) вырезано как мёртвый код: ни WatchdogEnabled,
+        // ни WatchdogIntervalMin, ни QuickCheck, ни FindWorkingStrategy не вызывались.
+        // Ключ "watchdog_enabled" при этом живёт и читается напрямую в
+        // MainWindow.cs (_bypassMonitor: упал winws — перезапустить в том же режиме),
+        // поэтому удалять его из конфига нельзя. Вычеркнутый исходник сохранён в
+        // musor/disabled/Core.Watchdog.autoswitch.cs.
     }
 }

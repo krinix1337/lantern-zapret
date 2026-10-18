@@ -129,6 +129,11 @@ public static string Bin        { get { if (_bin == null) _bin = Path.Combine(Sa
         {
             InvalidatePaths();
             Root = string.IsNullOrEmpty(path) ? path : path.TrimEnd(Path.DirectorySeparatorChar);
+            // №41: ConfigFile зависит от Root, а словарь в памяти один на процесс.
+            // Без сброса флага Get() продолжал отдавать значения из файла старого
+            // корня, а SaveConfig() записывал их уже в файл нового — так выбранная
+            // папка zapret теряла last_strategy, favorites и ipset_enabled.
+            _cfgLoaded = false;
         }
 
         static void InvalidatePaths()
@@ -139,7 +144,8 @@ public static string Bin        { get { if (_bin == null) _bin = Path.Combine(Sa
         public static string FmtTime(TimeSpan t)
         {
             if (t.TotalMinutes >= 1) return (int)t.TotalMinutes + " " + Loc.T("time.min") + " " + t.Seconds + " " + Loc.T("time.sec");
-            return t.Seconds + "," + (t.Milliseconds / 100) + " " + Loc.T("time.sec");
+            string sep = Loc.Lang == "ru" ? "," : ".";
+            return t.Seconds + sep + (t.Milliseconds / 100) + " " + Loc.T("time.sec");
         }
 
         // Барьер для параллельных проб.

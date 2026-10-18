@@ -1,7 +1,3 @@
--reference:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\WPF\PresentationFramework.dll"
--reference:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\WPF\PresentationCore.dll"
--reference:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\WPF\WindowsBase.dll"
--reference:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.Xaml.dll"
 -reference:"System.dll"
 -reference:"System.Core.dll"
 -reference:"System.Xml.dll"

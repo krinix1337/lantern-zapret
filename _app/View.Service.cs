@@ -93,24 +93,15 @@ namespace ZapretStudio
 
             Body.Children.Add(new Border { Height = 12 });
 
-            var wrap = new WrapPanel();
             var install = Ctl.Button(Loc.T("service.install"), Icons.Server, 0);
-            install.Margin = new Thickness(0, 0, 10, 10);
             install.Click += (s, e) => DoInstall();
             var start = Ctl.Button(Loc.T("service.start"), Icons.Play, 1);
-            start.Margin = new Thickness(0, 0, 10, 10);
             start.Click += (s, e) => Guarded(Loc.T("service.task.start"), delegate { if (!Core.StartService()) throw new Exception("sc start failed"); Core.Good(Loc.T("service.started")); });
             var stop = Ctl.Button(Loc.T("service.stop"), Icons.Stop, 1);
-            stop.Margin = new Thickness(0, 0, 10, 10);
             stop.Click += (s, e) => Guarded(Loc.T("service.task.stop"), delegate { if (!Core.StopService()) throw new Exception("sc stop failed"); Core.Info(Loc.T("service.svcStopped")); });
             var remove = Ctl.Button(Loc.T("service.remove"), Icons.Cross, 2);
-            remove.Margin = new Thickness(0, 0, 10, 10);
             remove.Click += (s, e) => DoRemove();
-            wrap.Children.Add(install);
-            wrap.Children.Add(start);
-            wrap.Children.Add(stop);
-            wrap.Children.Add(remove);
-            Body.Children.Add(wrap);
+            Body.Children.Add(Ctl.ButtonRow(install, start, stop, remove));
         }
 
         void BuildWindowsAutostart()
@@ -148,13 +139,12 @@ namespace ZapretStudio
 
             Body.Children.Add(Row(Loc.T("service.appAuto"), Loc.T("service.appAuto.desc"), _appAutoToggle));
 
-            Body.Children.Add(new Border { Height = 10 });
-
             _appTrayToggle = new Toggle(Loc.T("service.appAutoTray"));
             _appTrayToggle.IsChecked = Core.AppAutostartInTray();
-            _appTrayToggle.Checked += (s, e) => Core.SetAppAutostartInTray(true);
-            _appTrayToggle.Unchecked += (s, e) => Core.SetAppAutostartInTray(false);
+            _appTrayToggle.Checked += (s, e) => System.Threading.ThreadPool.QueueUserWorkItem(delegate { Core.SetAppAutostartInTray(true); });
+            _appTrayToggle.Unchecked += (s, e) => System.Threading.ThreadPool.QueueUserWorkItem(delegate { Core.SetAppAutostartInTray(false); });
             _appTrayRow = Row(Loc.T("service.appAutoTray"), Loc.T("service.appAutoTray.desc"), _appTrayToggle);
+            _appTrayRow.Margin = new Thickness(0, 10, 0, 0);
             _appTrayRow.Visibility = Visibility.Collapsed;
             Body.Children.Add(_appTrayRow);
 
@@ -164,8 +154,8 @@ namespace ZapretStudio
             bool tgInstalled = Core.TgProxyInstalled();
             _tgAutoToggle.IsEnabled = tgInstalled;
             _tgAutoToggle.IsChecked = tgInstalled && Core.TgAutostartEnabled();
-            _tgAutoToggle.Checked += (s, e) => Core.SetTgAutostart(true);
-            _tgAutoToggle.Unchecked += (s, e) => Core.SetTgAutostart(false);
+            _tgAutoToggle.Checked += (s, e) => System.Threading.ThreadPool.QueueUserWorkItem(delegate { Core.SetTgAutostart(true); });
+            _tgAutoToggle.Unchecked += (s, e) => System.Threading.ThreadPool.QueueUserWorkItem(delegate { Core.SetTgAutostart(false); });
             string tgDesc = tgInstalled ? Loc.T("service.tgAuto.desc") : Loc.T("service.tgAuto.notInstalled");
             Body.Children.Add(Row(Loc.T("service.tgAuto"), tgDesc, _tgAutoToggle));
         }
@@ -299,14 +289,19 @@ namespace ZapretStudio
             };
             content.Children.Add(_foreignDesc);
 
-            var btns = new WrapPanel();
             var takeoverBtn = Ctl.Button(Loc.T("service.foreign.takeover"), Icons.Bolt, 0);
-            takeoverBtn.Margin = new Thickness(0, 0, 10, 0);
             takeoverBtn.Click += (s, e) =>
             {
+                // №1: в комбоксе лежат PrettyName без расширения («general (ALT)»),
+                // а InstallService читает файл по имени. Берём реальный файл из
+                // GetStrategyFiles по индексу — как это делает DoInstall.
+                // Индекс снимаем здесь, в UI-потоке: тело Guarded выполняется в пуле,
+                // а SelectedIndex — свойство WPF-контрола.
+                int pick = _stratPick != null ? _stratPick.SelectedIndex : -1;
                 Guarded(Loc.T("service.foreign.takeover"), delegate
                 {
-                    string strat = _stratPick != null && _stratPick.SelectedItem != null ? _stratPick.SelectedItem.ToString() : null;
+                    var files = Core.GetStrategyFiles();
+                    string strat = (pick >= 0 && pick < files.Count) ? files[pick] : null;
                     if (Core.TakeoverForeignService(strat))
                     {
                         Core.Good(Loc.T("service.foreign.takeoverOk"));
@@ -318,7 +313,6 @@ namespace ZapretStudio
                     }
                 });
             };
-            btns.Children.Add(takeoverBtn);
 
             var removeBtn = Ctl.Button(Loc.T("service.foreign.remove"), Icons.Trash, 2);
             removeBtn.Click += (s, e) =>
@@ -336,9 +330,10 @@ namespace ZapretStudio
                     }
                 });
             };
-            btns.Children.Add(removeBtn);
 
-            content.Children.Add(btns);
+            // Кнопки в один ряд той же системой, что и везде: равные ячейки строго
+            // по ширине карточки, а не WrapPanel с индивидуальными отступами.
+            content.Children.Add(Ctl.ButtonRow(takeoverBtn, removeBtn));
 
             _foreignCard = UI.Card(content, new Thickness(16, 14, 16, 14));
             _foreignCard.BorderBrush = Theme.BrWarn;

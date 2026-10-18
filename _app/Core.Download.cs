@@ -19,48 +19,43 @@ namespace ZapretStudio
 
     static partial class Core
     {
-        // Резервная ссылка на архив ветки. Обычно используется архив последнего
-        // релиза: он содержит готовые Windows-компоненты и не зависит от имени версии.
-        public static string ZapretZipUrl { get { return Endpoints.ZapretZipUrl; } }
         public static string ZapretReleaseApi { get { return Endpoints.ZapretReleaseApi; } }
 
-        // Адрес ZIP-ассета последнего релиза. GitHub меняет имя архива вместе с
-        // версией, поэтому берём точную ссылку из API. Если API временно недоступен,
-        // остаётся рабочий резервный вариант с main.zip.
-        public static string ZapretDownloadUrl(string version)
+        // Адрес ZIP-ассета последнего релиза и его SHA-256 из поля digest GitHub API.
+        // GitHub меняет имя архива вместе с версией, поэтому берём точную ссылку
+        // из API; digest публикуется там же, отдельного файла сумм в релизах нет.
+        // №33: раньше архив скачивался и распаковывался без всякой сверки, а
+        // SHA256SUMS.txt внутри него искать бесполезно — апстрим его не публикует.
+        public static bool ZapretZipAssets(out string url, out string sha256)
         {
-            string normalized = string.IsNullOrEmpty(version) ? null : version.Trim().TrimStart('v', 'V');
-            if (string.IsNullOrEmpty(normalized))
+            url = null; sha256 = null;
+            string json = FetchReleaseJson(ZapretReleaseApi);
+            if (string.IsNullOrEmpty(json)) return false;
+            foreach (var a in Endpoints.ReleaseAssets(json))
             {
-                string detected = CheckLatestVersion();
-                if (!string.IsNullOrEmpty(detected)) normalized = detected.Trim().TrimStart('v', 'V');
+                if (!a.Key.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) continue;
+                url = a.Value;
+                sha256 = Endpoints.ReleaseAssetDigest(json, a.Key);
+                return true;
             }
-            if (!string.IsNullOrEmpty(normalized))
-                return Endpoints.ZapretRepo + "/releases/download/" + normalized
-                    + "/zapret-discord-youtube-" + normalized + ".zip";
-            try
-            {
-                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | (SecurityProtocolType)3072;
-                using (var wc = new WebClient())
-                {
-                    wc.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-                    string json = wc.DownloadString(ZapretReleaseApi);
-                    var matches = System.Text.RegularExpressions.Regex.Matches(
-                        json, "\\\"browser_download_url\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
-                    foreach (System.Text.RegularExpressions.Match m in matches)
-                    {
-                        string url = m.Groups[1].Value;
-                        if (url.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) return url;
-                    }
-                }
-            }
-            catch { }
-            return ZapretZipUrl;
+            return false;
         }
 
-        public static string ZapretDownloadUrl()
+        // Скачать файл и сверить с ожидаемой суммой. Ошибка загрузки остаётся в
+        // журнале и в прерванном прогрессе (error == null) — у вызывающего кода
+        // уже есть свои тексты на этот случай.
+        public static bool DownloadVerified(string url, string expectedSha256, string destPath,
+            Action<DlProgress> onProgress, Func<bool> isCancelled, out string error)
         {
-            return ZapretDownloadUrl(null);
+            error = null;
+            if (string.IsNullOrEmpty(expectedSha256)) { error = Loc.T("dl.hashMissing"); Warn(error); return false; }
+            if (!DownloadFile(url, destPath, onProgress, isCancelled)) return false;
+            if (!VerifySha256(destPath, expectedSha256, out error))
+            {
+                try { if (File.Exists(destPath)) File.Delete(destPath); } catch { }
+                return false;
+            }
+            return true;
         }
 
         // Человекочитаемый размер.
@@ -90,7 +85,6 @@ namespace ZapretStudio
                 string dir = Path.GetDirectoryName(destPath);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
                 if (File.Exists(tempPath)) File.Delete(tempPath);
-                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | (SecurityProtocolType)3072;
                 var req = (HttpWebRequest)WebRequest.Create(url);
                 req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
                 req.AllowAutoRedirect = true;
@@ -129,23 +123,18 @@ namespace ZapretStudio
                             }
                         }
                         pr.BytesRead = total;
+                        // №33: цикл завершается по read == 0, поэтому оборванное
+                        // соединение выглядело как успешная загрузка укороченного
+                        // файла. Content-Length известен не всегда (chunked) — тогда
+                        // сверять не с чем.
+                        if (pr.Total > 0 && total != pr.Total)
+                            throw new Exception(string.Format(Loc.T("dl.sizeMismatch"),
+                                HumanSize(total), HumanSize(pr.Total)));
                     }
                 }
                 // Не портим рабочий файл при обрыве сети: новый файл попадает на
                 // место назначения только после полной успешной загрузки.
-                string backup = destPath + ".bak";
-                if (File.Exists(backup)) File.Delete(backup);
-                if (File.Exists(destPath)) File.Move(destPath, backup);
-                try
-                {
-                    File.Move(tempPath, destPath);
-                    if (File.Exists(backup)) File.Delete(backup);
-                }
-                catch
-                {
-                    if (!File.Exists(destPath) && File.Exists(backup)) File.Move(backup, destPath);
-                    throw;
-                }
+                ReplaceWithBackup(tempPath, destPath);
                 pr.Elapsed = sw.Elapsed;
                 try { if (onProgress != null) onProgress(pr); } catch { }
                 return true;
@@ -214,13 +203,37 @@ namespace ZapretStudio
                 if (files.Length == 0 && dirs.Length == 1) src = dirs[0];
 
                 if (!Directory.Exists(destDir)) Directory.CreateDirectory(destDir);
+
+                // №8: пред-проверка блокировок до первой записи. Раньше каталог
+                // подменялся пофайлово, и занятым winws.exe/WinDivert64.sys обновление
+                // обрывалось на середине — установка оставалась собранной из двух версий.
+                //
+                // Проверка повторяется: даже после KillWinws() файл остаётся занятым
+                // ещё долю секунды (отсоединение секции образа, скан Defender, служба в
+                // STOP_PENDING). Одиночная проверка отменяла обновление с «выключите
+                // обход» ровно тогда, когда приложение обход уже остановило само.
+                var targets = CollectTargets(src, destDir);
+                var locked = new List<string>();
+                for (int attempt = 0; attempt < LockCheckTries; attempt++)
+                {
+                    locked = LockedNames(targets);
+                    if (locked.Count == 0) break;
+                    if (attempt + 1 < LockCheckTries) System.Threading.Thread.Sleep(LockCheckDelayMs);
+                }
+                if (locked.Count > 0)
+                {
+                    DeleteDirSafe(tmp);
+                    error = string.Format(Loc.T("dl.lockedFiles"), string.Join(", ", locked.Take(6).ToArray()));
+                    return false;
+                }
+
                 if (onStage != null) onStage("replace");
                 var copyErrors = new List<string>();
-                CopyDir(src, destDir, ref copyErrors);
+                CopyStaged(targets, copyErrors);
                 DeleteDirSafe(tmp);
                 if (copyErrors.Count > 0)
                 {
-                    error = "Locked files: " + string.Join("; ", copyErrors.Take(3).ToArray());
+                    error = WritePartialReport(destDir, copyErrors);
                     return false;
                 }
                 return true;
@@ -231,6 +244,134 @@ namespace ZapretStudio
                 error = Short(ex.Message);
                 return false;
             }
+        }
+
+        // Заменить файл с откатом: старая копия уходит в .bak и возвращается на
+        // место, если перенос не удался.
+        // №40: раньше удаление .bak стояло в одном try с переносом. Если старый
+        // файл держал антивирус, catch не откатывался (новый файл уже на месте) и
+        // пробрасывал исключение — «Загрузка не удалась» при успешно обновлённом
+        // файле, а кнопка «Обновить» оставалась висеть.
+        public static void ReplaceWithBackup(string src, string dest)
+        {
+            string backup = dest + ".bak";
+            try { if (File.Exists(backup)) File.Delete(backup); } catch { }
+            if (File.Exists(dest)) File.Move(dest, backup);
+            try { File.Move(src, dest); }
+            catch
+            {
+                if (!File.Exists(dest) && File.Exists(backup)) File.Move(backup, dest);
+                throw;
+            }
+            try { if (File.Exists(backup)) File.Delete(backup); }
+            catch (Exception bex) { Info(string.Format(Loc.T("dl.bakKept"), backup, Short(bex.Message))); }
+        }
+
+        // Файл занят (winws держит драйвер, exe открыт антивирусом) — File.Copy
+        // на нём упадёт, поэтому проверять нужно до начала замены.
+        static bool Locked(string path)
+        {
+            if (!File.Exists(path)) return false;
+            try { using (File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { } return false; }
+            catch { return true; }
+        }
+
+        // Сколько раз и с каким шагом перепроверять занятость файлов перед заменой.
+        const int LockCheckTries = 7;
+        const int LockCheckDelayMs = 400;
+
+        static List<string> LockedNames(List<string[]> targets)
+        {
+            var locked = new List<string>();
+            foreach (var t in targets) if (Locked(t[1])) locked.Add(Path.GetFileName(t[1]));
+            return locked;
+        }
+
+        // Пары «источник → цель» в порядке копирования. service.bat идёт последним:
+        // Core.ZapretVersion() читает версию из него, и при прежнем алфавитном порядке
+        // он обновлялся раньше бинарников из bin\ — номер версии обгонял содержимое.
+        static List<string[]> CollectTargets(string src, string dst)
+        {
+            var list = new List<string[]>();
+            var tail = new List<string[]>();
+            CollectTargetsRec(src, dst, list, tail, 0);
+            list.AddRange(tail);
+            return list;
+        }
+
+        static void CollectTargetsRec(string src, string dst, List<string[]> list, List<string[]> tail, int depth)
+        {
+            if (depth > 32 || !Directory.Exists(src)) return;
+            foreach (var f in Directory.GetFiles(src))
+            {
+                var pair = new string[] { f, Path.Combine(dst, Path.GetFileName(f)) };
+                if (depth == 0 && Path.GetFileName(f).Equals("service.bat", StringComparison.OrdinalIgnoreCase)) tail.Add(pair);
+                else list.Add(pair);
+            }
+            foreach (var d in Directory.GetDirectories(src))
+            {
+                string dirName = Path.GetFileName(d);
+                if (dirName.Equals(".github", StringComparison.OrdinalIgnoreCase) ||
+                    dirName.Equals(".git", StringComparison.OrdinalIgnoreCase) ||
+                    dirName.Equals(".service", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                CollectTargetsRec(d, Path.Combine(dst, dirName), list, tail, depth + 1);
+            }
+        }
+
+        static void CopyStaged(List<string[]> targets, List<string> errors)
+        {
+            foreach (var p in targets)
+            {
+                try
+                {
+                    string dir = Path.GetDirectoryName(p[1]);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                    if (File.Exists(p[1]))
+                    {
+                        try { File.SetAttributes(p[1], FileAttributes.Normal); } catch { }
+                    }
+                    // Повтор на занятом файле: пред-проверка и реальная запись — это
+                    // разные моменты, между ними winws может подняться службой снова.
+                    // Один промах не должен превращать обновление в «применено частично».
+                    Exception last = null;
+                    for (int i = 0; i < 4; i++)
+                    {
+                        try { File.Copy(p[0], p[1], true); last = null; break; }
+                        catch (Exception exCopy)
+                        {
+                            last = exCopy;
+                            if (i < 3) System.Threading.Thread.Sleep(250);
+                        }
+                    }
+                    if (last != null) throw last;
+                }
+                catch (Exception ex)
+                {
+                    if (errors != null) errors.Add(Path.GetFileName(p[0]) + ": " + ex.Message);
+                }
+            }
+        }
+
+        // №8: список незаменённых файлов сохраняется рядом с каталогом и попадает в
+        // журнал — иначе «Центр обновлений» показывал только «Не удалось распаковать»,
+        // а установка молча оставалась гибридной.
+        static string WritePartialReport(string destDir, List<string> errors)
+        {
+            string path = Path.Combine(destDir, "zapret_update.partial.txt");
+            try
+            {
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine("Lantern: update applied partially / обновление применено частично");
+                sb.AppendLine(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                foreach (var e in errors) sb.AppendLine(e);
+                WriteFileAtomic(path, sb.ToString());
+            }
+            catch (Exception ex) { path = null; Warn("partial report: " + ex.Message); }
+            string msg = string.Format(Loc.T("dl.partialReport"),
+                string.Join("; ", errors.Take(3).ToArray()), path ?? "-");
+            Warn(msg);
+            return msg;
         }
 
         public static void DeleteDirSafe(string dir)
@@ -250,40 +391,23 @@ namespace ZapretStudio
             {
                 try { Directory.Delete(dir, true); } catch { }
             }
+            // №50: оба catch глотали ошибку одинаково, и каталоги zapret_unz_<guid>
+            // оставались в %TEMP% навсегда без единого следа в журнале.
+            if (Directory.Exists(dir)) Warn(string.Format(Loc.T("dl.tmpLeft"), dir));
         }
 
-        static bool CopyDir(string src, string dst, ref List<string> errors, int depth = 0)
+        // Свободное место на диске, где лежит каталог; -1, если узнать не удалось.
+        public static long FreeSpaceOf(string path)
         {
-            if (depth > 32 || !Directory.Exists(src)) return true;
-            if (!Directory.Exists(dst)) Directory.CreateDirectory(dst);
-            bool ok = true;
-            foreach (var f in Directory.GetFiles(src))
+            try
             {
-                string targetFile = Path.Combine(dst, Path.GetFileName(f));
-                try
-                {
-                    if (File.Exists(targetFile))
-                    {
-                        try { File.SetAttributes(targetFile, FileAttributes.Normal); } catch { }
-                    }
-                    File.Copy(f, targetFile, true);
-                }
-                catch (Exception ex)
-                {
-                    ok = false;
-                    if (errors != null) errors.Add(Path.GetFileName(f) + ": " + ex.Message);
-                }
+                if (string.IsNullOrEmpty(path)) return -1;
+                string root = Path.GetPathRoot(Path.GetFullPath(path));
+                if (string.IsNullOrEmpty(root)) return -1;
+                var di = new DriveInfo(root);
+                return di.IsReady ? di.AvailableFreeSpace : -1;
             }
-            foreach (var d in Directory.GetDirectories(src))
-            {
-                string dirName = Path.GetFileName(d);
-                if (dirName.Equals(".github", StringComparison.OrdinalIgnoreCase) ||
-                    dirName.Equals(".git", StringComparison.OrdinalIgnoreCase) ||
-                    dirName.Equals(".service", StringComparison.OrdinalIgnoreCase))
-                    continue;
-                if (!CopyDir(d, Path.Combine(dst, dirName), ref errors, depth + 1)) ok = false;
-            }
-            return ok;
+            catch { return -1; }
         }
 
         // Пометить корень в локальном gui-config рядом с exe, сохраняя остальные настройки.
@@ -294,14 +418,10 @@ namespace ZapretStudio
         // никто не искал, и «выбранная папка» не помнилась между запусками.
         // Поэтому строку root пишем в локальный файл напрямую, независимо от
         // текущего ConfigFile и от порядка вызовов SetRoot/RememberRoot.
+        // №41: словарь конфигурации при этом не трогаем — прежние Set("root", …) +
+        // SaveConfig() записывали содержимое файла рядом с exe в <Root>\utils\gui-config.ini.
         public static void RememberRoot(string path)
         {
-            try
-            {
-                Set("root", path);
-                SaveConfig();
-            }
-            catch { }
             try
             {
                 string local = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "gui-config.ini");
@@ -319,7 +439,7 @@ namespace ZapretStudio
                 }
                 else lines.Add("# ZapretStudio GUI config");
                 lines.Add("root = " + path);
-                File.WriteAllText(local, string.Join(Environment.NewLine, lines.ToArray()) + Environment.NewLine);
+                WriteFileAtomic(local, string.Join(Environment.NewLine, lines.ToArray()) + Environment.NewLine);
             }
             catch (Exception ex) { Warn("RememberRoot: " + ex.Message); }
         }

@@ -134,6 +134,31 @@ namespace ZapretStudio
             return result;
         }
 
+        // winws.exe, запущенные НЕ из текущего корня zapret. KillWinws их не
+        // трогает (см. IsRootWinws), но драйвер WinDivert у них общий: два winws
+        // применяют десинк к одним и тем же пакетам.
+        public static List<string> ForeignWinwsPaths()
+        {
+            var result = new List<string>();
+            try
+            {
+                foreach (var p in Process.GetProcessesByName("winws"))
+                {
+                    try
+                    {
+                        if (IsRootWinws(p)) continue;
+                        string file = null;
+                        try { file = p.MainModule.FileName; } catch { }
+                        result.Add(string.IsNullOrEmpty(file) ? "winws.exe (pid " + p.Id + ")" : file);
+                    }
+                    catch { }
+                    finally { try { p.Dispose(); } catch { } }
+                }
+            }
+            catch { }
+            return result;
+        }
+
         public static bool IsWinwsRunning()
         {
             if (_lastKnownWinwsPid > 0)
@@ -162,12 +187,52 @@ namespace ZapretStudio
             finally { foreach (var p in procs) p.Dispose(); }
         }
 
+        public static DateTime? WinwsProcessStartTime()
+        {
+            var procs = RootWinwsProcesses();
+            try
+            {
+                if (procs.Count > 0)
+                {
+                    try { return procs[0].StartTime; } catch { }
+                }
+                return null;
+            }
+            finally
+            {
+                foreach (var p in procs) { try { p.Dispose(); } catch { } }
+            }
+        }
+
         public static bool StartWinws(string batFileName)
         {
             EnsureUserLists();
             string args;
             try { args = BuildArgs(batFileName); }
             catch (Exception ex) { Say(Sev.Err, "StartWinws: " + ex.Message); return false; }
+
+            // service.bat на каждом запуске стратегии вызывает :tcp_enable —
+            // netsh interface tcp set global timestamps=enabled. Группы правил с
+            // --dpi-desync-fooling=ts без меток времени RFC 1323 не работают,
+            // поэтому одна и та же стратегия из bat шла, а из приложения — нет.
+            // Держим поведение bat.
+            if (args.IndexOf("fooling=ts", StringComparison.OrdinalIgnoreCase) >= 0 && !TcpTimestampsEnabled())
+            {
+                if (EnableTcpTimestamps()) Good(Loc.T("winws.tsEnabled"));
+                else Warn(Loc.T("winws.tsFailed"));
+            }
+
+            // Чужой winws (вторая копия zapret — например bat из репозитория при
+            // запущенном приложении из C:\Program Files\Lantern\zapret) не
+            // убивается KillWinws, потому что IsRootWinws сверяет точный путь exe.
+            // Два winws применяют десинк к одним и тем же пакетам, обход ломается,
+            // а в приложении всё выглядит запущенным. Молча убивать чужой процесс
+            // нельзя — предупреждаем.
+            var foreignPaths = ForeignWinwsPaths();
+            if (foreignPaths.Count > 0)
+                Warn(string.Format(Loc.T("winws.foreign"), foreignPaths.Count, string.Join("; ", foreignPaths.ToArray())));
+
+            WinwsLogClear();
             var psi = new ProcessStartInfo
             {
                 FileName = WinwsExe, Arguments = args,
@@ -186,12 +251,24 @@ namespace ZapretStudio
                 p.ErrorDataReceived += delegate(object s, DataReceivedEventArgs e) { WinwsLogAppend(e.Data); };
                 p.BeginOutputReadLine();
                 p.BeginErrorReadLine();
+                p.EnableRaisingEvents = true;
+                p.Exited += delegate
+                {
+                    int code = 0;
+                    try { code = p.ExitCode; } catch { }
+                    if (code != 0)
+                    {
+                        string tail = WinwsLogTail(2);
+                        Say(Sev.Err, "winws exited with code " + code + (string.IsNullOrEmpty(tail) ? "" : ": " + tail.Trim()));
+                    }
+                };
                 // Process.Start успешен даже если winws немедленно завершился
                 // из-за неверных аргументов или отсутствующего драйвера.
-                System.Threading.Thread.Sleep(150);
+                System.Threading.Thread.Sleep(300);
                 if (p.HasExited)
                 {
-                    Say(Sev.Err, "StartWinws: winws exited with code " + p.ExitCode);
+                    string tail = WinwsLogTail(2);
+                    Say(Sev.Err, "StartWinws: winws exited with code " + p.ExitCode + (string.IsNullOrEmpty(tail) ? "" : ": " + tail.Trim()));
                     p.Dispose();
                     return false;
                 }
@@ -207,23 +284,41 @@ namespace ZapretStudio
         public static bool KillWinws()
         {
             bool ok = true;
+            var owned = _winwsProcess;
+            _winwsProcess = null;
             _lastKnownWinwsPid = -1;
-            if (_winwsProcess != null)
+            // №50: Dispose() процесс не завершает. winws обязан быть мёртв до
+            // RemoveService()/sc delete — иначе служба остаётся «помеченной на
+            // удаление», а драйвер WinDivert держит файлы в {app}\zapret\bin.
+            if (owned != null)
             {
-                try { _winwsProcess.Dispose(); } catch { }
-                _winwsProcess = null;
+                try
+                {
+                    if (!owned.HasExited) owned.Kill();
+                    if (!owned.WaitForExit(5000)) ok = false;
+                }
+                catch { ok = false; }
+                try { owned.Dispose(); } catch { }
             }
             var procs = RootWinwsProcesses();
             try
             {
                 foreach (var p in procs)
                 {
-                    try { p.Kill(); if (!p.WaitForExit(5000)) ok = false; }
+                    try
+                    {
+                        if (!p.HasExited) p.Kill();
+                        if (!p.WaitForExit(5000)) ok = false;
+                    }
                     catch { ok = false; }
                 }
             }
             finally { foreach (var p in procs) p.Dispose(); }
             StartedAt = null;
+            // №70: здесь больше НЕclear'ится кольцо WinwsLog*. KillWinws вызывается
+            // из проб и автоподбора (Core.Watchdog.cs, View.Check.cs), то есть журнал
+            // стирался ровно перед тем, как его показывали в диагностике упавшей
+            // стратегии. Буфер очищается перед следующим запуском в StartWinws.
             return ok;
         }
 
@@ -271,14 +366,22 @@ namespace ZapretStudio
         // reg query — дорогой запуск процесса: кэшируем на несколько секунд,
         // страницы статуса опрашивают это значение каждую секунду.
         static string _serviceStrategyCache;
+        static bool _serviceStrategyCached;
         static DateTime _serviceStrategyAt;
         static readonly object _serviceStrategyLock = new object();
-        public static void InvalidateServiceStrategyCache() { lock (_serviceStrategyLock) _serviceStrategyCache = null; }
+        public static void InvalidateServiceStrategyCache()
+        {
+            lock (_serviceStrategyLock)
+            {
+                _serviceStrategyCached = false;
+                _serviceStrategyCache = null;
+            }
+        }
         public static string ServiceStrategy()
         {
             lock (_serviceStrategyLock)
             {
-                if (_serviceStrategyCache != null && (DateTime.Now - _serviceStrategyAt).TotalSeconds < 4)
+                if (_serviceStrategyCached && (DateTime.Now - _serviceStrategyAt).TotalSeconds < 4)
                     return _serviceStrategyCache;
             }
             string result = null;
@@ -292,6 +395,7 @@ namespace ZapretStudio
             lock (_serviceStrategyLock)
             {
                 _serviceStrategyCache = result;
+                _serviceStrategyCached = true;
                 _serviceStrategyAt = DateTime.Now;
             }
             return result;
@@ -302,6 +406,7 @@ namespace ZapretStudio
             EnsureUserLists();
             RemoveService();
             KillWinws();
+            WinwsLogClear();
 
             string args;
             try { args = BuildArgs(batFileName); }
@@ -329,6 +434,29 @@ namespace ZapretStudio
 
 public static bool StartService() { string err; bool ok = Run("sc", "start " + ServiceName, 20000, out err); if (ok) StartedAt = DateTime.Now; InvalidateServiceStrategyCache(); return ok; }
         public static bool StopService()  { string err; bool ok = Run("sc", "stop " + ServiceName, 20000, out err); if (ok) StartedAt = null; InvalidateServiceStrategyCache(); return ok; }
+
+        // «sc stop» отвечает сразу, а служба в этот момент ещё STOP_PENDING: winws.exe
+        // живёт до завершения. Без ожидания остановка считалась успешной, проверка
+        // блокировок видела занятые файлы и обновление отменялось с «выключите
+        // обход» — хотя обход как раз остановили. Ждём реальный STOPPED.
+        public static bool WaitServiceStopped(int timeoutMs)
+        {
+            try
+            {
+                using (var sc = new System.ServiceProcess.ServiceController(ServiceName))
+                {
+                    if (sc.Status == System.ServiceProcess.ServiceControllerStatus.Stopped) return true;
+                    try
+                    {
+                        sc.WaitForStatus(System.ServiceProcess.ServiceControllerStatus.Stopped,
+                            TimeSpan.FromMilliseconds(timeoutMs));
+                    }
+                    catch { }
+                    return sc.Status == System.ServiceProcess.ServiceControllerStatus.Stopped;
+                }
+            }
+            catch { return false; }
+        }
 
         public static bool RemoveService()
         {
@@ -365,9 +493,28 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
         }
         public static bool WinDivertLoaded()
         {
-            string o = Capture("sc", "query WinDivert", 15000);
-            return o.IndexOf("RUNNING", StringComparison.OrdinalIgnoreCase) >= 0
-                || o.IndexOf("STOP_PENDING", StringComparison.OrdinalIgnoreCase) >= 0;
+            try
+            {
+                using (var sc = new System.ServiceProcess.ServiceController("WinDivert"))
+                {
+                    var status = sc.Status;
+                    return status == System.ServiceProcess.ServiceControllerStatus.Running ||
+                           status == System.ServiceProcess.ServiceControllerStatus.StopPending ||
+                           status == System.ServiceProcess.ServiceControllerStatus.StartPending;
+                }
+            }
+            catch { }
+            try
+            {
+                using (var sc = new System.ServiceProcess.ServiceController("WinDivert14"))
+                {
+                    var status = sc.Status;
+                    return status == System.ServiceProcess.ServiceControllerStatus.Running ||
+                           status == System.ServiceProcess.ServiceControllerStatus.StopPending ||
+                           status == System.ServiceProcess.ServiceControllerStatus.StartPending;
+                }
+            }
+            catch { return false; }
         }
 
         // ---- TG-Proxy автозагрузка (реестр HKCU\...\Run) ----
@@ -394,8 +541,9 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
 
             bool v = false;
             // schtasks печатает имя задачи в stdout только если она существует;
-            // сообщение об отсутствии уходит в stderr и в вывод не попадает.
-            string o = Capture("schtasks", "/Query /TN " + Q(AppTaskName), 8000);
+            // сообщение об отсутствии («ОШИБКА: Указанная задача не найдена»)
+            // уходит в stderr, поэтому смотрим строго stdout — CaptureOut.
+            string o = CaptureOut("schtasks", "/Query /TN " + Q(AppTaskName), 8000);
             if (o.IndexOf(AppTaskName, StringComparison.OrdinalIgnoreCase) >= 0) v = true;
             if (!v)
             {
@@ -443,6 +591,7 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
             if (!enable)
             {
                 Run("schtasks", "/Delete /F /TN " + Q(AppTaskName), 15000, out err);
+                lock (_autostartLock) { _autostartCache = false; _autostartAt = DateTime.Now; }
                 return;
             }
 
@@ -457,19 +606,30 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
             // /RL HIGHEST — запуск с полными правами администратора (без запроса UAC),
             // /SC ONLOGON — при входе пользователя. /RU и /RP не указываем: задача
             // создаётся для текущего пользователя и не требует пароля.
-            if (!Run("schtasks", "/Create /F /TN " + Q(AppTaskName) +
-                     " /TR " + Arg(taskCmd) + " /SC ONLOGON /RL HIGHEST", 15000, out err))
+            bool created = Run("schtasks", "/Create /F /TN " + Q(AppTaskName) +
+                     " /TR " + Arg(taskCmd) + " /SC ONLOGON /RL HIGHEST", 15000, out err);
+            bool fallbackOk = false;
+            if (!created)
             {
                 Warn("SetAppAutostart: schtasks failed (" + (err ?? "?") + ")");
                 // Планировщик недоступен — возвращаемся к HKCU\Run как к
                 // «лучше, чем ничего»: сработает, если UAC отключён.
+                // CreateSubKey, а не OpenSubKey: ключа Run может просто не быть.
                 try
                 {
-                    using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunRegistryPath, true))
-                        if (key != null) key.SetValue(AppRunKey, taskCmd);
+                    using (var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(RunRegistryPath))
+                    {
+                        if (key == null) throw new Exception(RunRegistryPath + " not openable");
+                        key.SetValue(AppRunKey, taskCmd);
+                        fallbackOk = true;
+                    }
                 }
                 catch (Exception ex) { Warn("SetAppAutostart: " + ex.Message); }
             }
+            // Кэш обязан отражать реальное состояние. Раньше _autostartCache = true
+            // ставился безусловно — при отказе и планировщика, и реестра тумблер
+            // показывал «включено», хотя автозапуска не было.
+            lock (_autostartLock) { _autostartCache = created || fallbackOk; _autostartAt = DateTime.Now; }
         }
 
         public static bool TgAutostartEnabled()
@@ -548,7 +708,45 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
             }
             catch (Exception ex) { error = Short(ex.Message); return false; }
         }
+        // №2d: консольные утилиты пишут в кодовой странице консоли (на русской
+        // Windows это CP866), а не в UTF-8 — прежний Encoding.UTF8 превращал
+        // русский вывод sc.exe/schtasks в знаки замены и ломал диагностику.
+        // Исключение — netsh: он при перенаправлении отдаёт UTF-8 (проверено
+        // побайтово), для него CaptureUtf8.
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        static extern uint GetConsoleOutputCP();
+
+        static System.Text.Encoding _consoleEnc;
+        static System.Text.Encoding ConsoleEncoding
+        {
+            get
+            {
+                if (_consoleEnc == null)
+                {
+                    try { _consoleEnc = System.Text.Encoding.GetEncoding((int)GetConsoleOutputCP()); }
+                    catch { _consoleEnc = System.Text.Encoding.Default; }
+                }
+                return _consoleEnc;
+            }
+        }
+
+        // stdout+stderr одним буфером, OEM-кодировка (sc, reg, schtasks, net).
         static string Capture(string file, string args, int timeoutMs)
+        {
+            return CaptureCore(file, args, timeoutMs, ConsoleEncoding, true);
+        }
+        // Только stdout: «есть ли задача/служба» нельзя определять по тексту ошибки.
+        static string CaptureOut(string file, string args, int timeoutMs)
+        {
+            return CaptureCore(file, args, timeoutMs, ConsoleEncoding, false);
+        }
+        // netsh → UTF-8.
+        static string CaptureUtf8(string file, string args, int timeoutMs)
+        {
+            return CaptureCore(file, args, timeoutMs, new System.Text.UTF8Encoding(false), true);
+        }
+
+        static string CaptureCore(string file, string args, int timeoutMs, System.Text.Encoding enc, bool mergeStdErr)
         {
             try
             {
@@ -556,19 +754,49 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
                 {
                     FileName = file, Arguments = args, UseShellExecute = false, CreateNoWindow = true,
                     WindowStyle = ProcessWindowStyle.Hidden, RedirectStandardOutput = true, RedirectStandardError = true,
-                    StandardOutputEncoding = System.Text.Encoding.UTF8, StandardErrorEncoding = System.Text.Encoding.UTF8
+                    StandardOutputEncoding = enc, StandardErrorEncoding = enc
                 };
-                var sb = new System.Text.StringBuilder();
+                var so = new System.Text.StringBuilder();
+                var se = new System.Text.StringBuilder();
+                // Счётчик незакрытых ридеров: e.Data == null — документированный
+                // признак конца потока. Ждём их явно, но ограниченно.
+                object drainSync = new object();
+                int drainPending = 2;
                 using (var p = Process.Start(psi))
                 {
-                    p.OutputDataReceived += delegate(object s, DataReceivedEventArgs e) { if (e.Data != null) lock (sb) sb.AppendLine(e.Data); };
-                    p.ErrorDataReceived += delegate(object s, DataReceivedEventArgs e) { if (e.Data != null) lock (sb) sb.AppendLine(e.Data); };
+                    p.OutputDataReceived += delegate(object s, DataReceivedEventArgs e)
+                    {
+                        if (e.Data != null) { lock (so) so.AppendLine(e.Data); }
+                        else lock (drainSync) { drainPending--; System.Threading.Monitor.PulseAll(drainSync); }
+                    };
+                    p.ErrorDataReceived += delegate(object s, DataReceivedEventArgs e)
+                    {
+                        if (e.Data != null) { lock (se) se.AppendLine(e.Data); }
+                        else lock (drainSync) { drainPending--; System.Threading.Monitor.PulseAll(drainSync); }
+                    };
                     p.BeginOutputReadLine();
                     p.BeginErrorReadLine();
-                    if (!p.WaitForExit(timeoutMs)) { try { p.Kill(); } catch { } return ""; }
-                    // Дать async-ридерам завершить
-                    p.WaitForExit();
-                    lock (sb) return sb.ToString();
+                    if (!p.WaitForExit(timeoutMs)) { try { p.Kill(); } catch { } }
+                    // №12: прежний p.WaitForExit() без тайм-аута ждал вечно, если
+                    // дочерний процесс унаследовал handle перенаправленного потока.
+                    // Совсем не ждать тоже нельзя — вывод вернётся обрезанным, а его
+                    // парсят ServiceStrategy/TcpTimestampsEnabled. WaitAll не
+                    // подходит: он бросает исключение в STA-потоке (UI).
+                    int deadline = Environment.TickCount + 3000;
+                    lock (drainSync)
+                    {
+                        while (drainPending > 0)
+                        {
+                            int left = deadline - Environment.TickCount;
+                            if (left <= 0) break;
+                            System.Threading.Monitor.Wait(drainSync, left);
+                        }
+                    }
+                    lock (so)
+                    {
+                        if (!mergeStdErr) return so.ToString();
+                        lock (se) return so.ToString() + se.ToString();
+                    }
                 }
             }
             catch { return ""; }
@@ -590,7 +818,7 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
                 };
                 using (var p = Process.Start(psi))
                 {
-                    p.WaitForExit(10000);
+                    if (!p.WaitForExit(10000)) { try { p.Kill(); } catch { } return false; }
                     return p.ExitCode == 0;
                 }
             }
@@ -612,7 +840,7 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
                 };
                 using (var p = Process.Start(psi))
                 {
-                    p.WaitForExit(5000);
+                    if (!p.WaitForExit(5000)) { try { p.Kill(); } catch { } return false; }
                     return p.ExitCode == 0;
                 }
             }
@@ -646,7 +874,10 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
             try
             {
                 GC.Collect(1, GCCollectionMode.Optimized);
-                SetProcessWorkingSetSize(Process.GetCurrentProcess().Handle, (IntPtr)(-1), (IntPtr)(-1));
+                using (var cur = Process.GetCurrentProcess())
+                {
+                    SetProcessWorkingSetSize(cur.Handle, (IntPtr)(-1), (IntPtr)(-1));
+                }
             }
             catch { }
         }

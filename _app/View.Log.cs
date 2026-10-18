@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -77,6 +80,10 @@ namespace ZapretStudio
             _list.ItemTemplate = MakeRowTemplate();
             // Убираем стандартную подсветку выделения — журнал не «выбирается».
             _list.ItemContainerStyle = MakeContainerStyle();
+            _list.PreviewMouseWheel += (s, e) =>
+            {
+                if (e.Delta > 0) _autoscroll = false;
+            };
         }
 
         static Style MakeContainerStyle()
@@ -95,6 +102,8 @@ namespace ZapretStudio
         {
             var t = new DataTemplate();
 
+            // Оформление строк как в 9.0: скруглённая плашка с тонированным фоном
+            // уровня и цветной полосой слева.
             var borderF = new FrameworkElementFactory(typeof(Border), "bd");
             borderF.SetValue(Border.CornerRadiusProperty, Theme.R6);
             borderF.SetValue(Border.PaddingProperty, new Thickness(10, 7, 10, 7));
@@ -163,60 +172,73 @@ namespace ZapretStudio
         void BuildToolbar()
         {
             var wrap = new WrapPanel();
+
             var sb = new Border { Background = Theme.BrSurface, BorderBrush = Theme.BrStroke,
                 BorderThickness = new Thickness(1), CornerRadius = Theme.R10, Padding = new Thickness(12, 0, 12, 0),
                 Margin = new Thickness(0, 0, 10, 10) };
             var sg = new StackPanel { Orientation = Orientation.Horizontal };
-            sg.Children.Add(UI.Icon(Icons.Search, 16, Theme.BrMuted, 1.8));
+            var sIcon = UI.Icon(Icons.Search, 16, Theme.BrMuted, 1.8);
+            sIcon.VerticalAlignment = VerticalAlignment.Center;
+            sg.Children.Add(sIcon);
+            // Поле поиска живёт в общем ряду с кнопками (как в 9.0): фиксированная
+            // ширина, а не тянущаяся колонка — иначе ряд превращается в два этажа.
             _search = new TextBox { BorderThickness = new Thickness(0), Background = Brushes.Transparent,
                 Foreground = Theme.BrText, CaretBrush = Theme.BrText, FontSize = Theme.FsBody, FontFamily = Theme.UiFont,
                 Width = 220, Height = 38, VerticalContentAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
             Ctl.AutomationSetName(_search, Loc.T("log.search"));
-            _search.TextChanged += (s, e) => RebuildAll();
+            var searchDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+            searchDebounce.Tick += (s, e) =>
+            {
+                searchDebounce.Stop();
+                RebuildAll();
+            };
+            _search.TextChanged += (s, e) =>
+            {
+                searchDebounce.Stop();
+                searchDebounce.Start();
+            };
             sg.Children.Add(_search);
             sb.Child = sg;
             wrap.Children.Add(sb);
 
-            var pause = Ctl.Button(Loc.T("log.pause"), Icons.Stop, 3);
-            pause.Margin = new Thickness(0, 0, 10, 10);
-            pause.Click += (s, e) => { _paused = !_paused; Ctl.SetButtonText(pause, _paused ? Loc.T("log.resume") : Loc.T("log.pause")); };
-            wrap.Children.Add(pause);
+            var pause = Ctl.Button(Loc.T("log.pause"), Icons.Pause, 3);
+            pause.Click += (s, e) => {
+                _paused = !_paused;
+                Ctl.SetButton(pause, _paused ? Loc.T("log.resume") : Loc.T("log.pause"), _paused ? Icons.Play : Icons.Pause, 3);
+            };
 
             var scroll = Ctl.Button(Loc.T("log.autoscroll"), Icons.Down, 3);
-            scroll.Margin = new Thickness(0, 0, 10, 10);
             scroll.Click += (s, e) => { _autoscroll = !_autoscroll; };
-            wrap.Children.Add(scroll);
 
             var copy = Ctl.Button(Loc.T("log.copyBtn"), Icons.Copy, 1);
-            copy.Margin = new Thickness(0, 0, 10, 10);
             copy.Click += (s, e) => CopyAll();
-            wrap.Children.Add(copy);
 
             var save = Ctl.Button(Loc.T("log.save"), Icons.Save, 1);
-            save.Margin = new Thickness(0, 0, 10, 10);
             save.Click += (s, e) => SaveAll();
-            wrap.Children.Add(save);
 
             var diag = Ctl.Button(Loc.T("log.diag"), Icons.Shield, 1);
-            diag.Margin = new Thickness(0, 0, 10, 10);
+            diag.ToolTip = Loc.T("log.diagTooltip");
             diag.Click += (s, e) => CopyDiag();
-            wrap.Children.Add(diag);
 
             var winwsOut = Ctl.Button(Loc.T("log.winwsOut"), Icons.Terminal, 1);
-            winwsOut.Margin = new Thickness(0, 0, 10, 10);
             winwsOut.Click += (s, e) => CopyWinwsOutput();
-            wrap.Children.Add(winwsOut);
 
             var clear = Ctl.Button(Loc.T("log.clear"), Icons.Cross, 2);
-            clear.Margin = new Thickness(0, 0, 10, 10);
             clear.Click += (s, e) => { lock (Core.Log) Core.Log.Clear(); RebuildAll(); };
-            wrap.Children.Add(clear);
 
             _count = UI.Mono("", Theme.FsTiny, Theme.BrFaint);
             _count.VerticalAlignment = VerticalAlignment.Center;
             _count.Margin = new Thickness(2, 0, 0, 10);
-            wrap.Children.Add(_count);
 
+            // Один жив ряд, как в 9.0: поиск, кнопки и счётчик событий идут по
+            // порядку и сами переносятся на новую строку, когда ширины не хватает.
+            // Растянутые на всю ширину строки ряд ломали: между ними пустота.
+            foreach (FrameworkElement it in new FrameworkElement[] { pause, scroll, copy, save, diag, winwsOut, clear })
+            {
+                it.Margin = new Thickness(0, 0, 10, 10);
+                wrap.Children.Add(it);
+            }
+            wrap.Children.Add(_count);
             Body.Children.Add(wrap);
         }
 
@@ -331,7 +353,7 @@ namespace ZapretStudio
 
         // Коллекция строк UI: виртуализация делает рендер дешёвым, лимит держим
         // только ради памяти самих объектов.
-        const int MaxRows = 4000;
+        const int MaxRows = 1500;
 
         void RebuildAll()
         {
@@ -363,28 +385,43 @@ namespace ZapretStudio
         {
             try
             {
-                string path = System.IO.Path.Combine(SafeRootForOutputs(), "zapret-gui-log.txt");
-                System.IO.File.WriteAllText(path, AllText());
+                string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Lantern", "logs");
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                string path = Path.Combine(dir, "lantern-log-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".txt");
+                using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+                using (var sw = new StreamWriter(fs, Encoding.UTF8))
+                {
+                    sw.Write(AllText());
+                }
                 Core.Good(string.Format(Loc.T("log.saved"), path));
                 Core.OpenFile(path);
             }
             catch (Exception ex) { Core.Fail(string.Format(Loc.T("log.saveErr"), ex.Message)); }
         }
 
-        static string SafeRootForOutputs()
-        {
-            return string.IsNullOrEmpty(Core.Root) ? AppDomain.CurrentDomain.BaseDirectory : Core.Root;
-        }
-
         void CopyDiag()
         {
-            try
+            Core.Info(Loc.T("check.diagRunning"));
+            ThreadPool.QueueUserWorkItem(delegate
             {
-                string d = Core.Diagnostics();
-                Clipboard.SetText(d);
-                Core.Good(Loc.T("log.diagCopied"));
-            }
-            catch (Exception ex) { Core.Fail(string.Format(Loc.T("log.diagErr"), ex.Message)); }
+                try
+                {
+                    string d = Core.Diagnostics();
+                    Dispatcher.Invoke((Action)delegate
+                    {
+                        try
+                        {
+                            Clipboard.SetText(d);
+                            Core.Good(Loc.T("log.diagCopied"));
+                        }
+                        catch (Exception ex) { Core.Fail(string.Format(Loc.T("log.diagErr"), ex.Message)); }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    try { Dispatcher.Invoke((Action)delegate { Core.Fail(string.Format(Loc.T("log.diagErr"), ex.Message)); }); } catch { }
+                }
+            });
         }
 
         void CopyWinwsOutput()

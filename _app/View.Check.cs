@@ -4,6 +4,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 
 namespace ZapretStudio
@@ -43,7 +44,9 @@ namespace ZapretStudio
 
         // Вкладки
         string _tab = "targets";
-        WrapPanel _tabBar;
+        // Подписи табов по порядку Children полоски — по ним CellRow меряет
+        // естественную ширину таба (без переноса) для режима Justify.
+        readonly System.Collections.Generic.List<TextBlock> _tabLabels = new System.Collections.Generic.List<TextBlock>();
         Border _tabsHost;       // контейнер для содержимого активной вкладки
         readonly Dictionary<string, Button> _tabButtons = new Dictionary<string, Button>();
 
@@ -62,7 +65,23 @@ namespace ZapretStudio
             Body.Children.Add(_tabsHost);
         }
 
-        public override void OnShow() { ShowTab(_tab); }
+        public override void OnShow()
+        {
+            if (_running > 0 || _stratBusy) { EnsureStopEnabled(); return; }
+            ShowTab(_tab);
+        }
+
+        void EnsureStopEnabled()
+        {
+            if (_btnStop != null) _btnStop.IsEnabled = _running > 0;
+            if (_stratStopBtn != null) _stratStopBtn.IsEnabled = _stratBusy;
+        }
+
+        public void CancelAll()
+        {
+            _stop = true;
+            _stratCancel = true;
+        }
 
         void BuildTabBar()
         {
@@ -77,16 +96,18 @@ namespace ZapretStudio
                 Margin = new Thickness(0, 0, 0, 16)
             };
 
-            _tabBar = new WrapPanel();
-            var tabs = new Grid();
-            for (int i = 0; i < 5; i++)
-                tabs.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-            var t0 = TabButton("targets", Icons.List, Loc.T("check.tab.targets")); Grid.SetColumn(t0, 0); tabs.Children.Add(t0);
-            var t1 = TabButton("popular", Icons.Globe, Loc.T("check.tab.popular")); Grid.SetColumn(t1, 1); tabs.Children.Add(t1);
-            var t2 = TabButton("games", Icons.Game, Loc.T("check.tab.games"));      Grid.SetColumn(t2, 2); tabs.Children.Add(t2);
-            var t3 = TabButton("strats", Icons.Bolt, Loc.T("check.tab.strats"));    Grid.SetColumn(t3, 3); tabs.Children.Add(t3);
-            var t4 = TabButton("diag", Icons.Tool, Loc.T("check.tab.diag"));        Grid.SetColumn(t4, 4); tabs.Children.Add(t4);
+            // Полоса табов: табы компактные (по ширине иконки с подписью), но
+            // распределены по всей ширине бара с равными зазорами — Justify.
+            // Равные колонки растягивали пилюлю и на широком окне иконка
+            // разъезжалась с подписью, а сгруппированная полоса оставляла пустое
+            // поле у краёв бара. Не хватает ширины — откат к равным колонкам.
+            var tabs = new CellRow { Gap = 6, EvenRows = false, MinCell = 0, ForceCols = 5,
+                Justify = true, Labels = _tabLabels };
+            tabs.Children.Add(TabButton("targets", Icons.List, Loc.T("check.tab.targets")));
+            tabs.Children.Add(TabButton("popular", Icons.Globe, Loc.T("check.tab.popular")));
+            tabs.Children.Add(TabButton("games", Icons.Game, Loc.T("check.tab.games")));
+            tabs.Children.Add(TabButton("strats", Icons.Bolt, Loc.T("check.tab.strats")));
+            tabs.Children.Add(TabButton("diag", Icons.Tool, Loc.T("check.tab.diag")));
 
             barContainer.Child = tabs;
             Body.Children.Add(barContainer);
@@ -94,30 +115,99 @@ namespace ZapretStudio
 
         Button TabButton(string key, string icon, string label)
         {
-            var b = new Button { Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(0, 0, 4, 0),
+            var b = new Button { Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(0),
                 HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
             Ctl.StripChrome(b);
             var bd = new Border { CornerRadius = Theme.R8, Padding = new Thickness(12, 7, 12, 7),
-                Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(0) };
-            var sp = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+                Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(1) };
+            // Иконка Auto + подпись Auto, вся сетка по центру ячейки: Star-колонка
+            // брала на себя всю ширину таба, и на широком окне подпись уезжала от
+            // иконки в центр. Auto-колонка даёт ровно ширину текста.
+            var sp = new Grid { HorizontalAlignment = HorizontalAlignment.Center };
+            sp.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            sp.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var ic = UI.Icon(icon, 15, Theme.BrMuted, 1.8);
             ic.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(ic, 0);
             sp.Children.Add(ic);
             var tb = new TextBlock { Text = label, Foreground = Theme.BrMuted, FontSize = Theme.FsBody,
                 FontFamily = Theme.UiFont, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(7, 0, 0, 0) };
+                Margin = new Thickness(7, 0, 0, 0), TextWrapping = TextWrapping.Wrap };
+            _tabLabels.Add(tb);
+            // Без переноса узкая ячейка резала бы подпись: WPF ужимает Auto-колонки
+            // пропорционально, и доставалось бы тоже иконке. MaxWidth считается от
+            // ширины таба, которую задаёт ряд (внешняя величина), а не от ширины
+            // сетки: сетка меряется по тексту, и на каждом проходе разметки текст
+            // оказывался бы уже предыдущего — до одной буквы в строке.
+            // 24 паддинг + 2 рамка + 15 иконка + 7 отступ подписи = 48, ещё 1 px
+            // остаётся на округление метрик: в компактном режиме ячейка равна
+            // естественной ширине текста, и запас не даёт подписи свернуться в
+            // две строки ровно там, где она влезает в одну.
+            b.SizeChanged += (s, e) => { tb.MaxWidth = Math.Max(20, b.ActualWidth - 48); };
+            Grid.SetColumn(tb, 1);
             sp.Children.Add(tb);
             bd.Child = sp;
             b.Content = bd;
             b.Tag = new object[] { bd, ic, tb };
+            Ctl.AutomationSetName(b, label);
             b.Click += (s, e) => ShowTab(key);
             b.MouseEnter += (s, e) =>
             {
-                if (key != _tab) bd.Background = Theme.Alpha(Theme.Text, 14);
+                if (key != _tab)
+                {
+                    bd.Background = Theme.Alpha(Theme.Text, 14);
+                    if (Theme.Mode == ThemeMode.System24)
+                    {
+                        if (Theme.AnimationsEnabled)
+                        {
+                            var bAnim = new ColorAnimation(Colors.Transparent, Theme.AccentMain, TimeSpan.FromMilliseconds(200))
+                            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                            var brush = new SolidColorBrush(Colors.Transparent);
+                            bd.BorderBrush = brush;
+                            brush.BeginAnimation(SolidColorBrush.ColorProperty, bAnim);
+                        }
+                        else bd.BorderBrush = Theme.BrAccent;
+                    }
+                }
             };
             b.MouseLeave += (s, e) =>
             {
-                if (key != _tab) bd.Background = Brushes.Transparent;
+                if (key != _tab)
+                {
+                    bd.Background = Brushes.Transparent;
+                    if (Theme.Mode == ThemeMode.System24)
+                    {
+                        if (Theme.AnimationsEnabled)
+                        {
+                            var bAnim = new ColorAnimation(Theme.AccentMain, Colors.Transparent, TimeSpan.FromMilliseconds(200))
+                            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                            var brush = new SolidColorBrush(Theme.AccentMain);
+                            bd.BorderBrush = brush;
+                            brush.BeginAnimation(SolidColorBrush.ColorProperty, bAnim);
+                        }
+                        else bd.BorderBrush = Brushes.Transparent;
+                    }
+                    else bd.BorderBrush = Brushes.Transparent;
+                }
+            };
+            b.GotKeyboardFocus += (s, e) =>
+            {
+                bd.BorderBrush = Theme.BrAccentHi;
+                bd.BorderThickness = new Thickness(2);
+                if (key != _tab) bd.Background = Theme.Alpha(Theme.Text, 14);
+            };
+            b.LostKeyboardFocus += (s, e) =>
+            {
+                bd.BorderThickness = new Thickness(1);
+                if (key != _tab)
+                {
+                    bd.BorderBrush = Brushes.Transparent;
+                    bd.Background = Brushes.Transparent;
+                }
+                else
+                {
+                    bd.BorderBrush = Theme.BrAccent;
+                }
             };
             Ctl.AutomationSetName(b, label);
             _tabButtons[key] = b;
@@ -132,12 +222,14 @@ namespace ZapretStudio
                 var bd = (Border)arr[0]; var ic = (System.Windows.Shapes.Path)arr[1]; var tb = (TextBlock)arr[2];
                 bool on = kv.Key == _tab;
                 bd.Background = on ? Theme.BrAccent : Brushes.Transparent;
+                bd.BorderThickness = new Thickness(1);
+                bd.BorderBrush = (on && Theme.Mode == ThemeMode.System24) ? Theme.BrAccent : Brushes.Transparent;
                 ic.Stroke = on ? Theme.BrOnAccent : Theme.BrMuted;
                 tb.Foreground = on ? Theme.BrOnAccent : Theme.BrMuted;
             }
         }
 
-        void ShowTab(string key)
+        internal void ShowTab(string key)
         {
             _tab = key;
             PaintTabs();
@@ -146,25 +238,9 @@ namespace ZapretStudio
             else if (key == "diag") content = BuildDiagTab();
             else content = BuildListTab(key);
 
-            if (Theme.AnimationsEnabled)
-            {
-                var tt = new TranslateTransform(0, 8);
-                content.RenderTransform = tt;
-                content.Opacity = 0;
-
-                var daFade = new System.Windows.Media.Animation.DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(180))
-                {
-                    EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut }
-                };
-                var daSlide = new System.Windows.Media.Animation.DoubleAnimation(8.0, 0.0, TimeSpan.FromMilliseconds(200))
-                {
-                    EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut }
-                };
-
-                content.BeginAnimation(UIElement.OpacityProperty, daFade);
-                tt.BeginAnimation(TranslateTransform.YProperty, daSlide);
-            }
             _tabsHost.Child = content;
+            // В system24 переходы строже — только проявление, без сдвига.
+            UiAnim.Appear(content, Theme.Mode == ThemeMode.System24 ? 0 : 8, 200, 240);
         }
 
         UIElement BuildListTab(string which)
@@ -172,25 +248,16 @@ namespace ZapretStudio
             var panel = new StackPanel();
 
             // Панель инструментов
-            var toolbar = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
             _btnAll = Ctl.Button(Loc.T("check.checkAll"), Icons.Pulse, 0);
-            _btnAll.Margin = new Thickness(0, 0, 8, 6);
             _btnAll.Click += (s, e) => Start(false);
             _btnSel = Ctl.Button(Loc.T("check.checkSel"), Icons.Check, 1);
-            _btnSel.Margin = new Thickness(0, 0, 8, 6);
             _btnSel.Click += (s, e) => Start(true);
             _btnStop = Ctl.Button(Loc.T("common.stop"), Icons.Stop, 2);
-            _btnStop.Margin = new Thickness(0, 0, 8, 6);
             _btnStop.IsEnabled = false;
             _btnStop.Click += (s, e) => { _stop = true; };
             _btnExport = Ctl.Button(Loc.T("check.export"), Icons.Save, 1);
-            _btnExport.Margin = new Thickness(0, 0, 0, 6);
             _btnExport.Click += (s, e) => Export();
-            toolbar.Children.Add(_btnAll);
-            toolbar.Children.Add(_btnSel);
-            toolbar.Children.Add(_btnStop);
-            toolbar.Children.Add(_btnExport);
-            panel.Children.Add(toolbar);
+            panel.Children.Add(Ctl.ButtonRow(_btnAll, _btnSel, _btnStop, _btnExport));
 
             _groups = new StackPanel();
             panel.Children.Add(_groups);
@@ -439,8 +506,69 @@ namespace ZapretStudio
         }
 #endif
 
+        static void StartCardShimmer(Border card)
+        {
+            if (card == null || !Theme.AnimationsEnabled || Theme.Mode == ThemeMode.System24) return;
+            try
+            {
+                var tt = new TranslateTransform(-1.2, -1.2);
+                Color baseC = Theme.Surface;
+                Color accentTint = (Theme.Mode == ThemeMode.Light)
+                    ? Theme.AccentDim
+                    : Theme.AccentHi;
+                Color peakC = Theme.Blend(Theme.Surface, accentTint, 0.22);
+
+                var lgb = new LinearGradientBrush
+                {
+                    StartPoint = new Point(0, 0),
+                    EndPoint = new Point(1, 1),
+                    MappingMode = BrushMappingMode.RelativeToBoundingBox,
+                    RelativeTransform = tt,
+                    GradientStops = new GradientStopCollection
+                    {
+                        new GradientStop(baseC, 0.0),
+                        new GradientStop(baseC, 0.35),
+                        new GradientStop(peakC, 0.50),
+                        new GradientStop(baseC, 0.65),
+                        new GradientStop(baseC, 1.0)
+                    }
+                };
+
+                var animX = new DoubleAnimation(-1.2, 1.2, TimeSpan.FromMilliseconds(1300))
+                {
+                    RepeatBehavior = RepeatBehavior.Forever,
+                    EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+                };
+                var animY = new DoubleAnimation(-1.2, 1.2, TimeSpan.FromMilliseconds(1300))
+                {
+                    RepeatBehavior = RepeatBehavior.Forever,
+                    EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+                };
+                tt.BeginAnimation(TranslateTransform.XProperty, animX);
+                tt.BeginAnimation(TranslateTransform.YProperty, animY);
+                card.Background = lgb;
+            }
+            catch { }
+        }
+
+        static void StopCardShimmer(Border card)
+        {
+            if (card == null) return;
+            try
+            {
+                if (card.Background is LinearGradientBrush)
+                {
+                    card.Background = Theme.BrSurface;
+                }
+            }
+            catch { }
+        }
+
         void SetRow(Endpoint r, string state, string latency, string detail, string when)
         {
+            if (state == "checking") StartCardShimmer(r.Card);
+            else StopCardShimmer(r.Card);
+
             var np = Pill.Make(SevOf(state), StateLabel(state));
             np.VerticalAlignment = VerticalAlignment.Center;
             np.Margin = new Thickness(14, 0, 0, 0);
@@ -485,7 +613,7 @@ namespace ZapretStudio
                 {
                     if (_stop) return;
                     try { Dispatcher.Invoke((Action)delegate { SetRow(row, "checking", "...", "", ""); }); } catch { }
-                    res = Core.TestTarget(row.T, timeout);
+                    res = Core.TestTarget(row.T, timeout, delegate { return _stop; });
                     long pingMs = Core.PingHost(row.T.Host, 3000);
                     // История для спарклайна: HTTP-задержка, иначе пинг
                     long sample = res.Ms >= 0 ? res.Ms : pingMs;
@@ -566,33 +694,24 @@ namespace ZapretStudio
             panel.Children.Add(new Border { Height = 12 });
 
             // Панель массовой проверки: выбрать несколько или все стратегии.
-            var bar = new WrapPanel { Margin = new Thickness(0, 0, 0, 12) };
+            // Тот же ButtonRow, что и вверху страницы: один ряд, равные ячейки,
+            // край совпадает с краем блока. WrapPanel переносил кнопки как попало
+            // и оставлял их разной ширины.
             _stratRunSel = Ctl.Button(Loc.T("check.strat.runSel"), Icons.Check, 0);
-            _stratRunSel.Margin = new Thickness(0, 0, 10, 10);
             _stratRunSel.Click += (s, e) => RunBatch(true);
             _stratRunAll = Ctl.Button(Loc.T("check.strat.runAll"), Icons.Bolt, 1);
-            _stratRunAll.Margin = new Thickness(0, 0, 10, 10);
             _stratRunAll.Click += (s, e) => RunBatch(false);
             _stratSelAll = Ctl.Button(Loc.T("check.strat.selectAll"), Icons.Grid, 3);
-            _stratSelAll.Margin = new Thickness(0, 0, 10, 10);
             _stratSelAll.Click += (s, e) => SetAllSel(true);
             _stratClear = Ctl.Button(Loc.T("check.strat.clearSel"), Icons.Cross, 3);
-            _stratClear.Margin = new Thickness(0, 0, 10, 10);
             _stratClear.Click += (s, e) => SetAllSel(false);
             _stratStopBtn = Ctl.Button(Loc.T("common.stop"), Icons.Stop, 2);
-            _stratStopBtn.Margin = new Thickness(0, 0, 10, 10);
             _stratStopBtn.IsEnabled = false;
             _stratStopBtn.Click += (s, e) => { _stratCancel = true; };
             var autoPick = Ctl.Button(Loc.T("check.strat.autoPick"), Icons.Star, 0);
-            autoPick.Margin = new Thickness(0, 0, 10, 10);
             autoPick.Click += (s, e) => AutoPick();
-            bar.Children.Add(_stratRunSel);
-            bar.Children.Add(_stratRunAll);
-            bar.Children.Add(_stratSelAll);
-            bar.Children.Add(_stratClear);
-            bar.Children.Add(_stratStopBtn);
-            bar.Children.Add(autoPick);
-            panel.Children.Add(bar);
+            panel.Children.Add(Ctl.ButtonRow(_stratRunSel, _stratRunAll, _stratSelAll,
+                _stratClear, _stratStopBtn, autoPick));
 
             _stratList = new StackPanel();
             panel.Children.Add(_stratList);
@@ -633,6 +752,8 @@ namespace ZapretStudio
             public Button Run;
             public CheckBox Sel;
             public List<ProbeReport> LastReports;
+            public Sev LastSev = Sev.Neutral;   // состояние после последнего прогона
+            public string LastText;             // текст плашки этого состояния
         }
 
         Border StratRow(string file)
@@ -672,7 +793,7 @@ namespace ZapretStudio
             g.Children.Add(rr.Run);
 
             rr.Card = UI.Card(g, new Thickness(14, 12, 14, 12));
-            rr.Card.Margin = new Thickness(0, 0, 0, 8);
+            rr.Card.Margin = new Thickness(0, 0, 0, Theme.Dense(8));
             rr.Card.Tag = rr;
             _stratRows.Add(rr);
             return rr.Card;
@@ -680,6 +801,8 @@ namespace ZapretStudio
 
         void SetStratPill(StratRowRef rr, Sev sev, string text)
         {
+            rr.LastSev = sev;
+            rr.LastText = text;
             var np = Pill.Make(sev, text);
             np.VerticalAlignment = VerticalAlignment.Center;
             np.Margin = new Thickness(14, 0, 12, 0);
@@ -690,12 +813,29 @@ namespace ZapretStudio
             rr.Pill = np;
         }
 
-        // Тестовые адреса для проверки стратегии — охват как в service.bat
-        // (Discord: сайт/CDN/медиа/gateway; YouTube: сайт/мобильный/картинки/музыка/видео-CDN).
+        // Цели для проверки стратегии берутся из utils/targets.txt — того же файла,
+        // который читает utils/test zapret.ps1 (его запускает service.bat →
+        // «Проверить стратегии»). Раньше здесь был хардкод из пяти адресов, поэтому
+        // приложение судило о стратегии по другому набору целей и писало
+        // «не работает» там, где service.bat показывал рабочую.
+        //
+        // PING-цели в вердикт не идут: winws перехватывает только TCP/UDP
+        // (--wf-tcp/--wf-udp), ICMP через десинк не проходит вообще, и test
+        // zapret.ps1 оценивает стратегию тоже по HTTP-жетонам (пинг у него —
+        // лишь тай-брейкер при равном счёте). Доступность DNS видна во вкладке
+        // «Проверка соединения», там targets.txt читается целиком.
         // Реальные проверки, без подмены результатов.
         static List<Target> StratProbes()
         {
+            var all = new List<Target>();
+            try { foreach (var t in Core.LoadTargets()) all.Add(t); } catch { }
+
             var l = new List<Target>();
+            foreach (var t in all) if (t.Kind != "PING") l.Add(t);
+            if (l.Count > 0) return l;
+
+            // utils/targets.txt отсутствует или в нём нет HTTP-целей — запасной
+            // набор, тот же, что использует test zapret.ps1 при пустом файле.
             AddProbe(l, "Discord Web",    "Discord", "https://discord.com");
             AddProbe(l, "Discord CDN",    "Discord", "https://cdn.discordapp.com");
             AddProbe(l, "YouTube Web",    "YouTube", "https://www.youtube.com");
@@ -722,10 +862,14 @@ namespace ZapretStudio
 
         void EndBusy()
         {
-            _stratBusy = false; _stratStopBtn.IsEnabled = false;
-            _stratRunSel.IsEnabled = true; _stratRunAll.IsEnabled = true;
-            _stratSelAll.IsEnabled = true; _stratClear.IsEnabled = true;
-            foreach (var rr in _stratRows) if (rr.Run != null) rr.Run.IsEnabled = true;
+            if (!_stratBusy) return;
+            _stratBusy = false;
+            if (_stratStopBtn != null) _stratStopBtn.IsEnabled = false;
+            if (_stratRunSel != null) _stratRunSel.IsEnabled = true;
+            if (_stratRunAll != null) _stratRunAll.IsEnabled = true;
+            if (_stratSelAll != null) _stratSelAll.IsEnabled = true;
+            if (_stratClear != null) _stratClear.IsEnabled = true;
+            if (_stratRows != null) foreach (var rr in _stratRows) if (rr != null && rr.Run != null) rr.Run.IsEnabled = true;
         }
 
         bool GuardAdmin()
@@ -771,7 +915,8 @@ namespace ZapretStudio
         void RunQueue(List<StratRowRef> queue)
         {
             BeginBusy();
-            bool wasRunning = _win.IsActive2();
+            bool wasService = Core.ServiceState() == "running";
+            bool wasManual = !wasService && Core.IsWinwsRunning();
             string prevStrat = _win.CurrentStrategyFile();
             foreach (var rr in queue) SetStratPill(rr, Sev.Neutral, Loc.T("check.strat.queued"));
             var probes = StratProbes();
@@ -787,13 +932,13 @@ namespace ZapretStudio
               try {
                 foreach (var rr in queue)
                 {
-                    if (_stratCancel) { Dispatcher.Invoke((Action)delegate { SetStratPill(rr, Sev.Neutral, Loc.T("check.strat.stopped")); }); continue; }
+                    if (_stratCancel) { Dispatcher.Invoke((Action)delegate { StopCardShimmer(rr.Card); SetStratPill(rr, Sev.Neutral, Loc.T("check.strat.stopped")); }); continue; }
                     var row = rr;
-                    Dispatcher.Invoke((Action)delegate { SetStratPill(row, Sev.Progress, Loc.T("net.checking")); row.Result.Text = Loc.T("check.strat.launching"); });
+                    Dispatcher.Invoke((Action)delegate { StartCardShimmer(row.Card); SetStratPill(row, Sev.Progress, Loc.T("net.checking")); row.Result.Text = Loc.T("check.strat.launching"); row.LastReports = null; });
 
                     int ok = 0, total = probes.Count;
                     string err = null;
-                    bool isAlreadyRunning = wasRunning && string.Equals(prevStrat, row.File, StringComparison.OrdinalIgnoreCase) && Core.IsWinwsRunning();
+                    bool isAlreadyRunning = wasManual && string.Equals(prevStrat, row.File, StringComparison.OrdinalIgnoreCase) && Core.IsWinwsRunning();
                     var reports = new List<ProbeReport>();
                     object reportsLock = new object();
                     try
@@ -802,60 +947,59 @@ namespace ZapretStudio
                         {
                             Core.KillWinws();
                             if (!Core.StartWinws(row.File)) throw new Exception("winws.exe failed to start");
-                            // Полноценный прогрев WinDivert: 2.0 секунды (как в service.bat)
-                            for (int i = 0; i < 20 && !_stratCancel; i++) Thread.Sleep(100);
+                            // Прогрев WinDivert: 5 секунд, как в utils/test zapret.ps1
+                            for (int i = 0; i < Core.ProbeWarmupMs / 100 && !_stratCancel; i++) Thread.Sleep(100);
                         }
                         else
                         {
                             Thread.Sleep(200);
                         }
 
-                        // Параллельная проверка всех целей
-                        var barrier = new Core.WorkBarrier(probes.Count);
-                        foreach (var t in probes)
+                        // Проверка целей не более чем в 8 потоков — как ранспейсы
+                        // в test zapret.ps1. Все сразу нельзя: CurlCheck плодит по
+                        // 3 curl.exe на цель, и толпа процессов сама себе создаёт
+                        // таймауты.
+                        int missed;
+                        bool allInTime = Core.RunProbes(probes, delegate(Target tt)
                         {
-                            var tt = t;
-                            ThreadPool.QueueUserWorkItem(delegate
+                            bool isOk = false;
+                            string detail = "";
+                            long ms = -1;
+                            try
                             {
-                                bool isOk = false;
-                                string detail = "";
-                                long ms = -1;
-                                try
+                                if (tt.Kind == "PING")
                                 {
-                                    if (!_stratCancel)
-                                    {
-                                        if (tt.Kind == "PING")
-                                        {
-                                            var res = Core.TestPing(tt.Host, 4000);
-                                            isOk = (res.State == "reachable");
-                                            ms = res.Ms;
-                                            detail = isOk ? (res.Ms + " ms") : (res.Detail ?? "Timeout");
-                                        }
-                                        else
-                                        {
-                                            var cr = Core.CurlCheck(tt.Url, 5); // 5 сек таймаут как в service.bat
-                                            isOk = (cr.Verdict == "ok");
-                                            ms = cr.Ms;
-                                            detail = isOk ? (cr.BestCode != null ? "HTTP " + cr.BestCode : "OK") : (cr.Detail ?? "Error");
-                                        }
-                                        if (isOk) Interlocked.Increment(ref ok);
-                                    }
+                                    var res = Core.TestPing(tt.Host, 4000);
+                                    isOk = (res.State == "reachable");
+                                    ms = res.Ms;
+                                    detail = isOk ? (res.Ms + " ms") : (res.Detail ?? "Timeout");
                                 }
-                                catch (Exception ex)
+                                else
                                 {
-                                    detail = ex.Message;
+                                    var cr = Core.CurlCheck(tt.Url, 5); // 5 сек таймаут как в service.bat
+                                    isOk = (cr.Verdict == "ok");
+                                    ms = cr.Ms;
+                                    detail = isOk ? (cr.BestCode != null ? "HTTP " + cr.BestCode : "OK") : (cr.Detail ?? "Error");
                                 }
-                                finally
+                                if (isOk) Interlocked.Increment(ref ok);
+                            }
+                            catch (Exception ex)
+                            {
+                                detail = ex.Message;
+                            }
+                            finally
+                            {
+                                lock (reportsLock)
                                 {
-                                    lock (reportsLock)
-                                    {
-                                        reports.Add(new ProbeReport { Name = tt.Name, Url = tt.Url, Ok = isOk, Detail = detail, Ms = ms });
-                                    }
-                                    barrier.Signal();
+                                    reports.Add(new ProbeReport { Name = tt.Name, Url = tt.Url, Ok = isOk, Detail = detail, Ms = ms });
                                 }
-                            });
-                        }
-                        barrier.Wait(9000);
+                            }
+                        }, delegate { return _stratCancel; }, out missed);
+                        // №15: число недособранных проб больше не игнорируется —
+                        // иначе таблица молча показывала меньше строк, чем целей,
+                        // и «не проверено» выглядело как «не работает».
+                        if (!allInTime || missed > 0)
+                            Core.Warn(string.Format(Loc.T("net.probesTimeout"), missed, probes.Count));
                     }
                     catch (Exception ex) { err = ex.Message; }
                     finally
@@ -870,6 +1014,7 @@ namespace ZapretStudio
                     var repSnapshot = reports;
                     Dispatcher.Invoke((Action)delegate
                     {
+                        StopCardShimmer(row.Card);
                         if (error != null)
                         {
                             SetStratPill(row, Sev.Err, Loc.T("check.strat.err"));
@@ -916,15 +1061,15 @@ namespace ZapretStudio
                         string summaryText;
                         if (okCount == total)
                         {
-                            summaryText = string.Format("Доступно {0}/{1}: {2}", okCount, total, string.Join(", ", okParts.ToArray()));
+                            summaryText = string.Format(Loc.T("check.strat.summaryOk"), okCount, total, string.Join(", ", okParts.ToArray()));
                         }
                         else if (okCount > 0)
                         {
-                            summaryText = string.Format("Доступно {0}/{1} · Сбой: {2}", okCount, total, string.Join(", ", failParts.ToArray()));
+                            summaryText = string.Format(Loc.T("check.strat.summaryPartial"), okCount, total, string.Join(", ", failParts.ToArray()));
                         }
                         else
                         {
-                            summaryText = string.Format("Не работает (0/{0}) · Все адреса недоступны", total);
+                            summaryText = string.Format(Loc.T("check.strat.summaryFail"), total);
                         }
 
                         row.Result.Text = summaryText;
@@ -940,62 +1085,91 @@ namespace ZapretStudio
                 {
                     EndBusy();
                     Core.Info(_stratCancel ? Loc.T("check.strat.batchStopped") : Loc.T("check.strat.batchDone"));
-                    if (!_stratCancel) ShowComparison();
+                    if (!_stratCancel) ShowComparison(queue);
                 });
               } catch { }
               finally
               {
-                  Core.EndWinwsOperation();
-                  if (wasRunning && !string.IsNullOrEmpty(prevStrat))
+                  try
                   {
-                      Dispatcher.Invoke((Action)delegate { try { _win.RunStrategy(prevStrat); } catch { } });
+                      Dispatcher.Invoke((Action)delegate
+                      {
+                          EndBusy();
+                          foreach (var r in queue) StopCardShimmer(r.Card);
+                      });
+                  } catch { }
+                  Core.EndWinwsOperation();
+                  if (wasService || wasManual)
+                  {
+                      Dispatcher.Invoke((Action)delegate { try { _win.RestartInSameMode(wasService, wasManual, prevStrat); } catch { } });
                   }
               }
             });
         }
 
-        // Таблица сравнения стратегий после массового прогона.
+        // Итоги последнего прогона. Показываем только проверенные стратегии
+        // (одну — одну, три — три) компактными строками: плашка состояния,
+        // имя и счёт целей. Полный текст с адресами не дублируем — он
+        // остаётся в карточке стратегии и в её тултипе.
         Border _comparisonCard;
 
-        void ShowComparison()
+        void ShowComparison(List<StratRowRef> tested)
         {
-            // Собираем результаты из строк.
-            var results = new List<KeyValuePair<string, string>>();
-            foreach (var rr in _stratRows)
-            {
-                if (rr.Pill == null) continue;
-                var sp = rr.Pill.Child as StackPanel;
-                if (sp == null || sp.Children.Count < 2) continue;
-                var tb = sp.Children[1] as TextBlock;
-                string status = tb != null ? tb.Text : "";
-                results.Add(new KeyValuePair<string, string>(Core.PrettyName(rr.File), status + " — " + rr.Result.Text));
-            }
-            if (results.Count == 0) return;
+            if (_stratRows == null || _stratList == null) return;
+            if (tested == null) return;
 
-            // Сортируем: прошедшие первыми.
-            results.Sort(delegate (KeyValuePair<string, string> a, KeyValuePair<string, string> b)
+            var items = new List<StratRowRef>();
+            foreach (var rr in tested) if (rr != null) items.Add(rr);
+            if (items.Count == 0) return;
+
+            // Прошедшие — первыми, дальше по имени.
+            items.Sort(delegate (StratRowRef a, StratRowRef b)
             {
-                bool aOk = a.Value.StartsWith(Loc.T("check.strat.pass"));
-                bool bOk = b.Value.StartsWith(Loc.T("check.strat.pass"));
+                bool aOk = a.LastSev == Sev.Ok, bOk = b.LastSev == Sev.Ok;
                 if (aOk && !bOk) return -1;
                 if (!aOk && bOk) return 1;
-                return string.Compare(a.Key, b.Key, StringComparison.OrdinalIgnoreCase);
+                return string.Compare(Core.PrettyName(a.File), Core.PrettyName(b.File), StringComparison.OrdinalIgnoreCase);
             });
 
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine(Loc.T("check.strat.comparison"));
-            sb.AppendLine(new string('─', 40));
-            foreach (var r in results)
-                sb.AppendLine(r.Key + ": " + r.Value);
+            var col = new StackPanel();
+            if (items.Count > 1)
+            {
+                var head = UI.T(Loc.T("check.strat.comparison"), Theme.FsSmall, Theme.BrMuted);
+                head.Margin = new Thickness(0, 0, 0, 8);
+                col.Children.Add(head);
+            }
+            for (int i = 0; i < items.Count; i++)
+            {
+                var rr = items[i];
+                var line = new StackPanel { Orientation = Orientation.Horizontal };
+                if (i > 0) line.Margin = new Thickness(0, Theme.Dense(6), 0, 0);
+
+                var p = Pill.Make(rr.LastSev, rr.LastText != null ? rr.LastText : "");
+                p.VerticalAlignment = VerticalAlignment.Center;
+                p.Margin = new Thickness(0, 0, 10, 0);
+                line.Children.Add(p);
+
+                var nm = UI.T(Core.PrettyName(rr.File), Theme.FsBody, Theme.BrText, FontWeights.SemiBold);
+                nm.VerticalAlignment = VerticalAlignment.Center;
+                line.Children.Add(nm);
+
+                if (rr.LastReports != null && rr.LastReports.Count > 0)
+                {
+                    int okN = 0;
+                    foreach (var rp in rr.LastReports) if (rp.Ok) okN++;
+                    var cnt = UI.T(okN + "/" + rr.LastReports.Count, Theme.FsSmall, Theme.BrMuted);
+                    cnt.VerticalAlignment = VerticalAlignment.Center;
+                    cnt.Margin = new Thickness(8, 0, 0, 0);
+                    line.Children.Add(cnt);
+                }
+                col.Children.Add(line);
+            }
 
             if (_comparisonCard != null && _stratList.Children.Contains(_comparisonCard))
                 _stratList.Children.Remove(_comparisonCard);
 
-            var txt = new TextBlock { Text = sb.ToString(), Foreground = Theme.BrText,
-                FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont, TextWrapping = TextWrapping.Wrap };
-            _comparisonCard = UI.Card(txt, new Thickness(16, 14, 16, 14), Theme.R10, Theme.Alpha(Theme.AccentMain, 10));
-            _comparisonCard.BorderBrush = Theme.Alpha(Theme.AccentMain, 60);
-            _comparisonCard.Margin = new Thickness(0, 0, 0, 12);
+            _comparisonCard = UI.Card(col, new Thickness(14, 12, 14, 12));
+            _comparisonCard.Margin = new Thickness(0, 0, 0, Theme.Dense(12));
             _stratList.Children.Insert(0, _comparisonCard);
         }
 
@@ -1013,6 +1187,11 @@ namespace ZapretStudio
             if (confirm != MessageBoxResult.Yes) return;
 
             BeginBusy();
+            bool wasService = Core.ServiceState() == "running";
+            bool wasManual = !wasService && Core.IsWinwsRunning();
+            string prevStrat = _win.CurrentStrategyFile();
+            bool bestSelected = false;
+            string bestFile = null;
             var probes = StratProbes();
             Core.Info(string.Format(Loc.T("check.strat.autoPickStart"), files.Count));
 
@@ -1046,10 +1225,18 @@ namespace ZapretStudio
                         {
                             if (rr.File == file)
                             {
-                                Sev sev = sc.Ok == sc.Total ? Sev.Ok : (sc.Ok > 0 ? Sev.Warn : Sev.Err);
-                                string label = sc.Ok == sc.Total ? Loc.T("check.strat.pass") : (sc.Ok > 0 ? Loc.T("check.strat.partial") : Loc.T("check.strat.fail"));
-                                SetStratPill(rr, sev, label);
-                                rr.Result.Text = string.Format(Loc.T("check.strat.resultLine"), sc.Ok, sc.Total);
+                                if (sc.Error)
+                                {
+                                    SetStratPill(rr, Sev.Err, Loc.T("check.strat.fail"));
+                                    rr.Result.Text = sc.ErrorMessage ?? Loc.T("check.strat.notStarted");
+                                }
+                                else
+                                {
+                                    Sev sev = sc.Ok == sc.Total ? Sev.Ok : (sc.Ok > 0 ? Sev.Warn : Sev.Err);
+                                    string label = sc.Ok == sc.Total ? Loc.T("check.strat.pass") : (sc.Ok > 0 ? Loc.T("check.strat.partial") : Loc.T("check.strat.fail"));
+                                    SetStratPill(rr, sev, label);
+                                    rr.Result.Text = string.Format(Loc.T("check.strat.resultLine"), sc.Ok, sc.Total);
+                                }
                                 break;
                             }
                         }
@@ -1060,15 +1247,18 @@ namespace ZapretStudio
                 {
                     EndBusy();
                     if (_stratCancel) { Core.Info(Loc.T("check.strat.batchStopped")); return; }
-                    // Выбираем лучшую: макс Ok, затем мин AvgMs.
+                    // Выбираем лучшую: макс Ok, затем мин AvgMs (пропуская упавшие).
                     Core.StratScore best = null;
                     foreach (var sc in scores)
                     {
+                        if (sc.Error || sc.Busy) continue;
                         if (best == null) { best = sc; continue; }
                         if (sc.Ok > best.Ok || (sc.Ok == best.Ok && sc.AvgMs < best.AvgMs)) best = sc;
                     }
                     if (best != null && best.Ok > 0)
                     {
+                        bestSelected = true;
+                        bestFile = best.File;
                         _win.SelectStrategy(best.File);
                         Core.Good(string.Format(Loc.T("check.strat.autoPickDone"), Core.PrettyName(best.File), best.Ok, best.Total));
                         MessageBox.Show(string.Format(Loc.T("check.strat.autoPickDone"), Core.PrettyName(best.File), best.Ok, best.Total),
@@ -1082,7 +1272,16 @@ namespace ZapretStudio
                     }
                 });
               } catch { }
-              finally { Core.EndWinwsOperation(); }
+              finally
+              {
+                  try { Dispatcher.Invoke((Action)delegate { EndBusy(); }); } catch { }
+                  Core.EndWinwsOperation();
+                  if (wasService || wasManual)
+                  {
+                      string stratToRestore = bestSelected && !string.IsNullOrEmpty(bestFile) ? bestFile : prevStrat;
+                      Dispatcher.Invoke((Action)delegate { try { _win.RestartInSameMode(wasService, wasManual, stratToRestore); } catch { } });
+                  }
+              }
             });
         }
 
@@ -1175,7 +1374,7 @@ namespace ZapretStudio
                 FontFamily = Theme.UiFont,
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 12),
-                Height = 48
+                MinHeight = 62
             });
             var dcBtn = Ctl.Button(Loc.T("check.diag.discordCache"), Icons.Trash, 1);
             dcBtn.HorizontalAlignment = HorizontalAlignment.Left;
@@ -1215,7 +1414,7 @@ namespace ZapretStudio
                 FontFamily = Theme.UiFont,
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 12),
-                Height = 48
+                MinHeight = 62
             });
             var wdBtn = Ctl.Button(Loc.T("check.diag.wdReset"), Icons.Refresh, 1);
             wdBtn.HorizontalAlignment = HorizontalAlignment.Left;
@@ -1224,16 +1423,29 @@ namespace ZapretStudio
                 wdBtn.IsEnabled = false;
                 System.Threading.ThreadPool.QueueUserWorkItem(delegate
                 {
-                    bool ok = Core.ResetWinDivertDriver();
-                    Dispatcher.Invoke((Action)delegate
+                    string wdErr;
+                    bool ok = Core.ResetWinDivertDriver(out wdErr);
+                    try
                     {
-                        wdBtn.IsEnabled = true;
-                        if (ok)
+                        Dispatcher.Invoke((Action)delegate
                         {
-                            _win.ShowToast(Loc.T("check.diag.wdResetOk"), Sev.Ok);
-                            Core.Good(Loc.T("check.diag.wdResetOk"));
-                        }
-                    });
+                            wdBtn.IsEnabled = true;
+                            if (ok)
+                            {
+                                _win.ShowToast(Loc.T("check.diag.wdResetOk"), Sev.Ok);
+                                Core.Good(Loc.T("check.diag.wdResetOk"));
+                            }
+                            else
+                            {
+                                // Причина важнее факта: «занято» и «нужна перезагрузка»
+                                // — это разные действия пользователя.
+                                string msg = string.IsNullOrEmpty(wdErr) ? Loc.T("mw.busy") : wdErr;
+                                _win.ShowToast(msg, Sev.Warn);
+                                Core.Warn(msg);
+                            }
+                        });
+                    }
+                    catch { }
                 });
             };
             wdPanel.Children.Add(wdBtn);

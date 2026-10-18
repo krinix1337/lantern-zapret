@@ -16,7 +16,12 @@ namespace ZapretStudio
     {
         static Dictionary<string,string> _cfg = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
         static readonly object _cfgLock = new object();
+        static readonly object _cfgWriteLock = new object();
         static volatile bool _cfgLoaded;
+
+        // Мёртвые ключи удалённых тем. SaveConfig сериализует весь словарь, поэтому
+        // без явной чистки они лежали бы в gui-config.ini вечно.
+        static readonly string[] StaleKeys = { "peter_backdrop", "peter_volume", "midnight_flavor" };
 
         public static void LoadConfig()
         {
@@ -34,6 +39,7 @@ namespace ZapretStudio
                     }
             }
             catch (Exception ex) { Fail("LoadConfig: " + ex.Message); }
+            foreach (var k in StaleKeys) d.Remove(k);
             lock (_cfgLock) { _cfg = d; _cfgLoaded = true; }
         }
 
@@ -58,6 +64,14 @@ namespace ZapretStudio
         }
         public static void SetBool(string key, bool val) { Set(key, val ? "1" : "0"); }
 
+        // Убрать ключ совсем: Set(key, null) оставил бы в файле строку «key = »,
+        // а это уже не «ключа нет», а пустое значение.
+        public static void Unset(string key)
+        {
+            if (!_cfgLoaded) LoadConfig();
+            lock (_cfgLock) { _cfg.Remove(key); }
+        }
+
         public static int GetInt(string key, int dflt)
         {
             string v = Get(key, null);
@@ -69,19 +83,50 @@ namespace ZapretStudio
 
         public static void SaveConfig()
         {
+            string text, target;
             lock (_cfgLock)
             {
                 if (_cfg == null || !_cfgLoaded) return;
-                try
-                {
-                    var sb = new System.Text.StringBuilder();
-                    sb.AppendLine("# ZapretStudio GUI config");
-                    foreach (var kv in _cfg) sb.AppendLine(kv.Key + " = " + kv.Value);
-                    string dir = Path.GetDirectoryName(ConfigFile);
-                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
-                    File.WriteAllText(ConfigFile, sb.ToString());
-                }
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine("# ZapretStudio GUI config");
+                foreach (var kv in _cfg) sb.AppendLine(kv.Key + " = " + kv.Value);
+                text = sb.ToString();
+                target = ConfigFile;
+            }
+            // №43: диск — вне _cfgLock, иначе GetBool("reduce_motion") на пути
+            // отрисовки вставал в очередь за медленным или сетевым диском.
+            // Отдельный лок нужен, чтобы два потока не писали один и тот же .tmp.
+            lock (_cfgWriteLock)
+            {
+                try { WriteFileAtomic(target, text); }
                 catch (Exception ex) { Fail("SaveConfig: " + ex.Message); }
+            }
+        }
+
+        // №42: File.WriteAllText уссекает файл до нуля ещё до записи, поэтому обрыв
+        // питания или Kill оставлял пустой gui-config.ini — а вместе с ним терялись
+        // root, lang, theme, last_strategy и ipset_enabled. Пишем временный файл рядом
+        // и переносим его атомарно, сохраняя предыдущую версию в .bak.
+        public static void WriteFileAtomic(string path, string text)
+        {
+            string dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+            string tmp = path + ".tmp";
+            File.WriteAllText(tmp, text);
+            if (!File.Exists(path)) { File.Move(tmp, path); return; }
+            try
+            {
+                File.Replace(tmp, path, path + ".bak", false);
+            }
+            catch
+            {
+                // File.Replace недоступен на FAT, в сетевых папках и при занятом .bak.
+                // Откат обязателен: на любом шаге одна из копий остаётся целой.
+                string bak = path + ".bak";
+                if (File.Exists(bak)) File.Delete(bak);
+                File.Move(path, bak);
+                try { File.Move(tmp, path); }
+                catch { File.Move(bak, path); throw; }
             }
         }
 

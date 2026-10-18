@@ -18,12 +18,22 @@ namespace ZapretStudio
         TextBox _gameTcpPorts, _gameUdpPorts;
         bool _syncing;
         Border _restartBar;
+        Button _updListsBtn;
+        TextBlock _listsStatus;
+        Border _gameIpsetWarning;
 
         // Визуальный редактор списков
         ComboBox _listSelector;
         ListBox _listBox;
         TextBox _entryInput;
         TextBlock _listCount;
+        TextBlock _listHint;
+        Button _addBtn, _delBtn;
+        // Строка-заглушка «показаны не все». Сравниваем с ней точно, а не по
+        // префиксу «... +»: текст живёт в локализации и меняется вместе с языком.
+        string _moreItem;
+        volatile bool _listIoBusy;
+        static readonly object _listWriteLock = new object();
 
         public FiltersPage(MainWindow win)
         {
@@ -50,8 +60,13 @@ namespace ZapretStudio
                 if (_syncing) return;
                 Core.GameMode = _gameMode.SelectedIndex == 1 ? "all" : _gameMode.SelectedIndex == 2 ? "tcp" : _gameMode.SelectedIndex == 3 ? "udp" : "off";
                 MarkDirty();
+                UpdateGameIpsetWarning();
             };
             Body.Children.Add(Row(Loc.T("filters.game"), Loc.T("filters.game.desc"), _gameMode));
+            _gameIpsetWarning = NoteCard(Icons.Warn, Theme.BrWarn, Loc.T("filters.ipset.off.hidesGame"), Sev.Warn);
+            _gameIpsetWarning.Margin = new Thickness(0, 8, 0, 0);
+            _gameIpsetWarning.Visibility = Visibility.Collapsed;
+            Body.Children.Add(_gameIpsetWarning);
             Body.Children.Add(new Border { Height = 10 });
 
             // Порты и версионный гейтинг (zapret 1.10.3+)
@@ -110,13 +125,14 @@ namespace ZapretStudio
 
                 var rtmpBtn = Ctl.Button(Loc.T("filters.game.excludeRtmp"), Icons.Filter, 3);
                 rtmpBtn.VerticalAlignment = VerticalAlignment.Center;
-                var rtmpBorder = rtmpBtn.Content as Border;
+                var rtmpBorder = Ctl.Surface(rtmpBtn);
+                var rtmpBox = Ctl.ContentHost(rtmpBtn);
                 if (rtmpBorder != null)
                 {
                     rtmpBorder.Height = 32;
                     rtmpBorder.CornerRadius = Theme.R8;
-                    rtmpBorder.Padding = new Thickness(12, 0, 12, 0);
-                    var sp = rtmpBorder.Child as StackPanel;
+                    if (rtmpBox != null) rtmpBox.Padding = new Thickness(12, 0, 12, 0);
+                    var sp = (rtmpBox != null ? rtmpBox.Child : null) as StackPanel;
                     if (sp != null)
                     {
                         foreach (var ch in sp.Children)
@@ -167,7 +183,7 @@ namespace ZapretStudio
                     Padding = new Thickness(10, 0, 10, 0),
                     Text = Core.GameFilterTcpPorts
                 };
-                _gameTcpPorts.TextChanged += (s, e) => { if (!_syncing) { Core.GameFilterTcpPorts = _gameTcpPorts.Text.Trim(); MarkDirty(); } };
+                _gameTcpPorts.TextChanged += (s, e) => { if (!_syncing && _restartBar != null) _restartBar.Visibility = Visibility.Visible; };
                 var tcpBox = new Border
                 {
                     Height = 32,
@@ -178,7 +194,19 @@ namespace ZapretStudio
                     Child = _gameTcpPorts
                 };
                 _gameTcpPorts.GotFocus += (s, e) => tcpBox.BorderBrush = Theme.BrAccent;
-                _gameTcpPorts.LostFocus += (s, e) => tcpBox.BorderBrush = Theme.BrStroke;
+                _gameTcpPorts.LostFocus += (s, e) =>
+                {
+                    tcpBox.BorderBrush = Theme.BrStroke;
+                    if (!_syncing)
+                    {
+                        string p = _gameTcpPorts.Text.Trim();
+                        if (p != Core.GameFilterTcpPorts)
+                        {
+                            Core.GameFilterTcpPorts = p;
+                            MarkDirty();
+                        }
+                    }
+                };
                 tcpCol.Children.Add(tcpBox);
                 Grid.SetColumn(tcpCol, 0);
                 inputsGrid.Children.Add(tcpCol);
@@ -207,7 +235,7 @@ namespace ZapretStudio
                     Padding = new Thickness(10, 0, 10, 0),
                     Text = Core.GameFilterUdpPorts
                 };
-                _gameUdpPorts.TextChanged += (s, e) => { if (!_syncing) { Core.GameFilterUdpPorts = _gameUdpPorts.Text.Trim(); MarkDirty(); } };
+                _gameUdpPorts.TextChanged += (s, e) => { if (!_syncing && _restartBar != null) _restartBar.Visibility = Visibility.Visible; };
                 var udpBox = new Border
                 {
                     Height = 32,
@@ -218,7 +246,19 @@ namespace ZapretStudio
                     Child = _gameUdpPorts
                 };
                 _gameUdpPorts.GotFocus += (s, e) => udpBox.BorderBrush = Theme.BrAccent;
-                _gameUdpPorts.LostFocus += (s, e) => udpBox.BorderBrush = Theme.BrStroke;
+                _gameUdpPorts.LostFocus += (s, e) =>
+                {
+                    udpBox.BorderBrush = Theme.BrStroke;
+                    if (!_syncing)
+                    {
+                        string p = _gameUdpPorts.Text.Trim();
+                        if (p != Core.GameFilterUdpPorts)
+                        {
+                            Core.GameFilterUdpPorts = p;
+                            MarkDirty();
+                        }
+                    }
+                };
                 udpCol.Children.Add(udpBox);
                 Grid.SetColumn(udpCol, 2);
                 inputsGrid.Children.Add(udpCol);
@@ -232,7 +272,9 @@ namespace ZapretStudio
         void BuildIpset()
         {
             Body.Children.Add(SectionLabel(Loc.T("filters.sec.ipset")));
-            _ipsetMode = Combo(185);
+            // 185 px не хватало подписи «Загруженный список» в Onest: текст
+            // упирался в стрелку и обрезался на последней букве.
+            _ipsetMode = Combo(215);
             _ipsetMode.Items.Add(Loc.T("filters.ipset.loaded"));
             _ipsetMode.Items.Add(Loc.T("filters.ipset.none"));
             _ipsetMode.Items.Add(Loc.T("filters.ipset.any"));
@@ -242,34 +284,90 @@ namespace ZapretStudio
                 Core.SetIpsetMode(_ipsetMode.SelectedIndex == 1 ? "none" : _ipsetMode.SelectedIndex == 2 ? "any" : "loaded");
                 MarkDirty();
                 ResyncCombos();
+                UpdateGameIpsetWarning();
             };
             Body.Children.Add(Row(Loc.T("filters.ipset"), Loc.T("filters.ipset.on"), _ipsetMode));
 
-            var updBtn = Ctl.Button(Loc.T("filters.updateLists"), Icons.Refresh, 1);
-            updBtn.HorizontalAlignment = HorizontalAlignment.Left;
-            updBtn.Margin = new Thickness(0, 10, 0, 0);
-            updBtn.Click += (s, e) => UpdateLists();
-            Body.Children.Add(updBtn);
+            _updListsBtn = Ctl.Button(Loc.T("filters.updateLists"), Icons.Refresh, 1);
+            _updListsBtn.HorizontalAlignment = HorizontalAlignment.Left;
+            _updListsBtn.Margin = new Thickness(0, 10, 0, 0);
+            _updListsBtn.Click += (s, e) => UpdateLists();
+            Body.Children.Add(_updListsBtn);
+
+            // Результат обновления висит под кнопкой: журнал виден не всегда, а без
+            // строки состояние «обновилось / не обновилось / уже актуально»
+            // невозможно определить, пока не перезапустил обход.
+            _listsStatus = new TextBlock
+            {
+                Margin = new Thickness(0, 8, 0, 0),
+                FontSize = Theme.FsSmall,
+                FontFamily = Theme.UiFont,
+                Foreground = Theme.BrMuted,
+                TextWrapping = TextWrapping.Wrap,
+                Visibility = Visibility.Collapsed
+            };
+            Body.Children.Add(_listsStatus);
+        }
+
+        void SetListsStatus(string text, Brush color)
+        {
+            if (_listsStatus == null) return;
+            _listsStatus.Text = text;
+            _listsStatus.Foreground = color;
+            _listsStatus.Visibility = Visibility.Visible;
         }
 
         void UpdateLists()
         {
+            if (_updListsBtn != null) _updListsBtn.IsEnabled = false;
             Core.Info(Loc.T("filters.updatingLists"));
+            SetListsStatus(Loc.T("filters.updatingLists"), Theme.BrMuted);
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
-              try {
-                string err;
-                bool ok = Core.UpdateIpsetList(out err);
-                Dispatcher.Invoke((Action)delegate
+                string err = null;
+                bool ok = false;
+                Core.IpsetUpdateStat stat = null;
+                try
                 {
-                    if (ok)
+                    ok = Core.UpdateIpsetList(out err, out stat);
+                }
+                catch (Exception ex)
+                {
+                    err = ex.Message;
+                }
+                try
+                {
+                    Dispatcher.Invoke((Action)delegate
                     {
-                        Core.Good(string.Format(Loc.T("filters.listsUpdated"), Core.IpsetCount()));
-                        MarkDirty();
-                    }
-                    else Core.Fail(string.Format(Loc.T("filters.listsErr"), err));
-                });
-              } catch { }
+                        if (_updListsBtn != null) _updListsBtn.IsEnabled = true;
+                        if (ok)
+                        {
+                            string msg;
+                            if (stat == null)
+                                msg = string.Format(Loc.T("filters.listsUpdated"), Core.IpsetCount());
+                            else if (!stat.Changed)
+                                msg = string.Format(Loc.T("filters.listsUnchanged"), stat.After);
+                            else
+                                msg = string.Format(Loc.T("filters.listsDiff"),
+                                    stat.Before, stat.After, stat.Added, stat.Removed);
+                            SetListsStatus(msg, Theme.BrOk);
+                            Core.Good(msg);
+                            // Флаг «нужен перезапуск» ставим только когда список
+                            // действительно поменялся — иначе панель перезапуска
+                            // появляется на каждое нажатие кнопки.
+                            if (stat == null || stat.Changed) MarkDirty();
+                            ReloadList();
+                        }
+                        else
+                        {
+                            string msg = string.Format(Loc.T("filters.listsErr"),
+                                !string.IsNullOrEmpty(err) ? err : "error");
+                            SetListsStatus(msg, Theme.BrErr);
+                            Core.Fail(msg);
+                        }
+                    });
+                }
+                catch { }
             });
         }
 
@@ -278,10 +376,9 @@ namespace ZapretStudio
         {
             return new string[][]
             {
-                new[] { "ipset-all",        Path.Combine(Core.Lists, "ipset-all.txt") },
-                new[] { "ipset-exclude",    Path.Combine(Core.Lists, "ipset-exclude-user.txt") },
                 new[] { "list-general",     Path.Combine(Core.Lists, "list-general-user.txt") },
                 new[] { "list-exclude",     Path.Combine(Core.Lists, "list-exclude-user.txt") },
+                new[] { "ipset-exclude",    Path.Combine(Core.Lists, "ipset-exclude-user.txt") },
             };
         }
 
@@ -291,19 +388,58 @@ namespace ZapretStudio
 
             var panel = new StackPanel();
 
-            // Выбор списка
-            var selRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
+            // Выбор списка. Grid, а не горизонтальный StackPanel: StackPanel
+            // меряется бесконечной шириной и на узком окне уезжал за край карточки
+            // (аудит разметки на 820 px это и ловил).
+            var selRow = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+            selRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            selRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             _listSelector = Combo(220);
             foreach (var d in ListDefs())
                 _listSelector.Items.Add(d[0]);
             _listSelector.SelectedIndex = 0;
             _listSelector.SelectionChanged += (s, e) => ReloadList();
+            Grid.SetColumn(_listSelector, 0);
             selRow.Children.Add(_listSelector);
 
             _listCount = new TextBlock { Text = "", Foreground = Theme.BrFaint, FontSize = Theme.FsSmall,
-                FontFamily = Theme.MonoFont, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+                FontFamily = Theme.MonoFont, VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(12, 0, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+            Grid.SetColumn(_listCount, 1);
             selRow.Children.Add(_listCount);
+
             panel.Children.Add(selRow);
+
+            // Под списком — пояснение, за что он отвечает: три списка выглядят
+            // одинаково, а путаница «куда вписать адрес» стоит пользователю
+            // неработающего обхода.
+            _listHint = new TextBlock
+            {
+                Text = "",
+                Foreground = Theme.BrFaint,
+                FontSize = Theme.FsTiny,
+                FontFamily = Theme.UiFont,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            panel.Children.Add(_listHint);
+
+            // Второстепенное действие — отдельной строкой: в одной строке с комбоксом
+            // оно не оставляло места счётчику записей.
+            var openMachineBtn = Ctl.Button(Loc.T("filters.openIpsetMachine"), Icons.Folder, 3);
+            openMachineBtn.HorizontalAlignment = HorizontalAlignment.Left;
+            openMachineBtn.Margin = new Thickness(0, 0, 0, 10);
+            openMachineBtn.Click += (s, e) =>
+            {
+                var res = MessageBox.Show(Loc.T("filters.openIpsetWarn"), Core.AppName, MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (res == MessageBoxResult.Yes)
+                {
+                    string machinePath = Path.Combine(Core.Lists, "ipset-all.txt");
+                    if (File.Exists(machinePath)) Core.OpenFile(machinePath);
+                    else Core.Warn("Файл не найден: " + machinePath);
+                }
+            };
+            panel.Children.Add(openMachineBtn);
 
             // Список записей
             _listBox = new ListBox
@@ -314,27 +450,35 @@ namespace ZapretStudio
             };
             panel.Children.Add(_listBox);
 
-            // Панель добавления/удаления
-            var editRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
+            // Панель добавления/удаления: поле тянется (Star), кнопки фиксированные.
+            // С Width=300 в горизонтальном StackPanel ряд на узком окне вылезал за
+            // карточку вместе с кнопкой «Удалить».
+            var editRow = new Grid { Margin = new Thickness(0, 10, 0, 0) };
+            editRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            editRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            editRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             _entryInput = new TextBox
             {
-                Width = 300, Height = 34, Background = Theme.BrSurface, BorderBrush = Theme.BrStroke,
+                MinWidth = 120, Height = 34, Background = Theme.BrSurface, BorderBrush = Theme.BrStroke,
                 BorderThickness = new Thickness(1), Foreground = Theme.BrText, CaretBrush = Theme.BrText,
                 FontSize = Theme.FsBody, FontFamily = Theme.MonoFont,
                 VerticalContentAlignment = VerticalAlignment.Center, Padding = new Thickness(10, 0, 10, 0)
             };
             _entryInput.KeyDown += (s, e) => { if (e.Key == System.Windows.Input.Key.Enter) AddEntry(); };
+            Grid.SetColumn(_entryInput, 0);
             editRow.Children.Add(_entryInput);
 
-            var addBtn = Ctl.Button(Loc.T("filters.list.add"), Icons.Check, 0);
-            addBtn.Margin = new Thickness(8, 0, 0, 0);
-            addBtn.Click += (s, e) => AddEntry();
-            editRow.Children.Add(addBtn);
+            _addBtn = Ctl.Button(Loc.T("filters.list.add"), Icons.Check, 0);
+            _addBtn.Margin = new Thickness(8, 0, 0, 0);
+            _addBtn.Click += (s, e) => AddEntry();
+            Grid.SetColumn(_addBtn, 1);
+            editRow.Children.Add(_addBtn);
 
-            var delBtn = Ctl.Button(Loc.T("filters.list.del"), Icons.Cross, 2);
-            delBtn.Margin = new Thickness(8, 0, 0, 0);
-            delBtn.Click += (s, e) => DelEntry();
-            editRow.Children.Add(delBtn);
+            _delBtn = Ctl.Button(Loc.T("filters.list.del"), Icons.Cross, 2);
+            _delBtn.Margin = new Thickness(8, 0, 0, 0);
+            _delBtn.Click += (s, e) => DelEntry();
+            Grid.SetColumn(_delBtn, 2);
+            editRow.Children.Add(_delBtn);
 
             panel.Children.Add(editRow);
             Body.Children.Add(UI.Card(panel, new Thickness(16, 14, 16, 14)));
@@ -347,9 +491,20 @@ namespace ZapretStudio
             return ListDefs()[idx][1];
         }
 
+        // Подпись под комбоксом: за что отвечает выбранный список.
+        void UpdateListHint()
+        {
+            if (_listHint == null) return;
+            var defs = ListDefs();
+            int i = _listSelector != null ? _listSelector.SelectedIndex : -1;
+            _listHint.Text = (i >= 0 && i < defs.Length) ? Loc.T("filters.list.about." + defs[i][0]) : "";
+        }
+
         void ReloadList()
         {
+            UpdateListHint();
             _listBox.Items.Clear();
+            _moreItem = null;
             string path = CurrentListPath();
             int count = 0;
             const int MaxDisplay = 300;
@@ -371,7 +526,8 @@ namespace ZapretStudio
                     }
                     if (count > MaxDisplay)
                     {
-                        _listBox.Items.Add(string.Format(Loc.T("filters.list.more"), count - MaxDisplay));
+                        _moreItem = string.Format(Loc.T("filters.list.more"), count - MaxDisplay);
+                        _listBox.Items.Add(_moreItem);
                     }
                 }
             }
@@ -381,15 +537,28 @@ namespace ZapretStudio
 
         void AddEntry()
         {
+            if (_listIoBusy) return;
             string raw = (_entryInput.Text ?? "").Trim();
             if (raw.Length == 0) return;
             string path = CurrentListPath();
             bool isIpSet = path.IndexOf("ipset", StringComparison.OrdinalIgnoreCase) >= 0;
             string val = Core.NormalizeHostEntry(raw, isIpSet);
             if (val.Length == 0) return;
+            // №105: IpsetStatus() ищет заглушку через Contains, поэтому и запрет
+            // по Contains — иначе «1.2.3.4 203.0.113.113/32» прошёл бы фильтром и
+            // перевёл бы режим в none.
+            if (isIpSet && val.IndexOf(Core.IpsetSentinel, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                Core.Warn(Loc.T("filters.list.sentinelRejected"));
+                return;
+            }
+            if (isIpSet && Core.IpsetStatus() == "none")
+            {
+                Core.Warn(Loc.T("filters.list.addedNoneWarn"));
+            }
             try
             {
-                File.AppendAllText(path, val + Environment.NewLine);
+                lock (_listWriteLock) File.AppendAllText(path, val + Environment.NewLine);
                 _entryInput.Text = "";
                 ReloadList();
                 MarkDirty();
@@ -400,20 +569,55 @@ namespace ZapretStudio
 
         void DelEntry()
         {
+            if (_listIoBusy) return;
             if (_listBox.SelectedIndex < 0) return;
             string val = _listBox.SelectedItem as string;
-            if (val == null || val.StartsWith("... +")) return;
+            if (val == null) return;
+            if (_moreItem != null && val == _moreItem) return;
             string path = CurrentListPath();
-            try
+
+            _listIoBusy = true;
+            if (_addBtn != null) _addBtn.IsEnabled = false;
+            if (_delBtn != null) _delBtn.IsEnabled = false;
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
-                var lines = File.Exists(path) ? File.ReadAllLines(path).ToList() : new List<string>();
-                lines.RemoveAll(l => l.Trim() == val);
-                File.WriteAllLines(path, lines.ToArray());
-                ReloadList();
-                MarkDirty();
-                Core.Info(string.Format(Loc.T("filters.list.removed"), val));
-            }
-            catch (Exception ex) { Core.Fail(ex.Message); }
+                int removed = 0;
+                Exception fail = null;
+                try
+                {
+                    // №101: весь файл перезаписывается, поэтому под общим локом и
+                    // атомарно: прежний File.WriteAllLines при обрыве оставлял пустой
+                    // пользовательский список.
+                    lock (_listWriteLock)
+                    {
+                        var lines = File.Exists(path) ? File.ReadAllLines(path).ToList() : new List<string>();
+                        removed = lines.RemoveAll(delegate (string l) { return l.Trim() == val; });
+                        if (removed > 0)
+                            Core.WriteFileAtomic(path, string.Join(Environment.NewLine, lines.ToArray()) + Environment.NewLine);
+                    }
+                }
+                catch (Exception ex) { fail = ex; }
+                try
+                {
+                    Dispatcher.Invoke((Action)delegate
+                    {
+                        _listIoBusy = false;
+                        if (_addBtn != null) _addBtn.IsEnabled = true;
+                        if (_delBtn != null) _delBtn.IsEnabled = true;
+                        if (fail != null) { Core.Fail(fail.Message); return; }
+                        if (removed == 0) return;
+                        ReloadList();
+                        MarkDirty();
+                        // RemoveAll сносит все совпадения, включая скрытые ниже
+                        // 300-строчного окна — пользователь обязан это видеть.
+                        if (removed > 1)
+                            Core.Info(string.Format(Loc.T("filters.list.removedCount"), val, removed));
+                        else
+                            Core.Info(string.Format(Loc.T("filters.list.removed"), val));
+                    });
+                }
+                catch { _listIoBusy = false; }
+            });
         }
 
         void BuildRestartBar()
@@ -430,7 +634,7 @@ namespace ZapretStudio
             var btns = new StackPanel { Orientation = Orientation.Horizontal };
             var now = Ctl.Button(Loc.T("filters.restartNow"), Icons.Restart, 0);
             now.Margin = new Thickness(0, 0, 8, 0);
-            now.Click += (s, e) => { _win.RestartCurrent(); ClearDirty(); };
+            now.Click += (s, e) => { _win.RestartAll(); ClearDirty(); };
             var later = Ctl.Button(Loc.T("common.later"), null, 3);
             later.Click += (s, e) => ClearDirty();
             btns.Children.Add(now); btns.Children.Add(later);
@@ -454,8 +658,8 @@ namespace ZapretStudio
                 _ipsetMode.SelectedIndex = ipset == "none" ? 1 : ipset == "any" ? 2 : 0;
             }
             finally { _syncing = false; }
+            UpdateGameIpsetWarning();
             ReloadList();
-            ClearDirty();
         }
 
         void ResyncCombos()
@@ -467,6 +671,16 @@ namespace ZapretStudio
                 _ipsetMode.SelectedIndex = ipset == "none" ? 1 : ipset == "any" ? 2 : 0;
             }
             finally { _syncing = false; }
+            UpdateGameIpsetWarning();
+        }
+
+        void UpdateGameIpsetWarning()
+        {
+            if (_gameIpsetWarning != null)
+            {
+                bool hidden = !Core.IpsetEnabled && Core.GameMode != "off";
+                _gameIpsetWarning.Visibility = hidden ? Visibility.Visible : Visibility.Collapsed;
+            }
         }
 
         void MarkDirty()

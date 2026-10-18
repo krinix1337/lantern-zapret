@@ -7,20 +7,71 @@ using System.Windows.Media.Effects;
 
 namespace ZapretStudio
 {
-    // Тема оформления: тёмная / светлая / AMOLED / северное сияние / закат / Peter Griffin.
-    enum ThemeMode { Dark, Light, Amoled, Aurora, Sunset, Peter }
+    // Тема оформления: тёмная / AMOLED / светлая / закат / System24.
+    // Порядок членов = порядок в списке настроек и в цикле кнопки темы в шапке.
+    // Имена в gui-config.ini берутся из ToString() в нижний регистр (Theme.Name),
+    // поэтому удалять тему можно только вместе с миграцией чужих конфигов (App.ApplySavedTheme).
+    enum ThemeMode { Dark, Amoled, Light, Sunset, System24 }
 
     // Централизованная дизайн-система. Кисти НЕ заморожены — при смене темы
     // мутируем их .Color, и все контролы, держащие ту же ссылку, перерисовываются.
     static class Theme
     {
         public static ThemeMode Mode = ThemeMode.Dark;
-        public static string CurrentTheme { get { return Mode.ToString().ToLowerInvariant(); } }
+
+        // Единый реестр живых тем. Раньше соответствие «тема ↔ строка конфига» было
+        // продублировано в App, MainWindow и View.Settings тремя тернарниками, и
+        // удаление темы означало правку всех трёх мест.
+        public static readonly ThemeMode[] Modes = { ThemeMode.Dark, ThemeMode.Amoled, ThemeMode.Light, ThemeMode.Sunset, ThemeMode.System24 };
+
+        public static string Name(ThemeMode mode) { return mode.ToString().ToLowerInvariant(); }
+        public static string CurrentTheme { get { return Name(Mode); } }
+        public static string LocKey(ThemeMode mode) { return "settings.theme." + Name(mode); }
+        public static string Label(ThemeMode mode) { return Loc.T(LocKey(mode)); }
+        public static int IndexOf(ThemeMode mode) { return System.Array.IndexOf(Modes, mode); }
+
+        // Строка конфига → тема. false, если имя неживое: удалённая тема или мусор.
+        public static bool TryParse(string raw, out ThemeMode mode)
+        {
+            mode = ThemeMode.Dark;
+            if (string.IsNullOrEmpty(raw)) return false;
+            string s = raw.Trim().ToLowerInvariant();
+            for (int i = 0; i < Modes.Length; i++)
+                if (string.Equals(Name(Modes[i]), s, StringComparison.Ordinal)) { mode = Modes[i]; return true; }
+            return false;
+        }
+
+        // Темы, удалённые из сборки, но способные остаться в чужих gui-config.ini
+        // («aurora» — северное сияние, «peter» — Питер Грифин, «midnight» — полуночная).
+        // Куда их менять: светлая тема уходила в светлую, тёмные — в тёмную, чтобы
+        // ради косметики человеку не переворачивали оформление с ног на голову.
+        static bool IsRemovedName(string s)
+        {
+            return s == "aurora" || s == "midnight"
+                || s == "peter" || s == "petergriffin" || s == "peter_griffin" || s == "griffin";
+        }
+
+        public static bool IsRemovedTheme(string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return false;
+            ThemeMode m;
+            if (TryParse(raw, out m)) return false;
+            return IsRemovedName(raw.Trim().ToLowerInvariant());
+        }
+
+        // Возвращает тему-заменителя либо ThemeMode.Dark, если имя неизвестное
+        // (App перепроверяет неизвестные по теме Windows).
+        public static ThemeMode RemovedThemeFallback(string raw)
+        {
+            string s = (raw ?? "").Trim().ToLowerInvariant();
+            bool lightFamily = s == "peter" || s == "petergriffin" || s == "peter_griffin" || s == "griffin";
+            return lightFamily ? ThemeMode.Light : ThemeMode.Dark;
+        }
 
         public static Color BgDeep, BgBase, Surface, SurfaceAlt, SurfaceHi, Stroke, StrokeSoft;
         public static Color Text, TextMuted, TextFaint;
         public static Color AccentMain, AccentHi, AccentDim;
-        public static Color Ok, OkDim, Warn, WarnDim, Err, ErrDim;
+        public static Color Ok, OkDim, Warn, WarnDim, Err, ErrDim, Info, InfoDim;
 
         public static readonly SolidColorBrush BrBgDeep     = new SolidColorBrush();
         public static readonly SolidColorBrush BrBgBase     = new SolidColorBrush();
@@ -37,6 +88,7 @@ namespace ZapretStudio
         public static readonly SolidColorBrush BrOk         = new SolidColorBrush();
         public static readonly SolidColorBrush BrWarn       = new SolidColorBrush();
         public static readonly SolidColorBrush BrErr        = new SolidColorBrush();
+        public static readonly SolidColorBrush BrInfo       = new SolidColorBrush();
         public static readonly SolidColorBrush BrOnAccent   = new SolidColorBrush(Colors.White);
 
         public static event Action ThemeChanged;
@@ -61,6 +113,7 @@ namespace ZapretStudio
             Ok  = Rgb(0x4F, 0xB0, 0x6A); OkDim  = Rgb(0x24, 0x3A, 0x2C);
             Warn = Rgb(0xE0, 0xA8, 0x45); WarnDim = Rgb(0x3C, 0x30, 0x18);
             Err = Rgb(0xDB, 0x5E, 0x5E); ErrDim = Rgb(0x3C, 0x22, 0x22);
+            Info = Rgb(0x4A, 0x9E, 0xFF); InfoDim = Rgb(0x18, 0x2E, 0x48);
         }
 
         static void SetLightPalette()
@@ -81,48 +134,36 @@ namespace ZapretStudio
             Ok  = Rgb(0x2F, 0x8F, 0x4E); OkDim  = Rgb(0xDD, 0xF0, 0xE2);
             Warn = Rgb(0xB0, 0x7C, 0x12); WarnDim = Rgb(0xF7, 0xEC, 0xD2);
             Err = Rgb(0xC6, 0x45, 0x45); ErrDim = Rgb(0xF7, 0xDE, 0xDE);
+            Info = Rgb(0x25, 0x63, 0xEB); InfoDim = Rgb(0xDB, 0xEA, 0xFE);
         }
 
+        // Настоящий AMOLED, а не «тёмная, но чернее». Правила:
+        // 1) большое поле (фон окна и холст контента) — выключенные пиксели #000000;
+        //    шапка и сайдбар на 5% серого, иначе bands сливаются в пятно.
+        // 2) карточки почти чёрные: объём даёт рамка, а не серая заливка — серая
+        //    заливка на OLED светится и убивает смысл темы.
+        // 3) все серые тона нейтральные, без синего подтона (на чёрном синева читается как грязь).
+        // 4) текст не #FFFFFF: чистый белый на выключенном чёрном даёт гало и быстро утомляет.
+        // 5) статусы чуть ярче, чем в Dark — вокруг них нет светлой подложки-карточки.
         static void SetAmoledPalette()
         {
             BgDeep     = Rgb(0x00, 0x00, 0x00);
-            BgBase     = Rgb(0x00, 0x00, 0x00);
-            Surface    = Rgb(0x12, 0x12, 0x14);
-            SurfaceAlt = Rgb(0x1A, 0x1A, 0x1E);
-            SurfaceHi  = Rgb(0x24, 0x24, 0x2A);
-            Stroke     = Rgb(0x2A, 0x2A, 0x32);
-            StrokeSoft = Rgb(0x20, 0x20, 0x28);
-            Text       = Rgb(0xEC, 0xEE, 0xF2);
+            BgBase     = Rgb(0x05, 0x05, 0x07);
+            Surface    = Rgb(0x0B, 0x0B, 0x0E);
+            SurfaceAlt = Rgb(0x12, 0x12, 0x16);
+            SurfaceHi  = Rgb(0x1C, 0x1C, 0x22);
+            Stroke     = Rgb(0x27, 0x27, 0x30);
+            StrokeSoft = Rgb(0x19, 0x19, 0x20);
+            Text       = Rgb(0xE6, 0xE6, 0xE9);
             TextMuted  = Rgb(0x9A, 0xA0, 0xAB);
-            TextFaint  = Rgb(0x6C, 0x72, 0x7D);
+            TextFaint  = Rgb(0x6E, 0x73, 0x7B);
             AccentMain = Rgb(0x6C, 0x78, 0xF0);
-            AccentHi   = Rgb(0x84, 0x8F, 0xFF);
-            AccentDim  = Rgb(0x2A, 0x30, 0x60);
-            Ok  = Rgb(0x4F, 0xB0, 0x6A); OkDim  = Rgb(0x14, 0x28, 0x1C);
-            Warn = Rgb(0xE0, 0xA8, 0x45); WarnDim = Rgb(0x2C, 0x22, 0x10);
-            Err = Rgb(0xDB, 0x5E, 0x5E); ErrDim = Rgb(0x2C, 0x18, 0x18);
-        }
-
-        // Тёплая глубокая тема с зелёным акцентом. Контраст подобран так, чтобы
-        // журнал и статусы оставались читаемыми даже на неярких мониторах.
-        static void SetAuroraPalette()
-        {
-            BgDeep     = Rgb(0x0B, 0x16, 0x16);
-            BgBase     = Rgb(0x0F, 0x20, 0x20);
-            Surface    = Rgb(0x15, 0x2A, 0x2A);
-            SurfaceAlt = Rgb(0x1A, 0x34, 0x33);
-            SurfaceHi  = Rgb(0x24, 0x43, 0x40);
-            Stroke     = Rgb(0x30, 0x51, 0x4E);
-            StrokeSoft = Rgb(0x22, 0x3B, 0x39);
-            Text       = Rgb(0xEF, 0xF7, 0xF3);
-            TextMuted  = Rgb(0xA7, 0xBF, 0xB7);
-            TextFaint  = Rgb(0x72, 0x91, 0x89);
-            AccentMain = Rgb(0x4D, 0xC5, 0x96);
-            AccentHi   = Rgb(0x7A, 0xE1, 0xB8);
-            AccentDim  = Rgb(0x1D, 0x5C, 0x49);
-            Ok  = Rgb(0x62, 0xD3, 0x8A); OkDim  = Rgb(0x16, 0x3A, 0x29);
-            Warn = Rgb(0xF0, 0xB8, 0x52); WarnDim = Rgb(0x43, 0x31, 0x12);
-            Err = Rgb(0xF0, 0x76, 0x76); ErrDim = Rgb(0x43, 0x20, 0x22);
+            AccentHi   = Rgb(0x8B, 0x96, 0xFF);
+            AccentDim  = Rgb(0x1E, 0x23, 0x40);
+            Ok  = Rgb(0x59, 0xC1, 0x76); OkDim  = Rgb(0x0C, 0x20, 0x14);
+            Warn = Rgb(0xE9, 0xB2, 0x5C); WarnDim = Rgb(0x2A, 0x1F, 0x0C);
+            Err = Rgb(0xEF, 0x6B, 0x6B); ErrDim = Rgb(0x2A, 0x12, 0x14);
+            Info = Rgb(0x5A, 0xA8, 0xFF); InfoDim = Rgb(0x0C, 0x1E, 0x33);
         }
 
         // Тёплая вечерняя тема: глубокий сумеречный фон и закатный кораллово-персиковый неон.
@@ -144,48 +185,348 @@ namespace ZapretStudio
             Ok  = Rgb(0x4A, 0xDE, 0x80); OkDim  = Rgb(0x1E, 0x3B, 0x27);
             Warn = Rgb(0xFB, 0xBF, 0x24); WarnDim = Rgb(0x45, 0x33, 0x15);
             Err = Rgb(0xF4, 0x3F, 0x5E); ErrDim = Rgb(0x45, 0x1D, 0x24);
+            Info = Rgb(0x56, 0x9C, 0xD6); InfoDim = Rgb(0x26, 0x2A, 0x38);
         }
 
-        // Мягкая семейная палитра: небесно-голубой фон, зелёные акценты и
-        // тёплая жёлтая подсветка — под фоновую иллюстрацию Питера Гриффина.
-        static void SetPeterPalette()
+
+
+
+        public const string FlavorDefault = "default";
+        public const string FlavorMocha = "mocha";
+        public const string FlavorTokyoNight = "tokyo_night";
+        public const string FlavorNord = "nord";
+        public const string FlavorRosePine = "rose_pine";
+        public const string FlavorEverforest = "everforest";
+        public const string FlavorVencord = "vencord";
+
+        public static readonly string[] System24Flavors = new string[]
         {
-            BgDeep     = Rgb(0xD9, 0xEC, 0xF3);
-            BgBase     = Rgb(0xEE, 0xF7, 0xFA);
-            Surface    = Rgb(0xFA, 0xFD, 0xFE);
-            SurfaceAlt = Rgb(0xE5, 0xF1, 0xF5);
-            SurfaceHi  = Rgb(0xCF, 0xE3, 0xEA);
-            Stroke     = Rgb(0xAE, 0xCD, 0xD7);
-            StrokeSoft = Rgb(0xC9, 0xDF, 0xE6);
-            Text       = Rgb(0x1E, 0x35, 0x3B);
-            TextMuted  = Rgb(0x50, 0x70, 0x78);
-            TextFaint  = Rgb(0x7A, 0x99, 0xA1);
-            AccentMain = Rgb(0x4D, 0x9B, 0x62);
-            AccentHi   = Rgb(0x60, 0xB8, 0x77);
-            AccentDim  = Rgb(0xC5, 0xE5, 0xCC);
-            Ok  = Rgb(0x37, 0x96, 0x57); OkDim  = Rgb(0xD5, 0xEF, 0xDC);
-            Warn = Rgb(0xB7, 0x7B, 0x18); WarnDim = Rgb(0xFB, 0xED, 0xCB);
-            Err = Rgb(0xC1, 0x55, 0x4D); ErrDim = Rgb(0xF8, 0xDF, 0xDC);
+            FlavorDefault,
+            FlavorMocha,
+            FlavorTokyoNight,
+            FlavorNord,
+            FlavorRosePine,
+            FlavorEverforest,
+            FlavorVencord
+        };
+
+        static string _system24Flavor;
+        public static string System24Flavor
+        {
+            get
+            {
+                if (_system24Flavor == null)
+                {
+                    try { _system24Flavor = Core.Get("system24_flavor", FlavorDefault); }
+                    catch { _system24Flavor = FlavorDefault; }
+                    if (string.IsNullOrEmpty(_system24Flavor) || !IsValidFlavor(_system24Flavor))
+                    {
+                        _system24Flavor = FlavorDefault;
+                        try { Core.Set("system24_flavor", FlavorDefault); Core.SaveConfig(); } catch { }
+                    }
+                }
+                return _system24Flavor;
+            }
+            set
+            {
+                if (string.IsNullOrEmpty(value) || !IsValidFlavor(value))
+                    _system24Flavor = FlavorDefault;
+                else
+                    _system24Flavor = value;
+            }
         }
+
+        static bool IsValidFlavor(string f)
+        {
+            if (string.IsNullOrEmpty(f)) return false;
+            for (int i = 0; i < System24Flavors.Length; i++)
+            {
+                if (string.Equals(System24Flavors[i], f, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+
+        public static Color GetFlavorAccent(string flavor)
+        {
+            if (flavor == FlavorMocha) return Rgb(0xCB, 0xA6, 0xF7);
+            if (flavor == FlavorTokyoNight) return Rgb(0x7A, 0xA2, 0xF7);
+            if (flavor == FlavorNord) return Rgb(0x88, 0xC0, 0xD0);
+            if (flavor == FlavorRosePine) return Rgb(0xEB, 0xBC, 0xBA);
+            if (flavor == FlavorEverforest) return Rgb(0xA7, 0xC0, 0x80);
+            if (flavor == FlavorVencord) return Rgb(0x58, 0x65, 0xF2);
+            return Rgb(0x9F, 0x7B, 0xC1); // FlavorDefault
+        }
+
+        public static string GetFlavorName(string flavor)
+        {
+            if (string.IsNullOrEmpty(flavor)) return Loc.T("system24.flavor.default");
+            return Loc.T("system24.flavor." + flavor);
+        }
+
+        public static void ApplySystem24Flavor(string flavor)
+        {
+            System24Flavor = flavor;
+            try
+            {
+                Core.Set("system24_flavor", System24Flavor);
+                Core.SaveConfig();
+            }
+            catch { }
+
+            if (Mode == ThemeMode.System24)
+            {
+                Apply(ThemeMode.System24);
+            }
+        }
+
+        // Аутентичный TUI-стиль BetterDiscord System24 (refact0r/system24) с поддержкой подтем (flavors):
+        // 1. default: матовый чистый уголь (#121212 / #161616 / #1C1C1C) + лаванда (#9F7BC1)
+        // 2. mocha: Catppuccin Mocha (#11111B / #181825 / #1E1E2E) + лиловый Mauve (#CBA6F7)
+        // 3. tokyo_night: Tokyo Night (#16161E / #1A1B26 / #24283B) + неон Cyan/Blue (#7AA2F7)
+        // 4. nord: Nord Polar Night (#242933 / #2E3440 / #3B4252) + Frost (#88C0D0)
+        // 5. rose_pine: Rosé Pine (#14121E / #191724 / #1F1D2E) + Rose (#EBBCBA)
+        // 6. everforest: Everforest (#1E2326 / #232A2E / #272E33) + Forest (#A7C080)
+        // 7. vencord: Charcoal + Discord Blurple (#5865F2)
+        static void SetSystem24Palette(string flavor = null)
+        {
+            Info = Rgb(0x7D, 0xA1, 0xFF); InfoDim = Rgb(0x1B, 0x25, 0x3D);
+            string f = flavor ?? System24Flavor;
+            if (f == FlavorMocha)
+            {
+                BgDeep     = Rgb(0x11, 0x11, 0x1B);
+                BgBase     = Rgb(0x18, 0x18, 0x25);
+                Surface    = Rgb(0x1E, 0x1E, 0x2E);
+                SurfaceAlt = Rgb(0x24, 0x27, 0x3A);
+                SurfaceHi  = Rgb(0x31, 0x32, 0x44);
+                Stroke     = Rgb(0x45, 0x47, 0x5A);
+                StrokeSoft = Rgb(0x31, 0x32, 0x44);
+                Text       = Rgb(0xCD, 0xD6, 0xF4);
+                TextMuted  = Rgb(0xA6, 0xAD, 0xC8);
+                TextFaint  = Rgb(0x6C, 0x70, 0x86);
+                AccentMain = Rgb(0xCB, 0xA6, 0xF7);
+                AccentHi   = Rgb(0xF5, 0xC2, 0xE7);
+                AccentDim  = Rgb(0x3E, 0x2D, 0x52);
+                Ok         = Rgb(0xA6, 0xE3, 0xA1); OkDim  = Rgb(0x1B, 0x3B, 0x26);
+                Warn       = Rgb(0xF9, 0xE2, 0xAF); WarnDim = Rgb(0x42, 0x39, 0x1D);
+                Err        = Rgb(0xF3, 0x8B, 0xA8); ErrDim = Rgb(0x42, 0x1B, 0x24);
+            }
+            else if (f == FlavorTokyoNight)
+            {
+                BgDeep     = Rgb(0x16, 0x16, 0x1E);
+                BgBase     = Rgb(0x1A, 0x1B, 0x26);
+                Surface    = Rgb(0x24, 0x28, 0x3B);
+                SurfaceAlt = Rgb(0x2A, 0x2E, 0x45);
+                SurfaceHi  = Rgb(0x34, 0x3B, 0x58);
+                Stroke     = Rgb(0x41, 0x48, 0x68);
+                StrokeSoft = Rgb(0x2F, 0x35, 0x4F);
+                Text       = Rgb(0xC0, 0xCA, 0xF5);
+                TextMuted  = Rgb(0x9A, 0xA5, 0xCE);
+                TextFaint  = Rgb(0x56, 0x5F, 0x89);
+                AccentMain = Rgb(0x7A, 0xA2, 0xF7);
+                AccentHi   = Rgb(0x7D, 0xCF, 0xFF);
+                AccentDim  = Rgb(0x25, 0x34, 0x59);
+                Ok         = Rgb(0x9E, 0xCE, 0x6A); OkDim  = Rgb(0x23, 0x3B, 0x1E);
+                Warn       = Rgb(0xE0, 0xAF, 0x68); WarnDim = Rgb(0x40, 0x33, 0x1C);
+                Err        = Rgb(0xF7, 0x76, 0x8E); ErrDim = Rgb(0x45, 0x1E, 0x28);
+            }
+            else if (f == FlavorNord)
+            {
+                BgDeep     = Rgb(0x24, 0x29, 0x33);
+                BgBase     = Rgb(0x2E, 0x34, 0x40);
+                Surface    = Rgb(0x3B, 0x42, 0x52);
+                SurfaceAlt = Rgb(0x43, 0x4C, 0x5E);
+                SurfaceHi  = Rgb(0x4C, 0x56, 0x6A);
+                Stroke     = Rgb(0x4C, 0x56, 0x6A);
+                StrokeSoft = Rgb(0x3B, 0x42, 0x52);
+                Text       = Rgb(0xEC, 0xEF, 0xF4);
+                TextMuted  = Rgb(0xD8, 0xDE, 0xE9);
+                TextFaint  = Rgb(0x7B, 0x88, 0xA1);
+                AccentMain = Rgb(0x88, 0xC0, 0xD0);
+                AccentHi   = Rgb(0x8F, 0xBC, 0xBB);
+                AccentDim  = Rgb(0x27, 0x42, 0x4C);
+                Ok         = Rgb(0xA3, 0xBE, 0x8C); OkDim  = Rgb(0x27, 0x38, 0x22);
+                Warn       = Rgb(0xEB, 0xCB, 0x8B); WarnDim = Rgb(0x45, 0x3B, 0x23);
+                Err        = Rgb(0xBF, 0x61, 0x6A); ErrDim = Rgb(0x3E, 0x1F, 0x23);
+            }
+            else if (f == FlavorRosePine)
+            {
+                BgDeep     = Rgb(0x14, 0x12, 0x1E);
+                BgBase     = Rgb(0x19, 0x17, 0x24);
+                Surface    = Rgb(0x1F, 0x1D, 0x2E);
+                SurfaceAlt = Rgb(0x26, 0x23, 0x3A);
+                SurfaceHi  = Rgb(0x31, 0x2E, 0x48);
+                Stroke     = Rgb(0x40, 0x3D, 0x52);
+                StrokeSoft = Rgb(0x26, 0x23, 0x3A);
+                Text       = Rgb(0xE0, 0xDE, 0xF4);
+                TextMuted  = Rgb(0x90, 0x8C, 0xAA);
+                TextFaint  = Rgb(0x6E, 0x6A, 0x86);
+                AccentMain = Rgb(0xEB, 0xBC, 0xBA);
+                AccentHi   = Rgb(0xF6, 0xC1, 0x77);
+                AccentDim  = Rgb(0x45, 0x2E, 0x36);
+                Ok         = Rgb(0x9C, 0xCF, 0xD8); OkDim  = Rgb(0x1F, 0x38, 0x3D);
+                Warn       = Rgb(0xF6, 0xC1, 0x77); WarnDim = Rgb(0x42, 0x33, 0x1C);
+                Err        = Rgb(0xEB, 0x6F, 0x92); ErrDim = Rgb(0x42, 0x1B, 0x29);
+            }
+            else if (f == FlavorEverforest)
+            {
+                BgDeep     = Rgb(0x1E, 0x23, 0x26);
+                BgBase     = Rgb(0x23, 0x2A, 0x2E);
+                Surface    = Rgb(0x27, 0x2E, 0x33);
+                SurfaceAlt = Rgb(0x2D, 0x35, 0x3B);
+                SurfaceHi  = Rgb(0x37, 0x41, 0x45);
+                Stroke     = Rgb(0x47, 0x52, 0x58);
+                StrokeSoft = Rgb(0x32, 0x3C, 0x41);
+                Text       = Rgb(0xD3, 0xC6, 0xAA);
+                TextMuted  = Rgb(0x9D, 0xA9, 0xA0);
+                TextFaint  = Rgb(0x70, 0x7C, 0x74);
+                AccentMain = Rgb(0xA7, 0xC0, 0x80);
+                AccentHi   = Rgb(0x83, 0xC0, 0x92);
+                AccentDim  = Rgb(0x2C, 0x3E, 0x26);
+                Ok         = Rgb(0xA7, 0xC0, 0x80); OkDim  = Rgb(0x27, 0x36, 0x20);
+                Warn       = Rgb(0xDB, 0xBC, 0x7F); WarnDim = Rgb(0x3D, 0x34, 0x1E);
+                Err        = Rgb(0xE6, 0x7E, 0x80); ErrDim = Rgb(0x40, 0x20, 0x22);
+            }
+            else if (f == FlavorVencord)
+            {
+                BgDeep     = Rgb(0x12, 0x12, 0x12);
+                BgBase     = Rgb(0x16, 0x16, 0x16);
+                Surface    = Rgb(0x1C, 0x1C, 0x1C);
+                SurfaceAlt = Rgb(0x23, 0x23, 0x23);
+                SurfaceHi  = Rgb(0x2D, 0x2D, 0x2D);
+                Stroke     = Rgb(0x32, 0x32, 0x32);
+                StrokeSoft = Rgb(0x24, 0x24, 0x24);
+                Text       = Rgb(0xF0, 0xF0, 0xF2);
+                TextMuted  = Rgb(0x9A, 0x9A, 0xA0);
+                TextFaint  = Rgb(0x60, 0x60, 0x68);
+                AccentMain = Rgb(0x58, 0x65, 0xF2);
+                AccentHi   = Rgb(0x79, 0x83, 0xF5);
+                AccentDim  = Rgb(0x26, 0x2B, 0x57);
+                Ok         = Rgb(0x57, 0xF2, 0x87); OkDim  = Rgb(0x18, 0x3A, 0x24);
+                Warn       = Rgb(0xFE, 0xE7, 0x5C); WarnDim = Rgb(0x3E, 0x38, 0x16);
+                Err        = Rgb(0xED, 0x42, 0x45); ErrDim = Rgb(0x3E, 0x18, 0x1A);
+            }
+            else // FlavorDefault
+            {
+                BgDeep     = Rgb(0x12, 0x12, 0x12);
+                BgBase     = Rgb(0x16, 0x16, 0x16);
+                Surface    = Rgb(0x1C, 0x1C, 0x1C);
+                SurfaceAlt = Rgb(0x23, 0x23, 0x23);
+                SurfaceHi  = Rgb(0x2D, 0x2D, 0x2D);
+                Stroke     = Rgb(0x32, 0x32, 0x32);
+                StrokeSoft = Rgb(0x24, 0x24, 0x24);
+                Text       = Rgb(0xF0, 0xF0, 0xF2);
+                TextMuted  = Rgb(0x9A, 0x9A, 0xA0);
+                TextFaint  = Rgb(0x60, 0x60, 0x68);
+                AccentMain = Rgb(0x9F, 0x7B, 0xC1);
+                AccentHi   = Rgb(0xB8, 0x96, 0xE4);
+                AccentDim  = Rgb(0x3D, 0x2B, 0x52);
+                Ok         = Rgb(0x57, 0xF2, 0x87); OkDim  = Rgb(0x18, 0x3A, 0x24);
+                Warn       = Rgb(0xFE, 0xE7, 0x5C); WarnDim = Rgb(0x3E, 0x38, 0x16);
+                Err        = Rgb(0xED, 0x42, 0x45); ErrDim = Rgb(0x3E, 0x18, 0x1A);
+            }
+        }
+
 
         public static void Apply(ThemeMode mode)
         {
             Mode = mode;
             if (mode == ThemeMode.Light) SetLightPalette();
             else if (mode == ThemeMode.Amoled) SetAmoledPalette();
-            else if (mode == ThemeMode.Aurora) SetAuroraPalette();
             else if (mode == ThemeMode.Sunset) SetSunsetPalette();
-            else if (mode == ThemeMode.Peter) SetPeterPalette();
+
+            else if (mode == ThemeMode.System24) SetSystem24Palette();
             else SetDarkPalette();
+
+            // Пресеты акцента применяются поверх палитры темы. В System24 нет —
+            // там акцент задают подтемы-флейворы (SetSystem24Palette/Flavor*).
+            if (mode != ThemeMode.System24)
+            {
+                var ap = FindAccent(Core.Get("accent", null));
+                if (ap != null)
+                {
+                    AccentMain = ap.Main;
+                    AccentHi = ap.Hi;
+                    // Тёмная вариация для шиммера карточек — смесь с фоном темы,
+                    // как в палитрах (автоматически подходит и светлым темам).
+                    AccentDim = Blend(ap.Main, BgBase, 0.6);
+                }
+            }
+
+            UiFont = (mode == ThemeMode.System24) ? System24Font : (_downloadedUiFont ?? DefaultUiFont);
+
             BrBgDeep.Color = BgDeep;   BrBgBase.Color = BgBase;
             BrSurface.Color = Surface; BrSurfaceAlt.Color = SurfaceAlt; BrSurfaceHi.Color = SurfaceHi;
             BrStroke.Color = Stroke;   BrStrokeSoft.Color = StrokeSoft;
             BrText.Color = Text;       BrMuted.Color = TextMuted; BrFaint.Color = TextFaint;
             BrAccent.Color = AccentMain; BrAccentHi.Color = AccentHi;
-            BrOk.Color = Ok; BrWarn.Color = Warn; BrErr.Color = Err;
-            BrOnAccent.Color = Colors.White;
+            BrOk.Color = Ok; BrWarn.Color = Warn; BrErr.Color = Err; BrInfo.Color = Info;
+            BrOnAccent.Color = (mode == ThemeMode.System24) ? BgDeep : Colors.White;
             InstallScrollBarStyle();
             if (ThemeChanged != null) ThemeChanged();
+        }
+
+        // ---- Кастомизация: акцентные пресеты и плотность интерфейса ----
+
+        // Пресеты акцента поверх палитры любой темы. Пусто или "default" в
+        // конфиге — родной акцент темы. В System24 не применяются: там акцент
+        // задают подтемы-флейворы.
+        public sealed class AccentPreset
+        {
+            public readonly string Key;
+            public readonly Color Main, Hi;
+            public AccentPreset(string key, Color main, Color hi) { Key = key; Main = main; Hi = hi; }
+        }
+
+        public static readonly AccentPreset[] Accents =
+        {
+            new AccentPreset("blue",  Rgb(0x5B, 0x8D, 0xF6), Rgb(0x8F, 0xB4, 0xFF)),
+            new AccentPreset("green", Rgb(0x35, 0xC7, 0x7A), Rgb(0x63, 0xE0, 0x9E)),
+            new AccentPreset("amber", Rgb(0xF2, 0xA9, 0x3B), Rgb(0xFF, 0xC4, 0x66)),
+            new AccentPreset("pink",  Rgb(0xE8, 0x5A, 0xA7), Rgb(0xF7, 0x8B, 0xC5)),
+            new AccentPreset("red",   Rgb(0xEC, 0x4E, 0x4E), Rgb(0xFF, 0x7A, 0x7A))
+        };
+
+        public static AccentPreset FindAccent(string key)
+        {
+            if (string.IsNullOrEmpty(key)) return null;
+            string k = key.Trim();
+            if (string.Equals(k, "default", StringComparison.OrdinalIgnoreCase)) return null;
+            foreach (var a in Accents)
+                if (string.Equals(a.Key, k, StringComparison.OrdinalIgnoreCase)) return a;
+            return null;
+        }
+
+        // Незнакомый акцент (правленый конфиг или убранный в новой версии пресет)
+        // заменяем на «как в теме» и разово пишем в файл — без тихой подстановки
+        // на каждом запуске.
+        public static void NormalizeSavedAccent()
+        {
+            string raw = Core.Get("accent", null);
+            if (string.IsNullOrEmpty(raw)) return;
+            if (string.Equals(raw.Trim(), "default", StringComparison.OrdinalIgnoreCase)) return;
+            if (FindAccent(raw) != null) return;
+            Core.Set("accent", "default");
+            Core.SaveConfig();
+            Core.Info(Loc.T("accent.migrated"));
+        }
+
+        // Плотность: «Компактный интерфейс» (настройки → Интерфейс) множит
+        // отступы карточек, кнопок, плашек и вертикальные зазоры — для длинных
+        // списков (стратегии). Шрифты и строки Журнала не масштабируются.
+        public static double Density { get { return Core.GetBool("compact_ui", false) ? 0.72 : 1.0; } }
+
+        public static Thickness Dense(Thickness t)
+        {
+            double d = Density;
+            if (d == 1.0) return t;
+            return new Thickness(t.Left * d, t.Top * d, t.Right * d, t.Bottom * d);
+        }
+
+        public static double Dense(double v)
+        {
+            double d = Density;
+            return d == 1.0 ? v : v * d;
         }
 
         // Тёмная/светлая полоса прокрутки в стиле приложения. Переустанавливается при
@@ -245,7 +586,7 @@ namespace ZapretStudio
             return "#" + c.A.ToString("X2") + c.R.ToString("X2") + c.G.ToString("X2") + c.B.ToString("X2");
         }
 
-        static Color Blend(Color a, Color b, double t)
+        public static Color Blend(Color a, Color b, double t)
         {
             return Color.FromRgb(
                 (byte)(a.R + (b.R - a.R) * t),
@@ -253,14 +594,13 @@ namespace ZapretStudio
                 (byte)(a.B + (b.B - a.B) * t));
         }
 
+        // Цикл кнопки темы в шапке: идёт по реестру Modes, поэтому добавление или
+        // удаление темы не требует правки метода.
         public static ThemeMode NextMode()
         {
-            if (Mode == ThemeMode.Dark) return ThemeMode.Amoled;
-            if (Mode == ThemeMode.Amoled) return ThemeMode.Light;
-            if (Mode == ThemeMode.Light) return ThemeMode.Aurora;
-            if (Mode == ThemeMode.Aurora) return ThemeMode.Sunset;
-            if (Mode == ThemeMode.Sunset) return ThemeMode.Peter;
-            return ThemeMode.Dark;
+            int i = IndexOf(Mode);
+            if (i < 0) return Modes[0];
+            return Modes[(i + 1) % Modes.Length];
         }
 
         public static void ToggleMode()
@@ -269,12 +609,16 @@ namespace ZapretStudio
         }
 
         // До первого скачивания доступны системные fallback-шрифты. После успешной
-        // проверки SHA-256 Core.ConfigureUiFonts подменяет эти семейства на локальные
-        // Google Sans / Google Sans Code из папки utils\\fonts.
-        public static FontFamily UiFont = new FontFamily("Google Sans, Google Sans Text, Product Sans, Segoe UI");
+        // проверки SHA-256 Core.ConfigureUiFonts подменяет семейство интерфейса на
+        // выбранное пользователем (по умолчанию Google Sans), а моно — на Google
+        // Sans Code из папки utils\fonts.
+        public static readonly FontFamily DefaultUiFont = new FontFamily("Google Sans, Google Sans Text, Product Sans, Segoe UI");
+        public static readonly FontFamily System24Font = new FontFamily("DM Mono, Cascadia Mono, Cascadia Code, Consolas, Courier New");
+        static FontFamily _downloadedUiFont = null;
+        public static FontFamily UiFont = DefaultUiFont;
         public static FontFamily MonoFont = new FontFamily("Google Sans Code, Cascadia Mono, Consolas");
 
-        public static bool ConfigureDownloadedFonts(string fontDirectory)
+        public static bool ConfigureDownloadedFonts(string fontDirectory, string uiFamilyName)
         {
             try
             {
@@ -282,8 +626,11 @@ namespace ZapretStudio
                 string dir = System.IO.Path.GetFullPath(fontDirectory);
                 if (!dir.EndsWith(System.IO.Path.DirectorySeparatorChar.ToString())) dir += System.IO.Path.DirectorySeparatorChar;
                 var uri = new Uri(dir, UriKind.Absolute);
-                UiFont = new FontFamily(uri, "./#Google Sans");
+                // uiFamilyName — имя семейства из манифеста Core.FontFamilies (Title);
+                // файлы семейства WPF находит среди всех ttf папки по этому фрагменту.
+                _downloadedUiFont = new FontFamily(uri, "./#" + uiFamilyName);
                 MonoFont = new FontFamily(uri, "./#Google Sans Code");
+                if (Mode != ThemeMode.System24) UiFont = _downloadedUiFont;
                 return true;
             }
             catch
@@ -299,12 +646,12 @@ namespace ZapretStudio
         public const double FsSmall = 12;
         public const double FsTiny = 11;
 
-        public static readonly CornerRadius R6  = new CornerRadius(6);
-        public static readonly CornerRadius R8  = new CornerRadius(8);
-        public static readonly CornerRadius R10 = new CornerRadius(10);
-        public static readonly CornerRadius R12 = new CornerRadius(12);
-        public static readonly CornerRadius R14 = new CornerRadius(14);
-        public static readonly CornerRadius Rpill = new CornerRadius(999);
+        public static CornerRadius R6   { get { return Mode == ThemeMode.System24 ? new CornerRadius(0) : new CornerRadius(6); } }
+        public static CornerRadius R8   { get { return Mode == ThemeMode.System24 ? new CornerRadius(0) : new CornerRadius(8); } }
+        public static CornerRadius R10  { get { return Mode == ThemeMode.System24 ? new CornerRadius(0) : new CornerRadius(10); } }
+        public static CornerRadius R12  { get { return Mode == ThemeMode.System24 ? new CornerRadius(0) : new CornerRadius(12); } }
+        public static CornerRadius R14  { get { return Mode == ThemeMode.System24 ? new CornerRadius(0) : new CornerRadius(14); } }
+        public static CornerRadius Rpill{ get { return Mode == ThemeMode.System24 ? new CornerRadius(0) : new CornerRadius(999); } }
 
         // Анимации: только пользовательская настройка «Уменьшить анимацию».
         public static bool AnimationsEnabled
@@ -341,8 +688,8 @@ namespace ZapretStudio
         public const string List = "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8";
         public const string Info = "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 16v-4 M12 8h.01";
         public const string Play = "F:M5 3l14 9-14 9V3z";
-        public const string Pause = "F:M6 4h4v16H6z M14 4h4v16h-4z";
-        public const string Stop = "M3 3h18v18H3z";
+        public const string Pause = "M10 4v16 M14 4v16";
+        public const string Stop = "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M9 9h6v6H9z";
         public const string SkipNext = "F:M5 4l10 8-10 8V4z M19 5v14";
         public const string SkipPrev = "F:M19 20L9 12l10-8v16z M5 19V5";
         public const string Music = "M9 18V5l12-2v13 M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0z M21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z";
@@ -387,6 +734,7 @@ namespace ZapretStudio
         public const string Alert = Warn;
         public const string Discord = "M18 6h0a14.5 14.5 0 0 0-4-1.3 10.7 10.7 0 0 0-.5 1.1 13.5 13.5 0 0 0-4 0 10.7 10.7 0 0 0-.5-1.1A14.5 14.5 0 0 0 5 6a15.8 15.8 0 0 0-2 10.7 14.8 14.8 0 0 0 4.5 2.3 11 11 0 0 0 1-1.6 9.6 9.6 0 0 1-1.6-.8l.4-.3c3.1 1.5 6.5 1.5 9.6 0l.4.3a9.6 9.6 0 0 1-1.6.8 11 11 0 0 0 1 1.6 14.8 14.8 0 0 0 4.5-2.3A15.8 15.8 0 0 0 19 6z M8.5 14c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5zm7 0c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5z";
         public const string YouTube = "M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33 2.78 2.78 0 0 0 1.94 2c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z M9.75 15.02l5.75-3.27-5.75-3.27v6.54z";
+        public const string Palette = "M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z M6 12h.01 M8 7h.01 M13 6h.01 M17 10h.01";
     }
 
     static class UI
@@ -504,14 +852,14 @@ namespace ZapretStudio
             trigger.MouseEnter += (s, e) =>
             {
                 if (!Theme.AnimationsEnabled) return;
+                if (Theme.Mode == ThemeMode.System24 && type != IconAnimType.Rotate360) return;
                 switch (type)
                 {
                     case IconAnimType.ScaleBounce:
                     {
-                        var anim = new DoubleAnimation(1.0, 1.22, TimeSpan.FromMilliseconds(160))
+                        var anim = new DoubleAnimation(1.0, 1.15, TimeSpan.FromMilliseconds(150))
                         {
-                            AutoReverse = true,
-                            EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.7 }
+                            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
                         };
                         scale.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
                         scale.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
@@ -597,17 +945,149 @@ namespace ZapretStudio
                 FontFamily = Theme.MonoFont, TextWrapping = TextWrapping.Wrap };
         }
 
+        // Подсветка карточки под курсором: круглое пятно света в фоне и такая же
+        // круглая дуга на рамке. Радиусы задаются в долях bounding box, поэтому без
+        // поправки на отношение сторон пятно превращается в эллипс на всю ширину
+        // карточки — визуально это выглядело как «светится прямоугольная рамка».
+        public static void AttachSpotlight(Border b, Func<Brush> getDefaultBrush = null, Func<Color> getOuterColor = null)
+        {
+            if (b == null) return;
+            RadialGradientBrush spotBrush = null;
+            RadialGradientBrush bgSpotBrush = null;
+            Brush origBg = null;
+
+            // Радиус пятна на рамке и в фоне (по вертикали, в долях высоты).
+            const double RingR = 0.30, BgR = 0.46;
+
+            Action<double, double> setRadii = delegate (double w, double h)
+            {
+                if (spotBrush == null || bgSpotBrush == null) return;
+                double aspect = w > 0 && h > 0 ? h / w : 1.0;
+                spotBrush.RadiusY = RingR;
+                spotBrush.RadiusX = RingR * aspect;
+                bgSpotBrush.RadiusY = BgR;
+                bgSpotBrush.RadiusX = BgR * aspect;
+            };
+
+            b.MouseEnter += (s, e) =>
+            {
+                if (!Theme.AnimationsEnabled || Theme.Mode == ThemeMode.System24) return;
+                origBg = b.Background;
+                if (spotBrush == null)
+                {
+                    spotBrush = new RadialGradientBrush
+                    {
+                        MappingMode = BrushMappingMode.RelativeToBoundingBox,
+                        RadiusX = 0.45,
+                        RadiusY = 0.45
+                    };
+                }
+                if (bgSpotBrush == null)
+                {
+                    bgSpotBrush = new RadialGradientBrush
+                    {
+                        MappingMode = BrushMappingMode.RelativeToBoundingBox,
+                        RadiusX = 0.55,
+                        RadiusY = 0.55
+                    };
+                }
+                Color outer = getOuterColor != null ? getOuterColor() : Theme.Stroke;
+                spotBrush.GradientStops.Clear();
+                spotBrush.GradientStops.Add(new GradientStop(Color.FromArgb(235, Theme.AccentHi.R, Theme.AccentHi.G, Theme.AccentHi.B), 0.0));
+                spotBrush.GradientStops.Add(new GradientStop(Color.FromArgb(120, Theme.AccentMain.R, Theme.AccentMain.G, Theme.AccentMain.B), 0.55));
+                spotBrush.GradientStops.Add(new GradientStop(outer, 1.0));
+
+                Color bgCenter = Theme.Blend(Theme.SurfaceHi, Theme.AccentHi, 0.16);
+                Color bgEdge = Theme.SurfaceHi;
+                bgSpotBrush.GradientStops.Clear();
+                bgSpotBrush.GradientStops.Add(new GradientStop(bgCenter, 0.0));
+                bgSpotBrush.GradientStops.Add(new GradientStop(bgEdge, 0.85));
+
+                var pos = e.GetPosition(b);
+                var relX = b.ActualWidth > 0 ? pos.X / b.ActualWidth : 0.5;
+                var relY = b.ActualHeight > 0 ? pos.Y / b.ActualHeight : 0.5;
+                var relPos = new Point(relX, relY);
+                setRadii(b.ActualWidth, b.ActualHeight);
+                spotBrush.Center = relPos;
+                spotBrush.GradientOrigin = relPos;
+                bgSpotBrush.Center = relPos;
+                b.BorderBrush = spotBrush;
+                b.Background = bgSpotBrush;
+            };
+            b.MouseMove += (s, e) =>
+            {
+                if (!Theme.AnimationsEnabled || Theme.Mode == ThemeMode.System24) return;
+                var pos = e.GetPosition(b);
+                var relX = b.ActualWidth > 0 ? pos.X / b.ActualWidth : 0.5;
+                var relY = b.ActualHeight > 0 ? pos.Y / b.ActualHeight : 0.5;
+                var relPos = new Point(relX, relY);
+                // Размер карточки мог измениться после наведения (перенос подписи,
+                // прокрутка) — круг нужно держать кругом.
+                setRadii(b.ActualWidth, b.ActualHeight);
+                if (spotBrush != null && b.BorderBrush == spotBrush)
+                {
+                    spotBrush.Center = relPos;
+                    spotBrush.GradientOrigin = relPos;
+                }
+                if (bgSpotBrush != null && b.Background == bgSpotBrush)
+                {
+                    bgSpotBrush.Center = relPos;
+                    bgSpotBrush.GradientOrigin = relPos;
+                }
+            };
+            b.MouseLeave += (s, e) =>
+            {
+                if (Theme.Mode == ThemeMode.System24) return;
+                b.BorderBrush = getDefaultBrush != null ? getDefaultBrush() : Theme.BrStroke;
+                b.Background = origBg ?? Theme.BrSurface;
+            };
+        }
+
         public static Border Card(UIElement child, Thickness? pad = null, CornerRadius? radius = null, Brush bg = null)
         {
-            return new Border
+            var b = new Border
             {
                 Background = bg ?? Theme.BrSurface,
                 BorderBrush = Theme.BrStroke,
                 BorderThickness = new Thickness(1),
                 CornerRadius = radius ?? Theme.R12,
-                Padding = pad ?? new Thickness(18),
+                Padding = Theme.Dense(pad ?? new Thickness(18)),
                 Child = child
             };
+            if (Theme.Mode == ThemeMode.System24)
+            {
+                b.MouseEnter += (s, e) =>
+                {
+                    if (Theme.Mode != ThemeMode.System24) return;
+                    if (Theme.AnimationsEnabled)
+                    {
+                        var anim = new ColorAnimation(Theme.Stroke, Theme.AccentMain, TimeSpan.FromMilliseconds(200))
+                        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                        var brush = new SolidColorBrush(Theme.Stroke);
+                        b.BorderBrush = brush;
+                        brush.BeginAnimation(SolidColorBrush.ColorProperty, anim);
+                    }
+                    else b.BorderBrush = Theme.BrAccent;
+                };
+                b.MouseLeave += (s, e) =>
+                {
+                    if (Theme.Mode != ThemeMode.System24) return;
+                    if (Theme.AnimationsEnabled)
+                    {
+                        var anim = new ColorAnimation(Theme.AccentMain, Theme.Stroke, TimeSpan.FromMilliseconds(200))
+                        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                        var brush = new SolidColorBrush(Theme.AccentMain);
+                        b.BorderBrush = brush;
+                        brush.BeginAnimation(SolidColorBrush.ColorProperty, anim);
+                    }
+                    else b.BorderBrush = Theme.BrStroke;
+                };
+            }
+            else
+            {
+                AttachSpotlight(b, () => Theme.BrStroke, null);
+            }
+            return b;
         }
 
     }
@@ -623,7 +1103,7 @@ namespace ZapretStudio
                 case Sev.Ok: return Theme.BrOk;
                 case Sev.Warn: return Theme.BrWarn;
                 case Sev.Err: return Theme.BrErr;
-                case Sev.Info: return Theme.BrAccent;
+                case Sev.Info: return Theme.BrInfo;
                 case Sev.Progress: return Theme.BrAccent;
                 default: return Theme.BrMuted;
             }
@@ -635,7 +1115,7 @@ namespace ZapretStudio
                 case Sev.Ok: return Theme.Ok;
                 case Sev.Warn: return Theme.Warn;
                 case Sev.Err: return Theme.Err;
-                case Sev.Info: return Theme.AccentMain;
+                case Sev.Info: return Theme.Info;
                 case Sev.Progress: return Theme.AccentMain;
                 default: return Theme.TextMuted;
             }
@@ -672,10 +1152,12 @@ namespace ZapretStudio
             var border = new Border
             {
                 Background = bg, BorderBrush = brd, BorderThickness = new Thickness(1),
-                CornerRadius = Theme.R10, Padding = new Thickness(14, 9, 14, 9), Child = sp
+                CornerRadius = Theme.R10, Padding = Theme.Dense(new Thickness(14, 9, 14, 9)), Child = sp
             };
+            Border contentHost;
+            var contentRoot = SplitSurface(border, out contentHost);
 
-            var b = new Button { Content = border, Cursor = System.Windows.Input.Cursors.Hand, Focusable = true };
+            var b = new Button { Content = contentRoot, Cursor = System.Windows.Input.Cursors.Hand, Focusable = true };
 
             if (iconData != null)
             {
@@ -694,7 +1176,8 @@ namespace ZapretStudio
                     FontFamily = Theme.UiFont, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
 
             StripChrome(b);
-            b.Tag = new object[] { border, bg, kind };
+            AttachHoverGlow(b, border);
+            b.Tag = new object[] { border, bg, kind, contentHost };
             b.MouseEnter += (s, e) =>
             {
                 var tag = b.Tag as object[];
@@ -703,9 +1186,29 @@ namespace ZapretStudio
                     var curBd = tag[0] as Border;
                     var curBg = tag[1] as Brush;
                     int curKind = (int)tag[2];
-                    if (curBd != null) curBd.Background = Hover(curBg, curKind);
+                    if (curBd != null)
+                    {
+                        curBd.Background = Hover(curBg, curKind);
+                        if (Theme.Mode == ThemeMode.System24)
+                        {
+                            Color targetC = (curKind == 2) ? Theme.Err : Theme.AccentMain;
+                            if (Theme.AnimationsEnabled)
+                            {
+                                var anim = new ColorAnimation(Theme.Stroke, targetC, TimeSpan.FromMilliseconds(200))
+                                { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                                var brush = new SolidColorBrush(Theme.Stroke);
+                                curBd.BorderBrush = brush;
+                                brush.BeginAnimation(SolidColorBrush.ColorProperty, anim);
+                            }
+                            else curBd.BorderBrush = (curKind == 2) ? Theme.BrErr : Theme.BrAccent;
+                        }
+                    }
                 }
-                else border.Background = Hover(bg, kind);
+                else
+                {
+                    border.Background = Hover(bg, kind);
+                    if (Theme.Mode == ThemeMode.System24) border.BorderBrush = (kind == 2) ? Theme.BrErr : Theme.BrAccent;
+                }
             };
             b.MouseLeave += (s, e) =>
             {
@@ -714,30 +1217,351 @@ namespace ZapretStudio
                 {
                     var curBd = tag[0] as Border;
                     var curBg = tag[1] as Brush;
-                    if (curBd != null) curBd.Background = curBg;
+                    if (curBd != null)
+                    {
+                        curBd.Background = curBg;
+                        if (Theme.Mode == ThemeMode.System24)
+                        {
+                            int curKind = (int)tag[2];
+                            if (curKind == 0) curBd.BorderBrush = Theme.BrAccent;
+                            else if (Theme.AnimationsEnabled)
+                            {
+                                Color startC = (curKind == 2) ? Theme.Err : Theme.AccentMain;
+                                var anim = new ColorAnimation(startC, Theme.Stroke, TimeSpan.FromMilliseconds(200))
+                                { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                                var brush = new SolidColorBrush(startC);
+                                curBd.BorderBrush = brush;
+                                brush.BeginAnimation(SolidColorBrush.ColorProperty, anim);
+                            }
+                            else curBd.BorderBrush = Theme.BrStroke;
+                        }
+                    }
                 }
-                else border.Background = bg;
+                else
+                {
+                    border.Background = bg;
+                    if (Theme.Mode == ThemeMode.System24) border.BorderBrush = (kind == 0) ? Theme.BrAccent : Theme.BrStroke;
+                }
+            };
+            b.GotKeyboardFocus += (s, e) =>
+            {
+                var tag = b.Tag as object[];
+                var curBd = (tag != null ? tag[0] as Border : null) ?? border;
+                SetFocusRing(curBd, true);
+                b.BringIntoView();
+            };
+            b.LostKeyboardFocus += (s, e) =>
+            {
+                var tag = b.Tag as object[];
+                var curBd = (tag != null ? tag[0] as Border : null) ?? border;
+                int curKind = tag != null ? (int)tag[2] : kind;
+                SetFocusRing(curBd, false);
+                if (curBd != null)
+                {
+                    curBd.BorderBrush = (curKind == 0) ? Theme.BrAccent : Theme.BrStroke;
+                    if (b.IsMouseOver) SetGlow(curBd, true, false);
+                }
             };
             AutomationSetName(b, text ?? Loc.T("common.button"));
             return b;
+        }
+
+        // Кольцо фокуса с клавиатуры НЕ должно влиять на разметку. Раньше ставили
+        // BorderThickness 2: содержимое кнопки смещалось на 1px, а у Toggle это ещё
+        // и ломало ход ручки, посчитанный от рамки толщиной 1 — переключатель
+        // «уезжал не туда на пару пикселей», пока не потерял фокус.
+        public static void SetFocusRing(Border bd, bool on)
+        {
+            if (bd == null) return;
+            bd.BorderThickness = new Thickness(1);
+            if (on)
+            {
+                bd.BorderBrush = Theme.BrAccentHi;
+                SetGlow(bd, true, true);
+            }
+            else bd.Effect = null;
+        }
+
+        // Акцентный неон. Эффект вешается только на заливку БЕЗ содержимого:
+        // DropShadowEffect растрирует всё поддерево, и текст с иконками внутри
+        // мутнел. Заливка и контент разделены через SplitSurface().
+        public static void SetGlow(Border bd, bool on, bool focused)
+        {
+            if (bd == null) return;
+            if (!on || !Theme.AnimationsEnabled)
+            {
+                bd.Effect = null;
+                return;
+            }
+            var old = bd.Effect as DropShadowEffect;
+            if (old != null && Math.Abs(old.Opacity - (focused ? 0.85 : 0.5)) < 0.01) return;
+            bd.Effect = new DropShadowEffect
+            {
+                Color = Theme.AccentHi,
+                BlurRadius = focused ? 10 : 9,
+                ShadowDepth = 0,
+                Opacity = focused ? 0.85 : 0.5
+            };
+        }
+
+        public static void AttachHoverGlow(Button b, Border bd)
+        {
+            if (b == null || bd == null) return;
+            b.MouseEnter += (s, e) => { if (!b.IsKeyboardFocusWithin) SetGlow(bd, true, false); };
+            b.MouseLeave += (s, e) => { if (!b.IsKeyboardFocusWithin) SetGlow(bd, false, false); };
+            b.LostKeyboardFocus += (s, e) => { if (b.IsMouseOver) SetGlow(bd, true, false); };
+        }
+
+        public static void AttachGlow(Button b, Border bd)
+        {
+            if (b == null || bd == null) return;
+            AttachHoverGlow(b, bd);
+            b.GotKeyboardFocus += (s, e) => SetGlow(bd, true, true);
+        }
+
+        // Разделяет кнопку на заливку (surface) и содержимое (contentHost).
+        // Тень живёт на заливке без детей, поэтому подпись и иконки остаются
+        // чёткими. Отступы и толщина рамки переносятся на слой содержимого,
+        // чтобы разметка не сдвинулась ни на пиксель.
+        public static Grid SplitSurface(Border surface)
+        {
+            Border unused;
+            return SplitSurface(surface, out unused);
+        }
+
+        public static Grid SplitSurface(Border surface, out Border contentHost)
+        {
+            contentHost = null;
+            if (surface == null) return null;
+            var child = surface.Child;
+            var pad = surface.Padding;
+            var bt = surface.BorderThickness;
+            // Заливка должна заполнить весь узел. Если оставить ей Left/Right
+            // от исходной пилюли, она сжимается до толщины рамки: пропадает фон,
+            // а кликабельной остаётся тонкая полоска у края.
+            var ha = surface.HorizontalAlignment;
+            var va = surface.VerticalAlignment;
+            surface.Child = null;
+            surface.Padding = new Thickness(0);
+            surface.HorizontalAlignment = HorizontalAlignment.Stretch;
+            surface.VerticalAlignment = VerticalAlignment.Stretch;
+
+            contentHost = new Border
+            {
+                Padding = pad,
+                BorderThickness = bt,
+                BorderBrush = Brushes.Transparent,
+                Child = child
+            };
+
+            var root = new Grid
+            {
+                Background = Brushes.Transparent,
+                HorizontalAlignment = ha,
+                VerticalAlignment = va
+            };
+            root.Children.Add(surface);
+            root.Children.Add(contentHost);
+            return root;
+        }
+
+        public static Border Surface(Button b)
+        {
+            var tag = b != null ? b.Tag as object[] : null;
+            var s = tag != null && tag.Length > 0 ? tag[0] as Border : null;
+            return s ?? (b != null ? b.Content as Border : null);
+        }
+
+        public static Border ContentHost(Button b)
+        {
+            var tag = b != null ? b.Tag as object[] : null;
+            return tag != null && tag.Length > 3 ? tag[3] as Border : null;
+        }
+
+        // Ряд кнопок во всю ширину блока: равные колонки (тот же CellRow, что и у
+        // карточек), край ряда совпадает с краем блока над ним, ряд всегда один —
+        // при нехватке места подпись переносится ВНУТРИ кнопки. Плотная группировка
+        // по ширине подписи была опробована и отвергнута: ряд «съезжал» влево,
+        // у краёв оставалось пустое место, и он не соответствовал ширине блока.
+        public static CellRow ButtonRow(params FrameworkElement[] items)
+        {
+            var row = new CellRow { Gap = Theme.Dense(12), EvenRows = false, MinCell = 0,
+                Margin = new Thickness(0, 0, 0, Theme.Dense(12)) };
+            int n = 0;
+            foreach (var it in items)
+            {
+                if (it == null) continue;
+                it.Margin = new Thickness(0);
+                PrepareRowItem(it);
+                row.Children.Add(it);
+                n++;
+            }
+            row.ForceCols = n;
+            return row;
+        }
+
+        // Набор рядов кнопок с ОДИНАКОВОЙ шириной ячейки. Один вызов, а не несколько
+        // ButtonRow, потому что общая ширина считается по самому длинному ряду:
+        // отдельно взятый CellRow про соседний ряд ничего не знает. Без этого ряд
+        // из трёх кнопок делит блок на три колонки и выглядит на треть шире ряда
+        // из четырёх над ним — «карточки разными по размеру».
+        public static Panel ButtonRows(params FrameworkElement[][] rows)
+        {
+            int max = 0, live = 0;
+            foreach (var r in rows)
+            {
+                if (r == null) continue;
+                int n = 0;
+                foreach (var it in r) if (it != null) n++;
+                if (n == 0) continue;
+                live++;
+                if (n > max) max = n;
+            }
+
+            var sp = new StackPanel();
+            int idx = 0;
+            foreach (var r in rows)
+            {
+                var row = ButtonRow(r);
+                if (row.Children.Count == 0) continue;
+                idx++;
+                row.UniformCols = max;
+                row.Margin = new Thickness(0, 0, 0, Theme.Dense(idx == live ? 12 : 6));
+                sp.Children.Add(row);
+            }
+            return sp;
+        }
+
+        // Готовит кнопку к ряду: иконка + переносящаяся подпись в Grid (Auto/Star).
+        // Отдаёт TextBlock подписи — по нему CellRow меряет естественную ширину.
+        static void PrepareRowItem(FrameworkElement fe)
+        {
+            var b = fe as Button;
+            if (b == null) return;
+            var bd = Surface(b);
+            if (bd == null) return;
+            var box = ContentHost(b);
+            var sp = (box != null ? box.Child : bd.Child) as StackPanel;
+            if (sp == null) return;
+            if (box != null) box.Padding = new Thickness(10, 9, 10, 9);
+            else bd.Padding = new Thickness(10, 9, 10, 9);
+
+            UIElement icon = null;
+            TextBlock label = null;
+            foreach (UIElement ch in sp.Children)
+            {
+                var tb = ch as TextBlock;
+                if (tb != null && label == null) label = tb;
+                else if (icon == null) icon = ch;
+            }
+
+            // StackPanel меряет детей при бесконечной ширине, поэтому переноса в
+            // нём не бывает вовсе. Переставляем в Grid: иконка Auto, подпись Star.
+            // Узел-иконку переносим существующий, чтобы не потерять hover-анимацию.
+            var g = new Grid { HorizontalAlignment = HorizontalAlignment.Left };
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            sp.Children.Clear();
+            if (icon != null)
+            {
+                var ie = icon as FrameworkElement;
+                if (ie != null)
+                {
+                    // По вертикали — по центру строки. Был Top с отступом 2px:
+                    // пока подпись в одну строку, значок выглядел заданным вверх.
+                    ie.VerticalAlignment = VerticalAlignment.Center;
+                    ie.Margin = new Thickness(0, 0, label != null ? 8 : 0, 0);
+                }
+                Grid.SetColumn(icon, 0);
+                g.Children.Add(icon);
+            }
+            if (label != null)
+            {
+                label.TextWrapping = TextWrapping.Wrap;
+                label.VerticalAlignment = VerticalAlignment.Center;
+                Grid.SetColumn(label, 1);
+                g.Children.Add(label);
+            }
+            if (box != null) box.Child = g;
+            else bd.Child = g;
+        }
+
+        // Хост содержимого кнопки: Grid (в ряду кнопок, подпись переносится) или
+        // StackPanel (обычная кнопка). Тип сохраняется, чтобы SetButton мог
+        // перерисовать кнопку из ряда, не потеряв перенос.
+        static Panel ContentPanel(Button b)
+        {
+            var box = ContentHost(b);
+            if (box != null)
+            {
+                var p0 = box.Child as Panel;
+                if (p0 != null) return p0;
+                var sp0 = new StackPanel { Orientation = Orientation.Horizontal,
+                    VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
+                box.Child = sp0;
+                return sp0;
+            }
+            var bd = Surface(b);
+            if (bd == null) return null;
+            var p = bd.Child as Panel;
+            if (p != null) return p;
+            if (bd.Child == null)
+            {
+                var sp = new StackPanel { Orientation = Orientation.Horizontal,
+                    VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
+                bd.Child = sp;
+                return sp;
+            }
+            return null;
+        }
+
+        static void FillContent(Panel host, Button b, string iconData, string text, Brush fg)
+        {
+            if (host == null) return;
+            var g = host as Grid;
+            host.Children.Clear();
+            if (g != null && g.ColumnDefinitions.Count == 0)
+            {
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            }
+            if (iconData != null)
+            {
+                var ic = UI.Icon(iconData, 16, fg, 1.8);
+                ic.VerticalAlignment = g != null ? VerticalAlignment.Top : VerticalAlignment.Center;
+                ic.Margin = new Thickness(0, g != null ? 2 : 0, text != null ? 8 : 0, 0);
+                if (g != null) Grid.SetColumn(ic, 0);
+                host.Children.Add(ic);
+                var animType = (iconData == Icons.Restart || iconData == Icons.Refresh) ? IconAnimType.Rotate360 :
+                               (iconData == Icons.Pulse) ? IconAnimType.Pulse :
+                               (iconData == Icons.Gear) ? IconAnimType.Rotate90 :
+                               (iconData == Icons.Music) ? IconAnimType.Wiggle : IconAnimType.ScaleBounce;
+                UI.AttachIconHoverAnimation(b, ic, animType);
+            }
+            if (text != null)
+            {
+                var tb = new TextBlock { Text = text, Foreground = fg, FontSize = Theme.FsBody,
+                    FontFamily = Theme.UiFont, FontWeight = FontWeights.SemiBold,
+                    VerticalAlignment = VerticalAlignment.Center };
+                if (g != null)
+                {
+                    tb.TextWrapping = TextWrapping.Wrap;
+                    Grid.SetColumn(tb, 1);
+                }
+                host.Children.Add(tb);
+            }
         }
 
         public static void SetButtonText(Button b, string text)
         {
             try
             {
-                var border = b.Content as Border;
-                if (border != null)
+                var host = ContentPanel(b);
+                if (host == null) return;
+                foreach (var child in host.Children)
                 {
-                    var sp = border.Child as StackPanel;
-                    if (sp != null)
-                    {
-                        foreach (var child in sp.Children)
-                        {
-                            var tb = child as TextBlock;
-                            if (tb != null) { tb.Text = text; return; }
-                        }
-                    }
+                    var tb = child as TextBlock;
+                    if (tb != null) { tb.Text = text; return; }
                 }
             }
             catch { }
@@ -756,34 +1580,13 @@ namespace ZapretStudio
                     default: bg = Theme.Alpha(Theme.Text, 8); fg = Theme.BrText; brd = Theme.BrStroke; break;
                 }
 
-                var border = b.Content as Border;
+                var border = Surface(b);
                 if (border != null)
                 {
                     border.Background = bg;
                     border.BorderBrush = brd;
-                    var sp = border.Child as StackPanel;
-                    if (sp != null)
-                    {
-                        sp.Children.Clear();
-                        if (iconData != null)
-                        {
-                            var ic = UI.Icon(iconData, 16, fg, 1.8);
-                            ic.VerticalAlignment = VerticalAlignment.Center;
-                            ic.Margin = new Thickness(0, 0, text != null ? 8 : 0, 0);
-                            sp.Children.Add(ic);
-                            var animType = (iconData == Icons.Restart || iconData == Icons.Refresh) ? IconAnimType.Rotate360 :
-                                           (iconData == Icons.Pulse) ? IconAnimType.Pulse :
-                                           (iconData == Icons.Gear) ? IconAnimType.Rotate90 :
-                                           (iconData == Icons.Music) ? IconAnimType.Wiggle : IconAnimType.ScaleBounce;
-                            UI.AttachIconHoverAnimation(b, ic, animType);
-                        }
-                        if (text != null)
-                        {
-                            sp.Children.Add(new TextBlock { Text = text, Foreground = fg, FontSize = Theme.FsBody,
-                                FontFamily = Theme.UiFont, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
-                        }
-                    }
-                    b.Tag = new object[] { border, bg, kind };
+                    FillContent(ContentPanel(b), b, iconData, text, fg);
+                    b.Tag = new object[] { border, bg, kind, ContentHost(b) };
                 }
                 AutomationSetName(b, text ?? Loc.T("common.button"));
             }
@@ -818,6 +1621,14 @@ namespace ZapretStudio
 
             Action<double, int> setScale = (target, duration) =>
             {
+                if (Theme.Mode == ThemeMode.System24)
+                {
+                    scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                    scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                    scale.ScaleX = 1;
+                    scale.ScaleY = 1;
+                    return;
+                }
                 if (!Theme.AnimationsEnabled)
                 {
                     scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
@@ -891,16 +1702,18 @@ namespace ZapretStudio
             var box = new FrameworkElementFactory(typeof(Border), "box");
             box.SetValue(Border.WidthProperty, 18.0);
             box.SetValue(Border.HeightProperty, 18.0);
-            box.SetValue(Border.CornerRadiusProperty, new CornerRadius(5));
+            box.SetValue(Border.CornerRadiusProperty, Theme.Mode == ThemeMode.System24 ? new CornerRadius(0) : new CornerRadius(5));
             box.SetValue(Border.BorderThicknessProperty, new Thickness(1.6));
             box.SetValue(Border.BorderBrushProperty, Theme.Frozen(Theme.TextFaint));
             box.SetValue(Border.BackgroundProperty, Theme.Frozen(Theme.SurfaceAlt));
             box.SetValue(Border.SnapsToDevicePixelsProperty, true);
 
             var check = new FrameworkElementFactory(typeof(System.Windows.Shapes.Path), "tick");
-            check.SetValue(System.Windows.Shapes.Path.DataProperty,
-                Geometry.Parse("M4 9 L7.5 12.5 L14 5.5"));
-            check.SetValue(System.Windows.Shapes.Path.StrokeProperty, Theme.Frozen(Colors.White));
+            check.SetValue(System.Windows.Shapes.Path.DataProperty, Geometry.Parse(Icons.Check));
+            check.SetValue(System.Windows.Shapes.Path.StretchProperty, Stretch.Uniform);
+            check.SetValue(System.Windows.Shapes.Path.WidthProperty, 10.0);
+            check.SetValue(System.Windows.Shapes.Path.HeightProperty, 7.5);
+            check.SetValue(System.Windows.Shapes.Path.StrokeProperty, Theme.Frozen(Theme.Mode == ThemeMode.System24 ? Theme.BgDeep : Colors.White));
             check.SetValue(System.Windows.Shapes.Path.StrokeThicknessProperty, 2.0);
             check.SetValue(System.Windows.Shapes.Path.StrokeStartLineCapProperty, PenLineCap.Round);
             check.SetValue(System.Windows.Shapes.Path.StrokeEndLineCapProperty, PenLineCap.Round);
@@ -941,19 +1754,87 @@ namespace ZapretStudio
             {
                 var ring = new System.Windows.Shapes.Ellipse
                 {
-                    Width = 9, Height = 9, Stroke = Theme.Frozen(color), StrokeThickness = 2,
-                    VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0)
+                    Width = 9, Height = 9, Stroke = Theme.Frozen(color), StrokeThickness = 1.8,
+                    StrokeDashArray = new DoubleCollection { 3, 2 },
+                    VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0),
+                    RenderTransformOrigin = new Point(0.5, 0.5)
                 };
+                if (Theme.AnimationsEnabled && Theme.Mode != ThemeMode.System24)
+                {
+                    var rt = new RotateTransform(0);
+                    ring.RenderTransform = rt;
+                    var rotAnim = new DoubleAnimation(0, 360, TimeSpan.FromMilliseconds(950))
+                    {
+                        RepeatBehavior = RepeatBehavior.Forever
+                    };
+                    rt.BeginAnimation(RotateTransform.AngleProperty, rotAnim);
+                }
                 sp.Children.Add(ring);
             }
             else
             {
-                var dot = new System.Windows.Shapes.Ellipse
+                if (Theme.Mode == ThemeMode.System24)
                 {
-                    Width = 8, Height = 8, Fill = Theme.Frozen(color),
-                    VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0)
-                };
-                sp.Children.Add(dot);
+                    var sq = new System.Windows.Shapes.Rectangle
+                    {
+                        Width = 7, Height = 7, Fill = Theme.Frozen(color),
+                        VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0)
+                    };
+                    sp.Children.Add(sq);
+                }
+                else if (color == Theme.Ok && Theme.AnimationsEnabled)
+                {
+                    var beaconGrid = new Grid
+                    {
+                        Width = 10, Height = 10,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 0, 7, 0)
+                    };
+                    var wave = new System.Windows.Shapes.Ellipse
+                    {
+                        Width = 7, Height = 7,
+                        Stroke = Theme.Frozen(color),
+                        StrokeThickness = 1.2,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        RenderTransformOrigin = new Point(0.5, 0.5)
+                    };
+                    var st = new ScaleTransform(1, 1);
+                    wave.RenderTransform = st;
+                    var scaleAnim = new DoubleAnimation(1.0, 2.2, TimeSpan.FromMilliseconds(1600))
+                    {
+                        RepeatBehavior = RepeatBehavior.Forever,
+                        EasingFunction = new SineEase { EasingMode = EasingMode.EaseOut }
+                    };
+                    var opacAnim = new DoubleAnimation(0.9, 0.0, TimeSpan.FromMilliseconds(1600))
+                    {
+                        RepeatBehavior = RepeatBehavior.Forever,
+                        EasingFunction = new SineEase { EasingMode = EasingMode.EaseOut }
+                    };
+                    st.BeginAnimation(ScaleTransform.ScaleXProperty, scaleAnim);
+                    st.BeginAnimation(ScaleTransform.ScaleYProperty, scaleAnim);
+                    wave.BeginAnimation(UIElement.OpacityProperty, opacAnim);
+
+                    var dot = new System.Windows.Shapes.Ellipse
+                    {
+                        Width = 7, Height = 7, Fill = Theme.Frozen(color),
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+
+                    beaconGrid.Children.Add(wave);
+                    beaconGrid.Children.Add(dot);
+                    sp.Children.Add(beaconGrid);
+                }
+                else
+                {
+                    var dot = new System.Windows.Shapes.Ellipse
+                    {
+                        Width = 8, Height = 8, Fill = Theme.Frozen(color),
+                        VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0)
+                    };
+                    sp.Children.Add(dot);
+                }
             }
             sp.Children.Add(new TextBlock { Text = text, Foreground = Theme.Frozen(color),
                 FontSize = Theme.FsSmall, FontWeight = FontWeights.SemiBold, FontFamily = Theme.UiFont,
@@ -963,7 +1844,7 @@ namespace ZapretStudio
             {
                 Background = Theme.Alpha(color, 14), BorderBrush = Theme.Alpha(color, 55),
                 BorderThickness = new Thickness(1), CornerRadius = Theme.R8,
-                Padding = new Thickness(10, 4, 12, 4), Child = sp,
+                Padding = Theme.Dense(new Thickness(10, 4, 12, 4)), Child = sp,
                 HorizontalAlignment = HorizontalAlignment.Left
             };
             Ctl.AutomationSetName(bd, text);
@@ -978,14 +1859,19 @@ namespace ZapretStudio
     }
 
     // Тумблер с плавной анимацией ручки через TranslateTransform.
-    // Скруглённый прямоугольник (не овал): дорожка со скруглением R8, ручка — квадрат со скруглением.
+    // В темах Dark/Light — скруглённый прямоугольник со сглаженной ручкой и мягкой тенью.
+    // В теме System24 — строгий пиксельный ретро-стиль (CornerRadius 0, плоская ручка без размытой тени, акцентный ховер).
     class Toggle : System.Windows.Controls.Primitives.ToggleButton
     {
         Border _track;
         Border _knob;
         TranslateTransform _tx;
-        const double TrackW = 46, TrackH = 26, KnobD = 20, Inset = 3;
-        readonly double _travel = TrackW - KnobD - Inset * 2;
+        Action _themeHandler;
+        const double TrackW = 46, TrackH = 26, KnobD = 20, Inset = 3, BorderT = 1;
+        // Ход ручки считается от ВНУТРЕННЕГО края рамки: без вычета двух бордюров
+        // ручка в положении «вкл» вставала в 1px от края вместо 3px, то есть
+        // асимметрично на те самые пару пикселей.
+        readonly double _travel = TrackW - KnobD - Inset * 2 - BorderT * 2;
 
         public Toggle(string accessibleName)
         {
@@ -997,36 +1883,79 @@ namespace ZapretStudio
             SnapsToDevicePixels = true;
 
             _tx = new TranslateTransform(0, 0);
+            // Ручка — сосед заливки, а не её ребёнок: иначе тень подсветки
+            // растрирует и ручку, и она мутнеет.
             _knob = new Border
             {
                 Width = KnobD, Height = KnobD,
-                CornerRadius = new CornerRadius(6),
                 Background = new SolidColorBrush(Colors.White),
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(Inset, 0, 0, 0),
-                RenderTransform = _tx,
-                Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 4, ShadowDepth = 1, Opacity = 0.35, Direction = 270 }
+                Margin = new Thickness(Inset + BorderT, 0, 0, 0),
+                RenderTransform = _tx
             };
-            // Дорожка занимает весь контрол целиком (иначе схлопывается в овал вокруг ручки).
             _track = new Border
             {
                 Width = TrackW, Height = TrackH,
-                CornerRadius = new CornerRadius(8),
-                Background = Theme.BrSurfaceHi,
-                BorderBrush = Theme.BrStroke,
-                BorderThickness = new Thickness(1),
-                Child = _knob
+                BorderThickness = new Thickness(1)
             };
+            var root = new Grid();
+            root.Children.Add(_track);
+            root.Children.Add(_knob);
 
-            Content = _track;
+            Content = root;
             Template = MakeTemplate();
             FocusVisualStyle = Ctl.FocusStyle();
             Ctl.AddMotion(this);
             Checked += (s, e) => Render(true);
             Unchecked += (s, e) => Render(true);
             Ctl.AutomationSetName(this, accessibleName);
-            Loaded += (s, e) => Render(false);
+
+            _themeHandler = delegate { Render(false); };
+            Loaded += (s, e) =>
+            {
+                Theme.ThemeChanged += _themeHandler;
+                Render(false);
+            };
+            Unloaded += (s, e) =>
+            {
+                Theme.ThemeChanged -= _themeHandler;
+            };
+            MouseEnter += (s, e) =>
+            {
+                if (!IsKeyboardFocusWithin) Ctl.SetGlow(_track, true, false);
+                if (IsChecked != true && Theme.Mode == ThemeMode.System24)
+                    _track.BorderBrush = Theme.BrAccent;
+            };
+            MouseLeave += (s, e) =>
+            {
+                if (!IsKeyboardFocusWithin) Ctl.SetGlow(_track, false, false);
+                if (IsChecked != true && Theme.Mode == ThemeMode.System24)
+                    _track.BorderBrush = Theme.BrStroke;
+            };
+            GotKeyboardFocus += (s, e) =>
+            {
+                Ctl.SetFocusRing(_track, true);
+                BringIntoView();
+            };
+            LostKeyboardFocus += (s, e) =>
+            {
+                Ctl.SetFocusRing(_track, false);
+                Render(false);
+                if (IsMouseOver) Ctl.SetGlow(_track, true, false);
+            };
+            KeyDown += (s, e) =>
+            {
+                if (e.Key == System.Windows.Input.Key.Enter)
+                {
+                    IsChecked = !IsChecked;
+                    e.Handled = true;
+                }
+            };
+            IsEnabledChanged += (s, e) =>
+            {
+                Opacity = IsEnabled ? 1.0 : 0.45;
+            };
         }
 
         System.Windows.Controls.ControlTemplate MakeTemplate()
@@ -1041,9 +1970,20 @@ namespace ZapretStudio
 
         void Render(bool animate)
         {
+            bool isS24 = (Theme.Mode == ThemeMode.System24);
+            _track.CornerRadius = isS24 ? new CornerRadius(0) : new CornerRadius(8);
+            _knob.CornerRadius = isS24 ? new CornerRadius(0) : new CornerRadius(6);
+            _knob.Effect = isS24 ? null : new DropShadowEffect { Color = Colors.Black, BlurRadius = 4, ShadowDepth = 1, Opacity = 0.35, Direction = 270 };
+
             bool on = IsChecked == true;
             _track.Background = on ? Theme.BrAccent : Theme.BrSurfaceHi;
             _track.BorderBrush = on ? Theme.BrAccent : Theme.BrStroke;
+            _knob.Background = new SolidColorBrush(Colors.White);
+            // Кольцо фокуса переживает перерисовку и смену темы: строкой выше
+            // BorderBrush затирается, и у карточки с фокусом оставалась тонкая
+            // рамка без акцента.
+            if (IsKeyboardFocused) _track.BorderBrush = Theme.BrAccentHi;
+
             double target = on ? _travel : 0;
             if (animate && Theme.AnimationsEnabled)
             {

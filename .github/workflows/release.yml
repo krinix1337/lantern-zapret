@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (например 8.0)'
+        description: 'Release tag (например v10.0)'
         required: true
 
 # Прежний workflow собирал апстримный zapret на ubuntu-latest: тег сверялся с
@@ -17,16 +17,37 @@ on:
 jobs:
   release:
     runs-on: windows-latest
+    # №91: публикация раздаётся всем клиентам (Core.Endpoints.cs тянет
+    # releases/latest/download/Lantern-Setup.exe и запускает его от администратора).
+    # Environment с required reviewers в настройках репозитория делает релиз
+    # подтверждаемым действием, а не любым workflow_dispatch.
+    environment: release
     permissions:
       contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # №91: полная история нужна для git tag -a и git describe
+          fetch-depth: 0
 
-      - name: Verify tag matches app version
+      # №91: релиз публикуется только из master — иначе ассеты и тег расходятся
+      # с тем, что видят пользователи в ветке по умолчанию.
+      - name: Verify branch
         shell: pwsh
         run: |
+          $ref = '${{ github.ref }}'
+          if ($ref -ne 'refs/heads/master') { throw "Release can only be published from master (current: $ref)" }
+
+      - name: Verify tag matches app version
+        id: verify
+        shell: pwsh
+        run: |
+          # №3: единственный источник истины — тег; значения в AssemblyInfo.cs и
+          # Lantern.iss сверяются между собой и с ним. Прежний гейт требовал
+          # совпадения с двумя разными числами, которые в HEAD не совпадали
+          # (9.1 против 9.0), из-за чего workflow краснел всегда.
           $tag = '${{ github.event.inputs.tag }}'.TrimStart('v', 'V')
           $asmLine = Get-Content '_app/AssemblyInfo.cs' | Where-Object { $_ -like '*AssemblyInformationalVersion*' } | Select-Object -First 1
           $issLine = Get-Content '_installer/Lantern.iss' | Where-Object { $_ -like '#define AppVersion*' } | Select-Object -First 1
@@ -35,13 +56,25 @@ jobs:
           $asmVer = ($asmLine -split '"')[1]
           $issVer = ($issLine -split '"')[1]
           Write-Host "tag=$tag assembly=$asmVer installer=$issVer"
-          if ($asmVer -ne $tag) { throw "tag '$tag' does not match AssemblyInformationalVersion '$asmVer'" }
-          if ($issVer -ne $tag) { throw "tag '$tag' does not match Lantern.iss AppVersion '$issVer'" }
+          if ($asmVer -ne $issVer) { throw "AssemblyInformationalVersion '$asmVer' != Lantern.iss AppVersion '$issVer'" }
+          if ($tag -ne $asmVer) { throw "tag '$tag' does not match app version '$asmVer'" }
+          # №90: все существующие теги в репозитории с префиксом v (v1.0 … v8.1)
+          $tagNorm = 'v' + $tag
+          "tag_norm=$tagNorm" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Build Lantern.exe
         shell: cmd
         working-directory: _app
         run: build.cmd
+
+      - name: Run SelfTest
+        shell: cmd
+        working-directory: _app
+        run: |
+          call build-selftest.cmd
+          if errorlevel 1 exit /b 1
+          ..\selftest.exe
+          if errorlevel 1 exit /b 1
 
       - name: Install Inno Setup
         shell: pwsh
@@ -65,11 +98,26 @@ jobs:
           Set-Content -Path "$setup.sha256" -Value "$hash  Lantern-Setup.exe" -Encoding ascii
           Write-Host "$hash  Lantern-Setup.exe"
 
+      # №91: тег создаётся в git явно, а не только через Release API — иначе
+      # история тегов и git describe расходятся с фактической точкой релиза.
+      - name: Create annotated tag
+        shell: pwsh
+        run: |
+          $tag = '${{ steps.verify.outputs.tag_norm }}'
+          if (git tag --list $tag) {
+            Write-Host "tag $tag already exists — reusing"
+          } else {
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a $tag -m "Lantern $tag"
+            git push origin "refs/tags/$tag"
+          }
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag }}
-          name: Lantern ${{ github.event.inputs.tag }}
+          tag_name: ${{ steps.verify.outputs.tag_norm }}
+          name: Lantern ${{ steps.verify.outputs.tag_norm }}
           files: |
             _installer/Lantern-Setup.exe
             _installer/Lantern-Setup.exe.sha256

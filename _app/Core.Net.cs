@@ -63,6 +63,7 @@ namespace ZapretStudio
                     t.Kind = "HTTP";
                     try { t.Host = new Uri(val).Host; } catch { t.Host = val; }
                 }
+                if (string.IsNullOrEmpty(t.Host)) continue;
                 list.Add(t);
             }
             return list;
@@ -116,14 +117,33 @@ namespace ZapretStudio
         // Проверка доступности URL (HttpWebRequest с поддержкой VPN и браузерных заголовков + curl + прямой сокет)
         public static CheckResult TestHttp(string url, int timeoutMs)
         {
+            return TestHttp(url, timeoutMs, null);
+        }
+
+        // №38: суммарное время пробы ограничено timeoutMs на все стадии вместе взятые
+        // (раньше каждая стадия получала полный timeoutMs, и проба могла идти втрое
+        // дольше заявленного), и отмена проверяется внутри стадий, а не только до старта.
+        public static CheckResult TestHttp(string url, int timeoutMs, Func<bool> cancel)
+        {
             var r = new CheckResult { When = DateTime.Now };
             var sw = System.Diagnostics.Stopwatch.StartNew();
+            // Сколько времени на пробу осталось. Минимум 1 мс, чтобы не превратить
+            // ожидание в бесконечное.
+            Func<int> Left = delegate
+            {
+                int left = timeoutMs - (int)sw.ElapsedMilliseconds;
+                return left > 0 ? left : 1;
+            };
+            Func<bool> Cancelled = delegate
+            {
+                try { return cancel != null && cancel(); } catch { return false; }
+            };
+
+            if (Cancelled()) { r.State = "timeout"; r.Detail = Loc.T("net.d.cancelled"); return r; }
 
             // 1. Быстрый HTTP-запрос через HttpWebRequest (поддерживает VPN-адаптеры, прокси и стандартный браузерный стек)
             try
             {
-                ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072 /*Tls12*/ | (SecurityProtocolType)12288 /*Tls13*/ | SecurityProtocolType.Tls;
-
                 var req = (HttpWebRequest)WebRequest.Create(url);
                 // Проверка сертификата отключается ТОЛЬКО для этой пробы: смысл
                 // пробы — «прошло ли соединение через DPI», а не доверие к узлу.
@@ -135,7 +155,7 @@ namespace ZapretStudio
                 req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
                 req.Accept = "*/*";
                 req.AddRange(0, 1024);
-                req.Timeout = timeoutMs;
+                req.Timeout = Left();
                 req.ReadWriteTimeout = timeoutMs;
                 req.AllowAutoRedirect = false;
                 req.KeepAlive = false;
@@ -171,9 +191,10 @@ namespace ZapretStudio
             catch { }
 
             // 2. Фолбэк на curl.exe (наиболее устойчив к DPI-десинхронизации и особенностям сокетов)
+            if (!Cancelled())
             try
             {
-                int sec = Math.Max(3, timeoutMs / 1000);
+                int sec = Math.Max(2, Math.Min(timeoutMs / 1000, Left() / 1000));
                 var cr = CurlCheck(url, sec);
                 if (cr.Verdict == "ok")
                 {
@@ -185,6 +206,8 @@ namespace ZapretStudio
                 }
             }
             catch { }
+
+            if (Cancelled()) { r.State = "timeout"; r.Detail = Loc.T("net.d.cancelled"); return r; }
 
             // 3. Если и curl не смог — замеряем детально стадии (DNS, TCP, TLS) для отображения точной причины
             string host; int port = 443; bool tls = true; string path = "/";
@@ -202,7 +225,7 @@ namespace ZapretStudio
             try
             {
                 var dns = Dns.BeginGetHostAddresses(host, null, null);
-                if (!dns.AsyncWaitHandle.WaitOne(timeoutMs))
+                if (!dns.AsyncWaitHandle.WaitOne(Left()))
                 { r.State = "timeout"; r.Detail = "DNS timeout"; return r; }
                 addrs = Dns.EndGetHostAddresses(dns);
                 if (addrs.Length == 0) throw new Exception("empty");
@@ -215,9 +238,10 @@ namespace ZapretStudio
             {
                 var sortedAddrs = addrs.OrderBy(a => a.AddressFamily == AddressFamily.InterNetwork ? 0 : 1).ToArray();
                 bool connected = false;
-                int perIpTimeout = Math.Min(timeoutMs, 2500);
                 foreach (var ip in sortedAddrs)
                 {
+                    if (Cancelled()) { r.State = "timeout"; r.Detail = Loc.T("net.d.cancelled"); return r; }
+                    int perIpTimeout = Math.Min(Left(), 2500);
                     try
                     {
                         sock = new TcpClient();
@@ -241,8 +265,8 @@ namespace ZapretStudio
                     r.State = "timeout"; r.Detail = Loc.T("net.d.tcpNone");
                     return r;
                 }
-                sock.ReceiveTimeout = timeoutMs;
-                sock.SendTimeout = timeoutMs;
+                sock.ReceiveTimeout = Left();
+                sock.SendTimeout = Left();
 
                 Stream stream = sock.GetStream();
                 if (tls)
@@ -250,8 +274,14 @@ namespace ZapretStudio
                     ssl = new System.Net.Security.SslStream(stream, false, delegate { return true; });
                     try
                     {
-                        var protos = (System.Security.Authentication.SslProtocols)3072 /*Tls12*/ | (System.Security.Authentication.SslProtocols)12288 /*Tls13*/ | System.Security.Authentication.SslProtocols.Tls;
-                        ssl.AuthenticateAsClient(host, null, protos, false);
+                        var protos = (System.Security.Authentication.SslProtocols)3072 /*Tls12*/ | (System.Security.Authentication.SslProtocols)12288 /*Tls13*/;
+                        // №38: синхронный AuthenticateAsClient не имел тайм-аута вообще —
+                        // рукопожатие, положенное на DPI, вешало пробу на неопределённо
+                        // долго. Async-пара с WaitOne ограничивает её тем же бюджетом.
+                        var hs = ssl.BeginAuthenticateAsClient(host, null, protos, false, null, null);
+                        if (!hs.AsyncWaitHandle.WaitOne(Left()))
+                        { r.State = "timeout"; r.Detail = Loc.T("net.d.tlsTimeout"); return r; }
+                        ssl.EndAuthenticateAsClient(hs);
                     }
                     catch (Exception ex) { r.State = "errTls"; r.Detail = Short(ex.Message); return r; }
                     stream = ssl;
@@ -260,10 +290,24 @@ namespace ZapretStudio
                 string req = "GET " + path + " HTTP/1.1\r\nHost: " + host + "\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\nRange: bytes=0-1024\r\nConnection: close\r\n\r\n";
                 byte[] rb = Encoding.ASCII.GetBytes(req);
                 stream.Write(rb, 0, rb.Length); stream.Flush();
-                var buf = new byte[256];
-                int n = stream.Read(buf, 0, buf.Length);
+                var buf = new byte[1024];
+                // №38: один Read(...) помечал «partial» любой сервер, ответивший двумя
+                // записями: статусная строка при этом уже могла лежать в первом блоке,
+                // но до неё не досчитывались. Читаем до статусной строки или до
+                // исчерпания бюджета пробы.
+                var acc = new System.Text.StringBuilder();
+                int gotAny = 0;
+                while (acc.Length < buf.Length)
+                {
+                    try { sock.ReceiveTimeout = Left(); } catch { }
+                    int got = stream.Read(buf, 0, buf.Length);
+                    if (got <= 0) break;
+                    gotAny += got;
+                    acc.Append(Encoding.ASCII.GetString(buf, 0, got));
+                    if (Regex.IsMatch(acc.ToString(), @"HTTP/1\.[01]\s+\d{3}")) break;
+                }
                 sw.Stop(); r.Ms = sw.ElapsedMilliseconds;
-                string resp = Encoding.ASCII.GetString(buf, 0, Math.Max(0, n));
+                string resp = acc.ToString();
                 var m = Regex.Match(resp, @"HTTP/1\.[01]\s+(\d{3})");
                 if (m.Success)
                 {
@@ -271,7 +315,7 @@ namespace ZapretStudio
                     r.Detail = "HTTP " + code + (tls ? ", TLS OK" : "");
                     r.State = (code >= 200 && code < 500) ? "reachable" : "partial";
                 }
-                else if (n > 0) { r.State = "partial"; r.Detail = Loc.T("net.d.noStatus"); }
+                else if (gotAny > 0) { r.State = "partial"; r.Detail = Loc.T("net.d.noStatus"); }
                 else { r.State = "unreachable"; r.Detail = Loc.T("net.d.empty"); }
             }
             catch (Exception ex)
@@ -284,8 +328,15 @@ namespace ZapretStudio
 
         public static CheckResult TestTarget(Target t, int timeoutMs)
         {
+            return TestTarget(t, timeoutMs, null);
+        }
+
+        // №38: отмена должна проверяться ВНУТРИ пробы, а не только до её запуска,
+        // иначе кнопка «Стоп» срабатывала только после полного цикла DNS+TCP+TLS.
+        public static CheckResult TestTarget(Target t, int timeoutMs, Func<bool> cancel)
+        {
             if (t.Kind == "PING") return TestPing(t.Host, timeoutMs);
-            return TestHttp(t.Url, timeoutMs);
+            return TestHttp(t.Url, timeoutMs, cancel);
         }
 
         // Результат curl-проверки одного URL (3 протокола как в test zapret.ps1)
@@ -307,9 +358,16 @@ namespace ZapretStudio
             var r = new CurlResult { Url = url, Verdict = "error", Ms = -1 };
             string[] protoFlags = { "-k --http1.1 --ssl-no-revoke", "-k --tlsv1.2 --tls-max 1.2 --ssl-no-revoke", "-k --tlsv1.3 --tls-max 1.3 --ssl-no-revoke" };
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            int[] exits = new int[protoFlags.Length];
-            string[] outs = new string[protoFlags.Length];
-            var barrier = new WorkBarrier(protoFlags.Length);
+            int n = protoFlags.Length;
+            int[] exits = new int[n];
+            string[] outs = new string[n];
+            int[] done = new int[n];
+            var barrier = new WorkBarrier(n);
+            int barrierMs = timeoutSec * 1000 + 1500;
+            // №15: внутреннее ожидание процесса обязано быть СТРОГО меньше окна
+            // барьера, иначе барьер гаснет первым, а воркеры ещё пишут в exits/outs.
+            // Прежние (timeoutSec + 2) * 1000 = 7000 при барьере 6500 давали обратное.
+            int perProbeWait = Math.Max(1000, barrierMs - 1000);
             for (int i = 0; i < protoFlags.Length; i++)
             {
                 int idx = i;
@@ -320,30 +378,45 @@ namespace ZapretStudio
                     try
                     {
                         string output;
-                        exits[idx] = RunCurl(args, out output);
+                        exits[idx] = RunCurl(args, out output, perProbeWait);
                         outs[idx] = output;
                     }
                     catch { exits[idx] = -1; }
-                    finally { barrier.Signal(); }
+                    finally
+                    {
+                        // Флаг «готов» ставится ПОСЛЕ записи результатов: без этого
+                        // читающий мог увидеть недописанный outs[idx] при done == 1.
+                        System.Threading.Interlocked.Exchange(ref done[idx], 1);
+                        barrier.Signal();
+                    }
                 });
             }
-            // Тайм-аут ожидания сохранён прежним, чтобы не замедлять бенчмарк:
-            // не отчитавшийся воркер оставляет свой слот пустым (exit 0 + пустой
-            // вывод → HTTP-код не разобран → проба не зачтена), ложных «ok» нет.
-            barrier.Wait(timeoutSec * 1000 + 1500);
-            for (int i = 0; i < protoFlags.Length; i++)
+            bool allInTime = barrier.Wait(barrierMs);
+            int unfinished = 0;
+            for (int i = 0; i < n; i++)
+                if (System.Threading.Interlocked.CompareExchange(ref done[i], 0, 0) == 0) unfinished++;
+            if (!allInTime || unfinished > 0)
+                Warn(string.Format(Loc.T("net.probesTimeout"), unfinished, n));
+
+            bool[] timedOut = new bool[n];
+            for (int i = 0; i < n; i++)
             {
-                string output = outs[i] ?? "";
+                // Незавершённый слот помечаем локально: прежняя запись exits[i] = 28 в
+                // общий массив могла быть перезаписана опоздавшим воркером (№15).
+                bool finished = System.Threading.Interlocked.CompareExchange(ref done[i], 0, 0) != 0;
+                int code = finished ? exits[i] : 28;
+                timedOut[i] = code == 28;
+                string output = finished ? (outs[i] ?? "") : "";
                 int httpCode = 0;
                 var m = Regex.Match(output, @"\b([1-5]\d\d)\b");
                 if (m.Success) int.TryParse(m.Groups[1].Value, out httpCode);
 
-                if (exits[i] == 0 && httpCode >= 200 && httpCode < 500)
+                if (code == 0 && httpCode >= 200 && httpCode < 500)
                 {
                     r.OkCount++;
                     if (r.BestCode == null) r.BestCode = httpCode.ToString();
                 }
-                else if (exits[i] == 35 || exits[i] == 60 || (output.IndexOf("certificate", StringComparison.OrdinalIgnoreCase) >= 0
+                else if (code == 35 || code == 60 || (output.IndexOf("certificate", StringComparison.OrdinalIgnoreCase) >= 0
                     || output.IndexOf("SSL", StringComparison.OrdinalIgnoreCase) >= 0))
                 {
                     if (r.Verdict == "error") r.Verdict = "ssl";
@@ -355,14 +428,14 @@ namespace ZapretStudio
             else
             {
                 bool isTimeout = false;
-                for (int i = 0; i < exits.Length; i++) if (exits[i] == 28) isTimeout = true;
+                for (int i = 0; i < n; i++) if (timedOut[i]) isTimeout = true;
                 if (isTimeout) r.Detail = "Timeout (" + timeoutSec + "s)";
                 else r.Detail = "Connection failed";
             }
             return r;
         }
 
-        static int RunCurl(string args, out string output)
+        static int RunCurl(string args, out string output, int waitMs)
         {
             output = "";
             try
@@ -388,7 +461,7 @@ namespace ZapretStudio
                     p.ErrorDataReceived += delegate(object s, System.Diagnostics.DataReceivedEventArgs e) { if (e.Data != null) lock (stderrSb) stderrSb.Append(e.Data); };
                     p.BeginOutputReadLine();
                     p.BeginErrorReadLine();
-                    if (!p.WaitForExit(15000)) { try { p.Kill(); } catch { } output = "timeout"; return -1; }
+                    if (!p.WaitForExit(waitMs)) { try { p.Kill(); } catch { } output = "timeout"; return 28; }
                     p.WaitForExit();
                     lock (stdoutSb) output = stdoutSb.ToString();
                     if (string.IsNullOrEmpty(output)) lock (stderrSb) output = stderrSb.ToString();
@@ -430,11 +503,10 @@ namespace ZapretStudio
 
         public static IspInfo DetectIspInfo()
         {
-            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
             // 1. Попытка через ipwho.is
             try
             {
-                using (var wc = new WebClient())
+                using (var wc = new TimedWebClient { TimeoutMilliseconds = 5000 })
                 {
                     wc.Encoding = Encoding.UTF8;
                     wc.Headers.Add("User-Agent", "Lantern");
@@ -446,7 +518,7 @@ namespace ZapretStudio
                         if (m.Success) info.Name = m.Groups[1].Value;
                         m = Regex.Match(json, "\"org\"\\s*:\\s*\"([^\"]+)\"");
                         if (m.Success) info.Org = m.Groups[1].Value;
-                        m = Regex.Match(json, "\"asn\"\\s*:\\s*(\\d+)");
+                        m = Regex.Match(json, "\"asn\"\\s*:\\s*\"?(?:AS)?(\\d+)\"?");
                         if (m.Success) info.Asn = "AS" + m.Groups[1].Value;
                         m = Regex.Match(json, "\"city\"\\s*:\\s*\"([^\"]+)\"");
                         if (m.Success) info.City = m.Groups[1].Value;
@@ -462,7 +534,7 @@ namespace ZapretStudio
             //    Формат: "org": "AS12389 PJSC Rostelecom", "city": "Moscow".
             try
             {
-                using (var wc = new WebClient())
+                using (var wc = new TimedWebClient { TimeoutMilliseconds = 5000 })
                 {
                     wc.Encoding = Encoding.UTF8;
                     wc.Headers.Add("User-Agent", "Lantern");
@@ -585,7 +657,7 @@ namespace ZapretStudio
             return list.Count > 0 ? list[0] : (GetStrategyFiles().Count > 0 ? GetStrategyFiles()[0] : null);
         }
 
-        static string Short(string s)
+        public static string Short(string s)
         {
             if (string.IsNullOrEmpty(s)) return "";
             s = s.Replace("\r", " ").Replace("\n", " ");
@@ -593,6 +665,26 @@ namespace ZapretStudio
             int limit = 140;
             if (limit > 0 && char.IsHighSurrogate(s[limit - 1])) limit--;
             return s.Substring(0, limit) + "\u2026";
+        }
+    }
+
+    // №36: у WebClient свойства Timeout нет, а запрос по умолчанию ждёт ~100 с.
+    // Зависшее TLS-рукопожатие на ipwho.is/ipinfo.io блокировало поток пула на
+    // минуты, а DetectIsp() вызывался повторно — до ~400 с.
+    sealed class TimedWebClient : WebClient
+    {
+        public int TimeoutMilliseconds = 15000;
+
+        protected override WebRequest GetWebRequest(Uri address)
+        {
+            WebRequest r = base.GetWebRequest(address);
+            if (r != null)
+            {
+                r.Timeout = TimeoutMilliseconds;
+                var http = r as HttpWebRequest;
+                if (http != null) http.ReadWriteTimeout = TimeoutMilliseconds;
+            }
+            return r;
         }
     }
 }

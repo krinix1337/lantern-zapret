@@ -99,7 +99,8 @@ namespace ZapretStudio
             Content = frame;
             Deactivated += (s, e) => Hide();
             Theme.ThemeChanged += OnThemeChanged;
-            Closed += (s, e) => Theme.ThemeChanged -= OnThemeChanged;
+            Loc.LanguageChanged += OnThemeChanged;
+            Closed += (s, e) => { Theme.ThemeChanged -= OnThemeChanged; Loc.LanguageChanged -= OnThemeChanged; };
             Refresh();
         }
 

@@ -47,6 +47,15 @@ namespace ZapretStudio
             Grid.SetColumn(HeaderActionSlot, 1);
             headGrid.Children.Add(HeaderActionSlot);
 
+            headGrid.PreviewMouseWheel += (s, e) =>
+            {
+                if (ScrollHost != null && ScrollHost.ScrollableHeight > 0)
+                {
+                    ScrollHost.ScrollByDelta(e.Delta);
+                    e.Handled = true;
+                }
+            };
+
             Grid.SetRow(headGrid, 0);
             root.Children.Add(headGrid);
 
@@ -54,7 +63,8 @@ namespace ZapretStudio
             ScrollHost = new SmoothScrollViewer
             {
                 Content = Body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(0)
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(0),
+                Background = Brushes.Transparent
             };
             Grid.SetRow(ScrollHost, 1);
             root.Children.Add(ScrollHost);
@@ -66,7 +76,7 @@ namespace ZapretStudio
         {
             return new TextBlock { Text = t.ToUpperInvariant(), Foreground = Theme.BrFaint,
                 FontSize = Theme.FsTiny, FontFamily = Theme.UiFont, FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(2, 18, 0, 8) };
+                Margin = new Thickness(2, Theme.Dense(18), 0, Theme.Dense(8)) };
         }
 
         // Карточка-строка: слева заголовок+описание, справа контрол.
@@ -88,7 +98,7 @@ namespace ZapretStudio
             if (right != null)
             {
                 var rc = new ContentControl { Content = right, VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(16, 0, 0, 0) };
+                    Margin = new Thickness(16, 0, 0, 0), Focusable = false };
                 Grid.SetColumn(rc, 1);
                 g.Children.Add(rc);
             }
@@ -101,7 +111,7 @@ namespace ZapretStudio
             for (int i = 0; i < rows.Length; i++)
             {
                 sp.Children.Add(rows[i]);
-                if (i < rows.Length - 1) sp.Children.Add(new Border { Height = 10 });
+                if (i < rows.Length - 1) sp.Children.Add(new Border { Height = Theme.Dense(10) });
             }
             return new Border { Child = sp };
         }
@@ -129,9 +139,67 @@ namespace ZapretStudio
             g.Children.Add(t);
 
             var card = UI.Card(g, new Thickness(16, 12, 16, 12), Theme.R10, Theme.BrSurface);
-            card.BorderBrush = Theme.BrStroke;
+            if (tint != Sev.Neutral)
+            {
+                var sc = UI2.SevColor(tint);
+                card.BorderBrush = new SolidColorBrush(Color.FromArgb(90, sc.R, sc.G, sc.B));
+                card.Background = new SolidColorBrush(Color.FromArgb(14, sc.R, sc.G, sc.B));
+            }
+            else
+            {
+                card.BorderBrush = Theme.BrStroke;
+            }
             return card;
         }
+
+        // Плашка-объяснение с действием внутри: текст слева, кнопки/статус справа.
+        // Прежний вид «карточка с текстом, а под ней одинокая кнопка» читался как
+        // два несвязанных блока (замечание по разделу «Настройки»).
+        protected static Border ActionCard(string icon, Brush iconBrush, string text, Sev tint, params UIElement[] actions)
+        {
+            var g = new Grid();
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var ic = UI.Icon(icon, 18, iconBrush, 1.8);
+            ic.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(ic, 0);
+            g.Children.Add(ic);
+
+            var t = new TextBlock
+            {
+                Text = text, Foreground = Theme.BrMuted, FontSize = Theme.FsSmall,
+                FontFamily = Theme.UiFont, TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(11, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(t, 1);
+            g.Children.Add(t);
+
+            var host = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            if (actions != null)
+                foreach (var a in actions)
+                {
+                    if (a == null) continue;
+                    var fe = a as FrameworkElement;
+                    if (fe != null && host.Children.Count > 0) fe.Margin = new Thickness(10, 0, 0, 0);
+                    host.Children.Add(a);
+                }
+            Grid.SetColumn(host, 2);
+            g.Children.Add(host);
+
+            var card = UI.Card(g, new Thickness(16, 12, 16, 12), Theme.R10, Theme.BrSurface);
+            if (tint != Sev.Neutral)
+            {
+                var sc = UI2.SevColor(tint);
+                card.BorderBrush = new SolidColorBrush(Color.FromArgb(90, sc.R, sc.G, sc.B));
+                card.Background = new SolidColorBrush(Color.FromArgb(14, sc.R, sc.G, sc.B));
+            }
+            else card.BorderBrush = Theme.BrStroke;
+            return card;
+        }
+
+        internal static readonly System.Collections.Generic.List<ComboBox> ActiveCombos = new System.Collections.Generic.List<ComboBox>();
 
         // ComboBox в стиле темы (системный по умолчанию рисует белый выпадающий список).
         protected static ComboBox Combo(double width)
@@ -144,9 +212,101 @@ namespace ZapretStudio
                 BorderBrush = Theme.BrStroke,
                 VerticalContentAlignment = VerticalAlignment.Center
             };
+            cb.DropDownOpened += (s, e) => { if (!ActiveCombos.Contains(cb)) ActiveCombos.Add(cb); AnimateDropdown(cb); };
+            cb.DropDownClosed += (s, e) => { ActiveCombos.Remove(cb); };
+            cb.Unloaded += (s, e) => { ActiveCombos.Remove(cb); };
+            cb.FocusVisualStyle = null;
+            cb.PreviewKeyDown += (s, e) =>
+            {
+                if (!cb.IsDropDownOpen)
+                {
+                    if (e.Key == Key.Enter || e.Key == Key.Space || e.Key == Key.F4 ||
+                        (e.Key == Key.Down && (Keyboard.Modifiers & ModifierKeys.Alt) != 0))
+                    {
+                        cb.IsDropDownOpen = true;
+                        e.Handled = true;
+                    }
+                }
+                else
+                {
+                    if (e.Key == Key.Escape)
+                    {
+                        cb.IsDropDownOpen = false;
+                        e.Handled = true;
+                    }
+                    else if (e.Key == Key.Enter)
+                    {
+                        // При нажатии Enter фиксируем подсвеченный стрелками пункт
+                        for (int i = 0; i < cb.Items.Count; i++)
+                        {
+                            var cbi = cb.ItemContainerGenerator.ContainerFromIndex(i) as ComboBoxItem;
+                            if (cbi != null && cbi.IsHighlighted)
+                            {
+                                cb.SelectedIndex = i;
+                                break;
+                            }
+                        }
+                        cb.IsDropDownOpen = false;
+                        e.Handled = true;
+                    }
+                    else if (e.Key == Key.Tab)
+                    {
+                        // При нажатии Tab фиксируем подсвеченный пункт и штатно переходим
+                        // к следующему элементу формы (без необходимости жать Tab дважды)
+                        for (int i = 0; i < cb.Items.Count; i++)
+                        {
+                            var cbi = cb.ItemContainerGenerator.ContainerFromIndex(i) as ComboBoxItem;
+                            if (cbi != null && cbi.IsHighlighted)
+                            {
+                                cb.SelectedIndex = i;
+                                break;
+                            }
+                        }
+                        cb.IsDropDownOpen = false;
+                    }
+                }
+            };
+            cb.MouseEnter += (s, e) => { if (!cb.IsKeyboardFocusWithin) Ctl.SetGlow(ComboSurface(cb), true, false); };
+            cb.MouseLeave += (s, e) => { if (!cb.IsKeyboardFocusWithin) Ctl.SetGlow(ComboSurface(cb), false, false); };
+            cb.GotKeyboardFocus += (s, e) =>
+            {
+                cb.BorderBrush = Theme.BrAccentHi;
+                Ctl.SetGlow(ComboSurface(cb), true, true);
+                cb.BringIntoView();
+            };
+            cb.LostKeyboardFocus += (s, e) =>
+            {
+                cb.BorderBrush = Theme.BrStroke;
+                Ctl.SetGlow(ComboSurface(cb), cb.IsMouseOver, false);
+            };
             cb.Resources = ComboResources();
             cb.Template = ComboTemplate();
             return cb;
+        }
+
+        // Заливка «коробки» ComboBox живёт в шаблоне внутреннего ToggleButton.
+        static Border ComboSurface(ComboBox cb)
+        {
+            try
+            {
+                var tg = cb.Template.FindName("PART_Toggle", cb) as System.Windows.Controls.Primitives.ToggleButton;
+                return tg != null && tg.Template != null ? tg.Template.FindName("tb", tg) as Border : null;
+            }
+            catch { return null; }
+        }
+
+        // Системная PopupAnimation.Fade зависит от настроек Windows («затухание меню»)
+        // и у многих выключена — список просто выскакивает. Анимируем бордюр попапа сами.
+        static void AnimateDropdown(ComboBox cb)
+        {
+            if (!Theme.AnimationsEnabled) return;
+            try
+            {
+                var pop = cb.Template.FindName("PART_Popup", cb) as System.Windows.Controls.Primitives.Popup;
+                if (pop == null) return;
+                UiAnim.Popup(pop.Child as FrameworkElement);
+            }
+            catch { }
         }
 
         // ВАЖНО: в шаблоны/стили нельзя класть мутируемые Theme.Br* — WPF замораживает
@@ -172,7 +332,7 @@ namespace ZapretStudio
             icp.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
             ibd.AppendChild(icp);
             itmpl.VisualTree = ibd;
-            var hov = new Trigger { Property = System.Windows.Controls.Primitives.ButtonBase.IsMouseOverProperty, Value = true };
+            var hov = new Trigger { Property = ComboBoxItem.IsHighlightedProperty, Value = true };
             hov.Setters.Add(new Setter(Border.BackgroundProperty, Theme.Frozen(Theme.SurfaceHi), "ib"));
             itmpl.Triggers.Add(hov);
             var selT = new Trigger { Property = ComboBoxItem.IsSelectedProperty, Value = true };
@@ -191,6 +351,7 @@ namespace ZapretStudio
 
             // Кнопка-«коробка» открывает список.
             var toggle = new FrameworkElementFactory(typeof(System.Windows.Controls.Primitives.ToggleButton));
+            toggle.Name = "PART_Toggle";
             toggle.SetValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty,
                 new System.Windows.Data.Binding("IsDropDownOpen") { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent, Mode = System.Windows.Data.BindingMode.TwoWay });
             toggle.SetValue(FrameworkElement.FocusableProperty, false);
@@ -214,7 +375,7 @@ namespace ZapretStudio
                 new System.Windows.Data.Binding("IsDropDownOpen") { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
             popup.SetValue(System.Windows.Controls.Primitives.Popup.PlacementProperty, System.Windows.Controls.Primitives.PlacementMode.Bottom);
             popup.SetValue(System.Windows.Controls.Primitives.Popup.AllowsTransparencyProperty, true);
-            popup.SetValue(System.Windows.Controls.Primitives.Popup.PopupAnimationProperty, System.Windows.Controls.Primitives.PopupAnimation.Fade);
+            popup.SetValue(System.Windows.Controls.Primitives.Popup.PopupAnimationProperty, System.Windows.Controls.Primitives.PopupAnimation.None);
             popup.SetValue(System.Windows.Controls.Primitives.Popup.FocusableProperty, false);
 
             var popBorder = new FrameworkElementFactory(typeof(Border));
@@ -228,9 +389,19 @@ namespace ZapretStudio
                 new System.Windows.Data.Binding("ActualWidth") { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
             popBorder.SetValue(Border.EffectProperty, new System.Windows.Media.Effects.DropShadowEffect { Color = Colors.Black, BlurRadius = 14, ShadowDepth = 3, Opacity = 0.35, Direction = 270 });
 
-            var scroll = new FrameworkElementFactory(typeof(SmoothScrollViewer));
-            scroll.SetValue(ScrollViewer.MaxHeightProperty, 280.0);
+            var scroll = new FrameworkElementFactory(typeof(ScrollViewer));
+            scroll.Name = "DropDownScrollViewer";
+            scroll.SetValue(ScrollViewer.CanContentScrollProperty, false);
+            scroll.SetValue(ScrollViewer.MaxHeightProperty, 260.0);
             scroll.SetValue(ScrollViewer.VerticalScrollBarVisibilityProperty, ScrollBarVisibility.Auto);
+            scroll.SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Disabled);
+            scroll.SetValue(ScrollViewer.PanningModeProperty, PanningMode.VerticalOnly);
+            scroll.SetValue(FrameworkElement.FocusableProperty, false);
+            scroll.AddHandler(UIElement.PreviewMouseWheelEvent, new MouseWheelEventHandler((s, e) =>
+            {
+                SmoothWheel.Scroll(s as ScrollViewer, e.Delta, 36);
+                e.Handled = true;
+            }));
             var items = new FrameworkElementFactory(typeof(ItemsPresenter));
             scroll.AppendChild(items);
             popBorder.AppendChild(scroll);
@@ -247,9 +418,10 @@ namespace ZapretStudio
             var bd = new FrameworkElementFactory(typeof(Border));
             bd.Name = "tb";
             bd.SetValue(Border.BackgroundProperty, Theme.Frozen(Theme.SurfaceAlt));
-            bd.SetValue(Border.BorderBrushProperty, Theme.Frozen(Theme.Stroke));
+            bd.SetValue(Border.BorderBrushProperty, new System.Windows.Data.Binding("BorderBrush") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.FindAncestor, typeof(ComboBox), 1) });
             bd.SetValue(Border.BorderThicknessProperty, new Thickness(1));
             bd.SetValue(Border.CornerRadiusProperty, Theme.R10);
+            // Стрелка — сосед заливки, а не её ребёнок: неон не должен её размывать.
             var grid = new FrameworkElementFactory(typeof(Grid));
             var arrow = new FrameworkElementFactory(typeof(System.Windows.Shapes.Path));
             arrow.SetValue(System.Windows.Shapes.Path.DataProperty, Geometry.Parse("M6 9 L12 15 L18 9"));
@@ -262,11 +434,16 @@ namespace ZapretStudio
             arrow.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
             arrow.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 0, 12, 0));
             grid.AppendChild(arrow);
-            bd.AppendChild(grid);
-            t.VisualTree = bd;
+            var root = new FrameworkElementFactory(typeof(Grid));
+            root.AppendChild(bd);
+            root.AppendChild(grid);
+            t.VisualTree = root;
             var hov = new Trigger { Property = System.Windows.Controls.Primitives.ButtonBase.IsMouseOverProperty, Value = true };
             hov.Setters.Add(new Setter(Border.BorderBrushProperty, Theme.Frozen(Theme.AccentMain), "tb"));
             t.Triggers.Add(hov);
+            var chk = new Trigger { Property = System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, Value = true };
+            chk.Setters.Add(new Setter(Border.BorderBrushProperty, Theme.Frozen(Theme.AccentMain), "tb"));
+            t.Triggers.Add(chk);
             return t;
         }
 
@@ -276,14 +453,17 @@ namespace ZapretStudio
     // Плавная инерционная прокрутка на частоте обновления монитора (CompositionTarget.Rendering)
     class SmoothScrollViewer : ScrollViewer
     {
-        const double WheelStep = 80;
+        const double WheelStep = 64;
         double _targetOffset;
         double _lastApplied;
         bool _isAnimating;
         double _pendingScroll = -1;
+        readonly System.Diagnostics.Stopwatch _clock = new System.Diagnostics.Stopwatch();
+        double _lastMs;
 
         public SmoothScrollViewer()
         {
+            Background = Brushes.Transparent;
             PreviewMouseWheel += OnPreviewMouseWheel;
             ScrollChanged += (s, e) =>
             {
@@ -314,6 +494,57 @@ namespace ZapretStudio
             Unloaded += (s, e) => StopAnimation();
         }
 
+        public static void CloseAnyOpenDropdown(DependencyObject root)
+        {
+            try
+            {
+                for (int i = Page.ActiveCombos.Count - 1; i >= 0; i--)
+                {
+                    var cb = Page.ActiveCombos[i];
+                    if (cb != null && cb.IsDropDownOpen)
+                    {
+                        cb.IsDropDownOpen = false;
+                    }
+                }
+                Page.ActiveCombos.Clear();
+
+                // Все ComboBox приложения создаются через Page.Combo и попадают
+                // в ActiveCombos, поэтому полный обход визуального дерева на
+                // каждое колесо не нужен — он и давал лаги при прокрутке.
+                if (root != null)
+                {
+                    var win = (root as MainWindow) ?? (Window.GetWindow(root) as MainWindow);
+                    if (win != null) win.CloseFlavorPopup();
+                }
+            }
+            catch { }
+        }
+
+        public void ScrollByDelta(int deltaRaw)
+        {
+            CloseAnyOpenDropdown(this);
+            if (ScrollableHeight <= 0) return;
+            double delta = (deltaRaw / 120.0) * WheelStep;
+            double cur = _isAnimating ? _targetOffset : VerticalOffset;
+            _targetOffset = Math.Max(0, Math.Min(ScrollableHeight, cur - delta));
+
+            if (!Theme.AnimationsEnabled)
+            {
+                ScrollToVerticalOffset(_targetOffset);
+                return;
+            }
+
+            if (!_isAnimating)
+            {
+                _isAnimating = true;
+                _lastApplied = VerticalOffset;
+                _clock.Reset();
+                _clock.Start();
+                _lastMs = 0;
+                CompositionTarget.Rendering += OnRendering;
+            }
+        }
+
         public void JumpTo(double offset)
         {
             StopAnimation();
@@ -339,26 +570,60 @@ namespace ZapretStudio
             }
         }
 
+        public static bool IsInsideDropdown(DependencyObject d, object source)
+        {
+            // Закрытый ComboBox не должен перехватывать колесо: иначе страница
+            // «залипает», когда курсор проходит над списком при прокрутке.
+            var cbSource = source as ComboBox;
+            if (cbSource != null) return cbSource.IsDropDownOpen;
+            while (d != null)
+            {
+                var cb = d as ComboBox;
+                if (cb != null) return cb.IsDropDownOpen;
+                if (d is System.Windows.Controls.Primitives.Popup) return true;
+                string typeName = d.GetType().Name;
+                if (typeName == "PopupRoot") return true;
+                var sv = d as ScrollViewer;
+                if (sv != null && sv.Name == "DropDownScrollViewer") return true;
+                DependencyObject parent = null;
+                try { parent = VisualTreeHelper.GetParent(d); } catch { }
+                if (parent == null && d is FrameworkElement)
+                {
+                    try { parent = ((FrameworkElement)d).Parent; } catch { }
+                }
+                d = parent;
+            }
+            return false;
+        }
+
         void OnPreviewMouseWheel(object sender, MouseWheelEventArgs e)
         {
+            if (IsInsideDropdown(e.OriginalSource as DependencyObject, e.Source)) return;
+            if (IsInsideNestedScroller(e.OriginalSource as DependencyObject)) return;
             if (ScrollableHeight <= 0) return;
             e.Handled = true;
-            double delta = (e.Delta / 120.0) * WheelStep;
-            double cur = _isAnimating ? _targetOffset : VerticalOffset;
-            _targetOffset = Math.Max(0, Math.Min(ScrollableHeight, cur - delta));
+            ScrollByDelta(e.Delta);
+        }
 
-            if (!Theme.AnimationsEnabled)
+        // Если событие колеса пришло изнутри вложенного ScrollViewer (не нашего),
+        // отдаём его тому ScrollViewer — иначе чексуммы и другие вложенные списки
+        // не прокручиваются.
+        bool IsInsideNestedScroller(DependencyObject d)
+        {
+            while (d != null)
             {
-                ScrollToVerticalOffset(_targetOffset);
-                return;
+                if (d == this) return false;
+                var sv = d as ScrollViewer;
+                if (sv != null && sv.ScrollableHeight > 0) return true;
+                DependencyObject parent = null;
+                try { parent = VisualTreeHelper.GetParent(d); } catch { }
+                if (parent == null && d is FrameworkElement)
+                {
+                    try { parent = ((FrameworkElement)d).Parent; } catch { }
+                }
+                d = parent;
             }
-
-            if (!_isAnimating)
-            {
-                _isAnimating = true;
-                _lastApplied = VerticalOffset;
-                CompositionTarget.Rendering += OnRendering;
-            }
+            return false;
         }
 
         void OnRendering(object sender, EventArgs e)
@@ -374,17 +639,177 @@ namespace ZapretStudio
 
             double cur = VerticalOffset;
             double diff = _targetOffset - cur;
-            if (Math.Abs(diff) < 0.5 || ScrollableHeight <= 0)
+            if (Math.Abs(diff) < 0.4 || ScrollableHeight <= 0)
             {
                 ScrollToVerticalOffset(_targetOffset);
                 StopAnimation();
                 return;
             }
 
-            // Плавная интерполяция к цели на каждом кадре дисплея
-            double next = cur + diff * 0.28;
+            // Экспоненциальное приближение к цели: доля пройденного пути зависит
+            // от реально прошедшего времени, а не от числа кадров (60/120/144 Гц
+            // дают одинаковое ощущение), и тормозит к концу — без рывков.
+            // Время берём с дробной точностью: на 120/144 Гц кадр короче миллисекунды
+            // не целой, и округление до мс давало рваный шаг.
+            double now = _clock.Elapsed.TotalMilliseconds;
+            double dt = now - _lastMs;
+            _lastMs = now;
+            if (dt <= 0) dt = 16.7;
+            if (dt > 100) dt = 100;
+            double k = 1.0 - Math.Exp(-dt / SmoothWheel.Tau);
+            double next = cur + diff * k;
             _lastApplied = next;
             ScrollToVerticalOffset(next);
+        }
+    }
+
+    // Плавная прокрутка колесом для обычных ScrollViewer: вложенные списки,
+    // выпадающий список ComboBox, всплывающие панели. Там, где SmoothScrollViewer
+    // не используется, поведение колеса должно совпадать с ним.
+    static class SmoothWheel
+    {
+        public const double Tau = 110; // мс: за это время проходится ~63% остатка пути
+
+        class Run
+        {
+            public double Target;
+            public double Applied;
+            public double LastMs;
+            public EventHandler Handler;
+            public RoutedEventHandler UnloadedHandler;
+            public readonly System.Diagnostics.Stopwatch Clock = new System.Diagnostics.Stopwatch();
+        }
+
+        static readonly System.Collections.Generic.Dictionary<ScrollViewer, Run> Map =
+            new System.Collections.Generic.Dictionary<ScrollViewer, Run>();
+
+        public static void Scroll(ScrollViewer sv, int deltaRaw, double step)
+        {
+            if (sv == null || sv.ScrollableHeight <= 0) return;
+            double delta = (deltaRaw / 120.0) * step;
+
+            if (!Theme.AnimationsEnabled)
+            {
+                sv.ScrollToVerticalOffset(sv.VerticalOffset - delta);
+                return;
+            }
+
+            Run r;
+            if (!Map.TryGetValue(sv, out r))
+            {
+                r = new Run();
+                r.Target = sv.VerticalOffset;
+                r.Applied = sv.VerticalOffset;
+                r.Handler = delegate { Tick(sv); };
+                // Выпавший из дерева список не должен оставаться в статическом
+                // словаре, если Rendering больше не тикает (окно свёрнуто в трей).
+                r.UnloadedHandler = delegate { Stop(sv, r); };
+                sv.Unloaded += r.UnloadedHandler;
+                Map[sv] = r;
+                r.Clock.Start();
+                CompositionTarget.Rendering += r.Handler;
+            }
+            r.LastMs = r.Clock.Elapsed.TotalMilliseconds;
+            r.Target = Math.Max(0, Math.Min(sv.ScrollableHeight, r.Target - delta));
+        }
+
+        static void Tick(ScrollViewer sv)
+        {
+            Run r;
+            if (!Map.TryGetValue(sv, out r)) return;
+
+            if (Math.Abs(sv.VerticalOffset - r.Applied) > 1.5)
+            {
+                Stop(sv, r);
+                return;
+            }
+
+            double cur = sv.VerticalOffset;
+            double diff = r.Target - cur;
+            if (Math.Abs(diff) < 0.4 || sv.ScrollableHeight <= 0)
+            {
+                sv.ScrollToVerticalOffset(r.Target);
+                Stop(sv, r);
+                return;
+            }
+
+            double now = r.Clock.Elapsed.TotalMilliseconds;
+            double dt = now - r.LastMs;
+            r.LastMs = now;
+            if (dt <= 0) dt = 16.7;
+            if (dt > 100) dt = 100;
+
+            double k = 1.0 - Math.Exp(-dt / Tau);
+            r.Applied = cur + diff * k;
+            sv.ScrollToVerticalOffset(r.Applied);
+        }
+
+        static void Stop(ScrollViewer sv, Run r)
+        {
+            Map.Remove(sv);
+            if (r.Handler != null) CompositionTarget.Rendering -= r.Handler;
+            if (r.UnloadedHandler != null)
+            {
+                try { sv.Unloaded -= r.UnloadedHandler; } catch { }
+                r.UnloadedHandler = null;
+            }
+            try { r.Clock.Stop(); } catch { }
+        }
+    }
+
+    // Появление контента с анимацией (учитывает reduce_motion через Theme.AnimationsEnabled).
+    // Важно: часы анимации запускаем ПОСЛЕ того, как элемент вставлен в дерево и
+    // разложен (UpdateLayout). Вёрстка страницы/вкладки занимает десятки миллисекунд,
+    // и если стартовать до неё, первые кадры теряются и переход выглядит мгновенным.
+    static class UiAnim
+    {
+        static bool On { get { return Theme.AnimationsEnabled; } }
+
+        public static void Appear(UIElement el, double fromY, int fadeMs, int slideMs)
+        {
+            if (el == null) return;
+            if (!On) { Reset(el); return; }
+
+            el.Opacity = 0;
+            var tt = new TranslateTransform(0, fromY);
+            el.RenderTransform = tt;
+            Layout(el);
+
+            var fade = new System.Windows.Media.Animation.DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(fadeMs))
+            {
+                EasingFunction = new System.Windows.Media.Animation.CubicEase
+                { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut }
+            };
+            el.BeginAnimation(UIElement.OpacityProperty, fade);
+            if (fromY != 0)
+            {
+                var slide = new System.Windows.Media.Animation.DoubleAnimation(fromY, 0, TimeSpan.FromMilliseconds(slideMs))
+                {
+                    EasingFunction = new System.Windows.Media.Animation.CubicEase
+                    { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut }
+                };
+                tt.BeginAnimation(TranslateTransform.YProperty, slide);
+            }
+        }
+
+        // Выпадающие списки и панели: короткое проявление со сдвигом сверху.
+        public static void Popup(FrameworkElement el)
+        {
+            Appear(el, -5, 150, 190);
+        }
+
+        public static void Reset(UIElement el)
+        {
+            if (el == null) return;
+            el.BeginAnimation(UIElement.OpacityProperty, null);
+            el.Opacity = 1;
+            el.RenderTransform = null;
+        }
+
+        static void Layout(UIElement el)
+        {
+            var fe = el as FrameworkElement;
+            try { if (fe != null) fe.UpdateLayout(); } catch { }
         }
     }
 
@@ -494,33 +919,142 @@ namespace ZapretStudio
     {
         public double MinCell = 160;
         public double Gap = 12;
+        // Для карточек «3 + 1» уродливо, и там ряды выравнивают в 2 + 2. У ряда
+        // кнопок такое удваивает ширину (кнопки по 400+ px), поэтому для него
+        // правило отключают.
+        public bool EvenRows = true;
+        // >0 — жёстко задать число колонок и НЕ переносить ряд, даже если ячейка
+        // выходит уже содержимого. Для рядов кнопок: кнопка всегда в одной линии,
+        // а подпись при нехватке места переносится внутри кнопки.
+        public int ForceCols;
+        // Ниже этой ширины ячейки ForceCols уступает: при абсурдно узком окне
+        // лучше перенести кнопки, чем превратить подпись в столбик букв.
+        public double MinForceCell = 96;
+        // Число колонок, по которым считается ШИРИНА ячейки. Нужно, когда в одном
+        // блоке несколько рядов кнопок: ряд из трёх кнопок делит ширину на три и
+        // оказывается на треть шире ряда из четырёх — кнопки выглядят разбросанными
+        // по размеру. Ряды одного набора получают общий UniformCols (Ctl.ButtonRows),
+        // поэтому ячейки во всех рядах равны, а короткий ряд просто не доходит до
+        // правого края на одну колонку.
+        public int UniformCols;
+        // Элементы остаются КОМПАКТНЫМИ (по ширине содержимого), но распределены
+        // по всей ширине ряда с равными зазорами: первый прижат к левому краю,
+        // последний к правому. Нужен такой режим для полос табов: равные колонки
+        // растягивают пилюлю на весь остаток строки, и иконка с подписью
+        // разъезжаются, а сгруппированная по содержимому полоса центрировалась и
+        // у её краёв оставалось пустое поле. Не влезает — ряд откатывается к
+        // равным колонкам (ForceCols), и подпись переносится внутри элемента.
+        public bool Justify;
 
         int _cols = 1;
+        double[] _nat;          // естественная ширина элементов без ограничения
+        // Подписи кнопок ряда по тем же индексам, что и Children (null — не кнопка).
+        // Нужны, чтобы померить естественную ширину: с включённым TextWrapping и
+        // MaxWidth TextBlock отдаёт ширину ПЕРЕНЕСЁННОЙ строки, и ряд считал
+        // элемент уже, чем нужно.
+        public System.Collections.Generic.List<TextBlock> Labels;
+
+        // Один замер на весь проход разметки: естественные ширины нужны и в
+        // Measure, и в Arrange, а решение между ними обязано совпасть.
+        void MeasureNatural()
+        {
+            int n = InternalChildren.Count;
+            if (_nat == null || _nat.Length != n) _nat = new double[n];
+            for (int i = 0; i < n; i++)
+            {
+                var ch = InternalChildren[i];
+                TextBlock lab = (Labels != null && i < Labels.Count) ? Labels[i] : null;
+                TextWrapping prevWrap = TextWrapping.NoWrap;
+                double prevMax = double.PositiveInfinity;
+                bool restored = false;
+                if (lab != null)
+                {
+                    prevWrap = lab.TextWrapping;
+                    prevMax = lab.MaxWidth;
+                    lab.TextWrapping = TextWrapping.NoWrap;
+                    lab.MaxWidth = double.PositiveInfinity;
+                    restored = true;
+                }
+                ch.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                // +1 на округление метрик: иначе последняя буква влезает не всегда.
+                _nat[i] = ch.DesiredSize.Width + 1;
+                if (restored)
+                {
+                    lab.TextWrapping = prevWrap;
+                    lab.MaxWidth = prevMax;
+                }
+            }
+        }
+
+        // Хватает ли ширины на компактный ряд (Gap здесь — минимальный зазор).
+        bool NaturalFits(double avail)
+        {
+            if (!Justify) return false;
+            if (double.IsInfinity(avail) || avail <= 0) return false;
+            if (_nat == null || _nat.Length != InternalChildren.Count) return false;
+            double total = Gap * (InternalChildren.Count - 1);
+            for (int i = 0; i < _nat.Length; i++) total += _nat[i];
+            return total <= avail + 0.5;
+        }
 
         int ColsFor(double avail)
         {
             int n = InternalChildren.Count;
             if (n <= 1) return 1;
+            if (ForceCols > 0)
+            {
+                int c = ForceCols > n ? n : ForceCols;
+                if (!double.IsInfinity(avail) && avail > 0)
+                {
+                    int fit = (int)Math.Floor((avail + Gap) / (MinForceCell + Gap));
+                    if (fit < 1) fit = 1;
+                    if (fit < c) c = fit;
+                }
+                return c;
+            }
             if (double.IsInfinity(avail) || avail <= 0) return n;
             int cols = (int)Math.Floor((avail + Gap) / (MinCell + Gap));
             if (cols < 1) cols = 1;
             if (cols > n) cols = n;
             // Четыре карточки в три колонки дают неровное «3 + 1»:
             // два ряда по два выглядят аккуратнее.
-            if (cols > 1 && n % cols != 0 && n % 2 == 0 && cols > n / 2) cols = n / 2;
+            if (EvenRows && cols > 1 && n % cols != 0 && n % 2 == 0 && cols > n / 2) cols = n / 2;
             return cols;
         }
 
         double CellWidth(double avail)
         {
             if (double.IsInfinity(avail) || avail <= 0) return MinCell;
-            return Math.Max(1, (avail - Gap * (_cols - 1)) / _cols);
+            int denom = _cols;
+            // Групповая ширина действует, только пока ряд ещё в одну линию. Если он
+            // всё же перенёсся на узком окне, делить на колонки длинного ряда —
+            // значит оставить половину строки пустой.
+            if (UniformCols > denom && (ForceCols <= 0 || _cols >= ForceCols)) denom = UniformCols;
+            return Math.Max(1, (avail - Gap * (denom - 1)) / denom);
         }
 
         protected override Size MeasureOverride(Size avail)
         {
             int n = InternalChildren.Count;
             if (n == 0) return new Size(0, 0);
+
+            if (Justify)
+            {
+                MeasureNatural();
+                if (NaturalFits(avail.Width))
+                {
+                    double h = 0, natW = 0;
+                    for (int i = 0; i < n; i++)
+                    {
+                        var ch = InternalChildren[i];
+                        ch.Measure(new Size(_nat[i], double.PositiveInfinity));
+                        h = Math.Max(h, ch.DesiredSize.Height);
+                        natW += _nat[i] + (i > 0 ? Gap : 0);
+                    }
+                    return new Size(double.IsInfinity(avail.Width) ? natW : avail.Width, h);
+                }
+            }
+
             _cols = ColsFor(avail.Width);
             double cw = CellWidth(avail.Width);
 
@@ -545,6 +1079,31 @@ namespace ZapretStudio
         {
             int n = InternalChildren.Count;
             if (n == 0) return fin;
+            // Ширины детей берутся из Measure: вызвать Measure здесь — значит попасть
+            // в цикл measure→arrange→measure (приложение висело ровно на этом).
+            if (NaturalFits(fin.Width))
+            {
+                double hh = 0;
+                double total = 0;
+                for (int i = 0; i < n; i++)
+                {
+                    var ch = InternalChildren[i];
+                    hh = Math.Max(hh, ch.DesiredSize.Height);
+                    total += _nat[i];
+                }
+                // Зазор делится на (n-1) ровно: крайний правый элемент заканчивается
+                // в пиксель от правого края ряда, пустого поля у краёв нет.
+                double gap = n > 1 ? (fin.Width - total) / (n - 1) : 0;
+                double x = 0;
+                for (int i = 0; i < n; i++)
+                {
+                    var ch = InternalChildren[i];
+                    ch.Arrange(new Rect(x, 0, _nat[i], hh));
+                    x += _nat[i] + gap;
+                }
+                return fin;
+            }
+
             _cols = ColsFor(fin.Width);
             double cw = CellWidth(fin.Width);
 
