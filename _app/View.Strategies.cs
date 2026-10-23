@@ -14,7 +14,8 @@ namespace ZapretStudio
         public override string Subtitle { get { return Loc.T("strategies.sub"); } }
 
         readonly MainWindow _win;
-        CellRow _list;
+        CellRow _list, _favList;
+        TextBlock _favLabel, _allLabel;
         Border _banner;
         HashSet<string> _fav = new HashSet<string>();
         const double MinCardW = 250, Gap = 12;
@@ -80,21 +81,35 @@ namespace ZapretStudio
             // ширину карточек в поле и пересчитывал её только по SizeChanged, из-за
             // чего при расширении окна ряд не успевал добрать ширину и справа
             // оставалась пустая полоса.
+            // Избранное — отдельная секция над общим списком. Общий список
+            // остаётся один и тот же CellRow: он нужен selftest для замера сетки.
+            _favLabel = SectionLabel(Loc.T("strat.favSection"));
+            _favLabel.Margin = new Thickness(2, 0, 0, 8);
+            _favList = new CellRow { MinCell = MinCardW, Gap = Gap };
+            _allLabel = SectionLabel(Loc.T("strat.allSection"));
             _list = new CellRow { MinCell = MinCardW, Gap = Gap };
+            Body.Children.Add(_favLabel);
+            Body.Children.Add(_favList);
+            Body.Children.Add(_allLabel);
             Body.Children.Add(_list);
         }
 
-        public override void OnShow() { Rebuild(); }
+        public override void OnShow()
+        {
+            // Страница проверки могла добавить избранное после того, как этот
+            // экземпляр был построен, поэтому список перечитываем при показе.
+            LoadFav();
+            Rebuild();
+        }
 
         void LoadFav()
         {
-            string s = Core.Get("favorites", "");
-            foreach (var f in s.Split('|')) if (f.Length > 0) _fav.Add(f);
+            _fav.Clear();
+            foreach (var f in Core.GetFavoriteStrategies()) _fav.Add(f);
         }
         void SaveFav()
         {
-            Core.Set("favorites", string.Join("|", _fav.ToArray()));
-            Core.SaveConfig();
+            Core.SetFavoriteStrategies(_fav);
         }
 
         volatile bool _recommending;
@@ -158,9 +173,9 @@ namespace ZapretStudio
                             Core.EndWinwsOperation();
                             if (wasService || wasManual)
                             {
-                                // №17: это finally фонового потока. Сам Dispatcher.Invoke
-                                // бросает, если диспетчер уже погашен (окно закрылось), —
-                                // исключение из finally убило бы поток пула молча.
+                                // Это finally фонового потока. Сам Dispatcher.Invoke
+                                // бросает, если диспетчер уже погашен (окно закрылось),
+                                // поэтому исключение из finally убило бы поток пула молча.
                                 try { Dispatcher.Invoke((Action)delegate { try { _win.RestartInSameMode(wasService, wasManual, prevStrat); } catch { } }); }
                                 catch { }
                             }
@@ -214,26 +229,45 @@ namespace ZapretStudio
 
 #if SELFTEST
         // Тесту нужно померять ряд карточек и баннер над ним (приватные поля).
-        public System.Windows.Controls.Panel DemoStratList { get { return _list; } }
+        // Если все стратегии оказались в избранном, общий ряд пуст — меряем избранное.
+        public System.Windows.Controls.Panel DemoStratList
+        {
+            get { return _list.Children.Count > 0 ? (System.Windows.Controls.Panel)_list : (System.Windows.Controls.Panel)_favList; }
+        }
         public FrameworkElement DemoBanner { get { return _banner; } }
 #endif
 
         public void Rebuild()
         {
+            _favList.Children.Clear();
             _list.Children.Clear();
             var files = Core.GetStrategyFiles();
             string current = _win.CurrentStrategyFile();
-            int shown = 0;
+            int favCount = 0, restCount = 0;
 
             foreach (var f in files)
             {
                 string name = Core.PrettyName(f);
                 string cat = Core.CategoryOf(f);
-                _list.Children.Add(StrategyCard(f, name, cat, f == current));
-                shown++;
+                if (_fav.Contains(f))
+                {
+                    _favList.Children.Add(StrategyCard(f, name, cat, f == current));
+                    favCount++;
+                }
+                else
+                {
+                    _list.Children.Add(StrategyCard(f, name, cat, f == current));
+                    restCount++;
+                }
             }
 
-            if (shown == 0)
+            bool hasFav = favCount > 0;
+            _favLabel.Visibility = hasFav ? Visibility.Visible : Visibility.Collapsed;
+            _favList.Visibility = hasFav ? Visibility.Visible : Visibility.Collapsed;
+            _allLabel.Visibility = hasFav && restCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+            _list.Visibility = files.Count == 0 || restCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            if (files.Count == 0)
                 _list.Children.Add(new TextBlock { Text = Loc.T("strat.nothing"), Foreground = Theme.BrMuted,
                     FontSize = Theme.FsBody, FontFamily = Theme.UiFont, Margin = new Thickness(2, 12, 0, 0) });
         }

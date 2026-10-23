@@ -287,8 +287,8 @@ namespace ZapretStudio
             var owned = _winwsProcess;
             _winwsProcess = null;
             _lastKnownWinwsPid = -1;
-            // №50: Dispose() процесс не завершает. winws обязан быть мёртв до
-            // RemoveService()/sc delete — иначе служба остаётся «помеченной на
+            // Dispose() процесс не завершает. winws обязан быть мёртв до
+            // RemoveService()/sc delete, иначе служба остаётся «помеченной на
             // удаление», а драйвер WinDivert держит файлы в {app}\zapret\bin.
             if (owned != null)
             {
@@ -315,7 +315,7 @@ namespace ZapretStudio
             }
             finally { foreach (var p in procs) p.Dispose(); }
             StartedAt = null;
-            // №70: здесь больше НЕclear'ится кольцо WinwsLog*. KillWinws вызывается
+            // Здесь больше НЕclear'ится кольцо WinwsLog*. KillWinws() вызывается
             // из проб и автоподбора (Core.Watchdog.cs, View.Check.cs), то есть журнал
             // стирался ровно перед тем, как его показывали в диагностике упавшей
             // стратегии. Буфер очищается перед следующим запуском в StartWinws.
@@ -517,6 +517,47 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
             catch { return false; }
         }
 
+        // Перед заменой bin/WinDivert64.sys драйвер обязан быть выгружен:
+        // KillWinws снимает winws.exe, но служба WinDivert остаётся запущенной
+        // и держит файл. Обновление падало на проверке блокировок уже после
+        // скачивания, и помочь могло только ручное удаление WinDivert.
+        public static bool PrepareWinDivertForUpdate(out string error)
+        {
+            error = null;
+            string driver = Path.Combine(Root ?? "", "bin", "WinDivert64.sys");
+            if (!WinDivertLoaded() && !Locked(driver)) return true;
+
+            string err;
+            Run("sc", "stop windivert", 8000, out err);
+            Run("sc", "stop windivert14", 8000, out err);
+            Run("net", "stop windivert", 8000, out err);
+            InvalidateWinDivertCache();
+            if (WaitWinDivertUnloaded(driver, 6000)) { Info(Loc.T("mw.updWdStopped")); return true; }
+
+            // Служба не отдала драйвер (зависший WinDivert) — удаляем её.
+            // winws создаст службу заново при следующем запуске.
+            Run("sc", "delete windivert", 5000, out err);
+            Run("sc", "delete windivert14", 5000, out err);
+            InvalidateWinDivertCache();
+            if (WaitWinDivertUnloaded(driver, 4000)) { Info(Loc.T("mw.updWdStopped")); return true; }
+
+            error = Loc.T("mw.updWdFail");
+            return false;
+        }
+
+        static bool WaitWinDivertUnloaded(string driver, int timeoutMs)
+        {
+            DateTime until = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+            while (DateTime.UtcNow < until)
+            {
+                InvalidateWinDivertCache();
+                if (!WinDivertLoaded() && !Locked(driver)) return true;
+                System.Threading.Thread.Sleep(200);
+            }
+            InvalidateWinDivertCache();
+            return !WinDivertLoaded() && !Locked(driver);
+        }
+
         // ---- TG-Proxy автозагрузка (реестр HKCU\...\Run) ----
         const string TgRunKey = "TgWsProxy";
         const string AppRunKey = "Lantern";
@@ -708,10 +749,10 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
             }
             catch (Exception ex) { error = Short(ex.Message); return false; }
         }
-        // №2d: консольные утилиты пишут в кодовой странице консоли (на русской
-        // Windows это CP866), а не в UTF-8 — прежний Encoding.UTF8 превращал
+        // Консольные утилиты пишут в кодовой странице консоли (на русской
+        // Windows это CP866), а не в UTF-8, прежний Encoding.UTF8 превращал
         // русский вывод sc.exe/schtasks в знаки замены и ломал диагностику.
-        // Исключение — netsh: он при перенаправлении отдаёт UTF-8 (проверено
+        // Исключение составляет netsh: он при перенаправлении отдаёт UTF-8 (проверено
         // побайтово), для него CaptureUtf8.
         [System.Runtime.InteropServices.DllImport("kernel32.dll")]
         static extern uint GetConsoleOutputCP();
@@ -777,9 +818,9 @@ public static bool StartService() { string err; bool ok = Run("sc", "start " + S
                     p.BeginOutputReadLine();
                     p.BeginErrorReadLine();
                     if (!p.WaitForExit(timeoutMs)) { try { p.Kill(); } catch { } }
-                    // №12: прежний p.WaitForExit() без тайм-аута ждал вечно, если
+                    // Прежний p.WaitForExit() без тайм-аута ждал вечно, если
                     // дочерний процесс унаследовал handle перенаправленного потока.
-                    // Совсем не ждать тоже нельзя — вывод вернётся обрезанным, а его
+                    // Совсем не ждать тоже нельзя: вывод вернётся обрезанным, а его
                     // парсят ServiceStrategy/TcpTimestampsEnabled. WaitAll не
                     // подходит: он бросает исключение в STA-потоке (UI).
                     int deadline = Environment.TickCount + 3000;

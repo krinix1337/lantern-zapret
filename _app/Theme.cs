@@ -512,9 +512,14 @@ namespace ZapretStudio
         }
 
         // Плотность: «Компактный интерфейс» (настройки → Интерфейс) множит
-        // отступы карточек, кнопок, плашек и вертикальные зазоры — для длинных
-        // списков (стратегии). Шрифты и строки Журнала не масштабируются.
-        public static double Density { get { return Core.GetBool("compact_ui", false) ? 0.72 : 1.0; } }
+        // отступы карточек, кнопок, плашек и вертикальные зазоры.
+        public static bool Compact { get { return Core.GetBool("compact_ui", false); } }
+        public static double Density { get { return Compact ? 0.72 : 1.0; } }
+        // Единый масштаб шрифтов и фиксированных размеров. Раньше компактный
+        // режим сжимал только часть отступов, а текст/кнопки/тумблеры оставались
+        // прежними — интерфейс выглядел «сжатым наполовину».
+        public static double UiScale { get { return Compact ? 0.9 : 1.0; } }
+        public static double S(double v) { return Math.Round(v * UiScale); }
 
         public static Thickness Dense(Thickness t)
         {
@@ -639,12 +644,12 @@ namespace ZapretStudio
             }
         }
 
-        public const double FsDisplay = 30;
-        public const double FsH1 = 22;
-        public const double FsH2 = 16;
-        public const double FsBody = 13;
-        public const double FsSmall = 12;
-        public const double FsTiny = 11;
+        public static double FsDisplay { get { return 30 * UiScale; } }
+        public static double FsH1 { get { return 22 * UiScale; } }
+        public static double FsH2 { get { return 16 * UiScale; } }
+        public static double FsBody { get { return 13 * UiScale; } }
+        public static double FsSmall { get { return 12 * UiScale; } }
+        public static double FsTiny { get { return 11 * UiScale; } }
 
         public static CornerRadius R6   { get { return Mode == ThemeMode.System24 ? new CornerRadius(0) : new CornerRadius(6); } }
         public static CornerRadius R8   { get { return Mode == ThemeMode.System24 ? new CornerRadius(0) : new CornerRadius(8); } }
@@ -1400,6 +1405,39 @@ namespace ZapretStudio
             return row;
         }
 
+        // Один плотный ряд: кнопки узкие, подпись переносится только по словам.
+        // Нужен там, где шесть коротких действий должны остаться в одной строке
+        // и не превращаться в огромные кнопки с мелким текстом.
+        public static CellRow ButtonRowWrap(params FrameworkElement[] items)
+        {
+            var row = ButtonRow(items);
+            row.Gap = Theme.Dense(4);
+            foreach (UIElement fe in row.Children)
+            {
+                var b = fe as Button;
+                if (b == null) continue;
+                var box = ContentHost(b);
+                if (box == null) continue;
+                box.Padding = Theme.Dense(new Thickness(10, 7, 10, 7));
+                // Кнопки ряда растянуты на равные ячейки, поэтому содержимое
+                // должно стоять по центру, а не липнуть к левой рамке.
+                var contentGrid = box.Child as FrameworkElement;
+                if (contentGrid != null) contentGrid.HorizontalAlignment = HorizontalAlignment.Center;
+                var panel = box.Child as Panel;
+                if (panel == null) continue;
+                foreach (UIElement ch in panel.Children)
+                {
+                    var tb = ch as TextBlock;
+                    if (tb == null) continue;
+                    tb.FontSize = Theme.FsSmall;
+                    tb.TextWrapping = TextWrapping.Wrap;
+                    tb.TextTrimming = TextTrimming.None;
+                    tb.Margin = new Thickness(0);
+                }
+            }
+            return row;
+        }
+
         // Набор рядов кнопок с ОДИНАКОВОЙ шириной ячейки. Один вызов, а не несколько
         // ButtonRow, потому что общая ширина считается по самому длинному ряду:
         // отдельно взятый CellRow про соседний ряд ничего не знает. Без этого ряд
@@ -1443,8 +1481,8 @@ namespace ZapretStudio
             var box = ContentHost(b);
             var sp = (box != null ? box.Child : bd.Child) as StackPanel;
             if (sp == null) return;
-            if (box != null) box.Padding = new Thickness(10, 9, 10, 9);
-            else bd.Padding = new Thickness(10, 9, 10, 9);
+            if (box != null) box.Padding = Theme.Dense(new Thickness(10, 9, 10, 9));
+            else bd.Padding = Theme.Dense(new Thickness(10, 9, 10, 9));
 
             UIElement icon = null;
             TextBlock label = null;
@@ -1477,8 +1515,13 @@ namespace ZapretStudio
             }
             if (label != null)
             {
-                label.TextWrapping = TextWrapping.Wrap;
+                // Перенос по буквам в узкой колонке выглядел как обрезанный
+                // текст. Держим одну строку с многоточием, полный текст — в тултипе.
+                label.TextWrapping = TextWrapping.NoWrap;
+                label.TextTrimming = TextTrimming.CharacterEllipsis;
                 label.VerticalAlignment = VerticalAlignment.Center;
+                label.ToolTip = label.Text;
+                if (b.ToolTip == null) b.ToolTip = label.Text;
                 Grid.SetColumn(label, 1);
                 g.Children.Add(label);
             }
@@ -1867,14 +1910,19 @@ namespace ZapretStudio
         Border _knob;
         TranslateTransform _tx;
         Action _themeHandler;
-        const double TrackW = 46, TrackH = 26, KnobD = 20, Inset = 3, BorderT = 1;
+        double TrackW { get { return Theme.S(46); } }
+        double TrackH { get { return Theme.S(26); } }
+        double KnobD { get { return Theme.S(20); } }
+        double Inset { get { return Theme.S(3); } }
+        double BorderT { get { return Theme.S(1); } }
         // Ход ручки считается от ВНУТРЕННЕГО края рамки: без вычета двух бордюров
         // ручка в положении «вкл» вставала в 1px от края вместо 3px, то есть
         // асимметрично на те самые пару пикселей.
-        readonly double _travel = TrackW - KnobD - Inset * 2 - BorderT * 2;
+        readonly double _travel;
 
         public Toggle(string accessibleName)
         {
+            _travel = TrackW - KnobD - Inset * 2 - BorderT * 2;
             Width = TrackW; Height = TrackH;
             Cursor = System.Windows.Input.Cursors.Hand;
             Focusable = true;

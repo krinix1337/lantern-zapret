@@ -120,7 +120,7 @@ namespace ZapretStudio
             return TestHttp(url, timeoutMs, null);
         }
 
-        // №38: суммарное время пробы ограничено timeoutMs на все стадии вместе взятые
+        // Суммарное время пробы ограничено timeoutMs на все стадии вместе взятые
         // (раньше каждая стадия получала полный timeoutMs, и проба могла идти втрое
         // дольше заявленного), и отмена проверяется внутри стадий, а не только до старта.
         public static CheckResult TestHttp(string url, int timeoutMs, Func<bool> cancel)
@@ -275,7 +275,7 @@ namespace ZapretStudio
                     try
                     {
                         var protos = (System.Security.Authentication.SslProtocols)3072 /*Tls12*/ | (System.Security.Authentication.SslProtocols)12288 /*Tls13*/;
-                        // №38: синхронный AuthenticateAsClient не имел тайм-аута вообще —
+                        // Синхронный AuthenticateAsClient не имел тайм-аута вообще,
                         // рукопожатие, положенное на DPI, вешало пробу на неопределённо
                         // долго. Async-пара с WaitOne ограничивает её тем же бюджетом.
                         var hs = ssl.BeginAuthenticateAsClient(host, null, protos, false, null, null);
@@ -291,7 +291,7 @@ namespace ZapretStudio
                 byte[] rb = Encoding.ASCII.GetBytes(req);
                 stream.Write(rb, 0, rb.Length); stream.Flush();
                 var buf = new byte[1024];
-                // №38: один Read(...) помечал «partial» любой сервер, ответивший двумя
+                // Один Read(...) помечал «partial» любой сервер, ответивший двумя
                 // записями: статусная строка при этом уже могла лежать в первом блоке,
                 // но до неё не досчитывались. Читаем до статусной строки или до
                 // исчерпания бюджета пробы.
@@ -331,7 +331,7 @@ namespace ZapretStudio
             return TestTarget(t, timeoutMs, null);
         }
 
-        // №38: отмена должна проверяться ВНУТРИ пробы, а не только до её запуска,
+        // Отмена должна проверяться ВНУТРИ пробы, а не только до её запуска,
         // иначе кнопка «Стоп» срабатывала только после полного цикла DNS+TCP+TLS.
         public static CheckResult TestTarget(Target t, int timeoutMs, Func<bool> cancel)
         {
@@ -364,7 +364,7 @@ namespace ZapretStudio
             int[] done = new int[n];
             var barrier = new WorkBarrier(n);
             int barrierMs = timeoutSec * 1000 + 1500;
-            // №15: внутреннее ожидание процесса обязано быть СТРОГО меньше окна
+            // Внутреннее ожидание процесса обязано быть СТРОГО меньше окна
             // барьера, иначе барьер гаснет первым, а воркеры ещё пишут в exits/outs.
             // Прежние (timeoutSec + 2) * 1000 = 7000 при барьере 6500 давали обратное.
             int perProbeWait = Math.Max(1000, barrierMs - 1000);
@@ -402,7 +402,7 @@ namespace ZapretStudio
             for (int i = 0; i < n; i++)
             {
                 // Незавершённый слот помечаем локально: прежняя запись exits[i] = 28 в
-                // общий массив могла быть перезаписана опоздавшим воркером (№15).
+                // общий массив могла быть перезаписана опоздавшим воркером.
                 bool finished = System.Threading.Interlocked.CompareExchange(ref done[i], 0, 0) != 0;
                 int code = finished ? exits[i] : 28;
                 timedOut[i] = code == 28;
@@ -668,9 +668,9 @@ namespace ZapretStudio
         }
     }
 
-    // №36: у WebClient свойства Timeout нет, а запрос по умолчанию ждёт ~100 с.
+    // У WebClient свойства Timeout нет, а запрос по умолчанию ждёт ~100 с.
     // Зависшее TLS-рукопожатие на ipwho.is/ipinfo.io блокировало поток пула на
-    // минуты, а DetectIsp() вызывался повторно — до ~400 с.
+    // минуты, а DetectIsp() вызывался повторно, до ~400 с.
     sealed class TimedWebClient : WebClient
     {
         public int TimeoutMilliseconds = 15000;

@@ -129,9 +129,9 @@ public static string Bin        { get { if (_bin == null) _bin = Path.Combine(Sa
         {
             InvalidatePaths();
             Root = string.IsNullOrEmpty(path) ? path : path.TrimEnd(Path.DirectorySeparatorChar);
-            // №41: ConfigFile зависит от Root, а словарь в памяти один на процесс.
+            // ConfigFile зависит от Root, а словарь в памяти один на процесс.
             // Без сброса флага Get() продолжал отдавать значения из файла старого
-            // корня, а SaveConfig() записывал их уже в файл нового — так выбранная
+            // корня, а SaveConfig() записывал их уже в файл нового, так выбранная
             // папка zapret теряла last_strategy, favorites и ipset_enabled.
             _cfgLoaded = false;
         }

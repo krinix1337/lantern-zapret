@@ -104,7 +104,7 @@ namespace ZapretStudio
             var t = new Target { Key = name, Name = name, Group = group, Kind = kind, Url = url };
             if (kind == "PING") t.Host = url.Length > 5 ? url.Substring(5).Trim() : "";
             else { try { t.Host = new Uri(url).Host; } catch { t.Host = url; } }
-            // №72: цель без адреса проверять нечем — TestPing("") уходил в catch, и
+            // Цель без адреса проверять нечем. TestPing("") уходил в catch, и
             // строка висела в списке как «ошибочная». Такую цель не добавляем.
             if (string.IsNullOrEmpty(t.Host)) return;
             l.Add(t);

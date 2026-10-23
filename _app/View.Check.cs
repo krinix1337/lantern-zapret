@@ -101,13 +101,24 @@ namespace ZapretStudio
             // Равные колонки растягивали пилюлю и на широком окне иконка
             // разъезжалась с подписью, а сгруппированная полоса оставляла пустое
             // поле у краёв бара. Не хватает ширины — откат к равным колонкам.
-            var tabs = new CellRow { Gap = 6, EvenRows = false, MinCell = 0, ForceCols = 5,
-                Justify = true, Labels = _tabLabels };
+            // Равные колонки по ширине, без Justify: иначе полоса ужимает
+            // подписи до многоточий даже на 1000 px. На узком окне — 3 или 2
+            // колонки, чтобы подписи читались полностью.
+            var tabs = new CellRow { Gap = 4, EvenRows = false, MinCell = 0, ForceCols = 5,
+                Justify = false, Labels = _tabLabels };
             tabs.Children.Add(TabButton("targets", Icons.List, Loc.T("check.tab.targets")));
             tabs.Children.Add(TabButton("popular", Icons.Globe, Loc.T("check.tab.popular")));
             tabs.Children.Add(TabButton("games", Icons.Game, Loc.T("check.tab.games")));
             tabs.Children.Add(TabButton("strats", Icons.Bolt, Loc.T("check.tab.strats")));
             tabs.Children.Add(TabButton("diag", Icons.Tool, Loc.T("check.tab.diag")));
+
+            // На узком окне пять вкладок не влезают по ширине: переходим на
+            // две-три колонки, чтобы подписи не рвались посреди слова.
+            barContainer.SizeChanged += (s, e) =>
+            {
+                int cols = barContainer.ActualWidth >= 600 ? 5 : (barContainer.ActualWidth >= 380 ? 3 : 2);
+                if (tabs.ForceCols != cols) { tabs.ForceCols = cols; tabs.InvalidateMeasure(); }
+            };
 
             barContainer.Child = tabs;
             Body.Children.Add(barContainer);
@@ -118,7 +129,7 @@ namespace ZapretStudio
             var b = new Button { Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(0),
                 HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center };
             Ctl.StripChrome(b);
-            var bd = new Border { CornerRadius = Theme.R8, Padding = new Thickness(12, 7, 12, 7),
+            var bd = new Border { CornerRadius = Theme.R8, Padding = Theme.Dense(new Thickness(8, 6, 8, 6)),
                 Background = Brushes.Transparent, BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(1) };
             // Иконка Auto + подпись Auto, вся сетка по центру ячейки: Star-колонка
             // брала на себя всю ширину таба, и на широком окне подпись уезжала от
@@ -126,13 +137,14 @@ namespace ZapretStudio
             var sp = new Grid { HorizontalAlignment = HorizontalAlignment.Center };
             sp.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             sp.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var ic = UI.Icon(icon, 15, Theme.BrMuted, 1.8);
+            var ic = UI.Icon(icon, Theme.S(15), Theme.BrMuted, 1.8);
             ic.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumn(ic, 0);
             sp.Children.Add(ic);
-            var tb = new TextBlock { Text = label, Foreground = Theme.BrMuted, FontSize = Theme.FsBody,
+            var tb = new TextBlock { Text = label, Foreground = Theme.BrMuted, FontSize = Theme.FsSmall,
                 FontFamily = Theme.UiFont, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(7, 0, 0, 0), TextWrapping = TextWrapping.Wrap };
+                Margin = new Thickness(5, 0, 0, 0), TextWrapping = TextWrapping.NoWrap,
+                TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = label };
             _tabLabels.Add(tb);
             // Без переноса узкая ячейка резала бы подпись: WPF ужимает Auto-колонки
             // пропорционально, и доставалось бы тоже иконке. MaxWidth считается от
@@ -143,7 +155,7 @@ namespace ZapretStudio
             // остаётся на округление метрик: в компактном режиме ячейка равна
             // естественной ширине текста, и запас не даёт подписи свернуться в
             // две строки ровно там, где она влезает в одну.
-            b.SizeChanged += (s, e) => { tb.MaxWidth = Math.Max(20, b.ActualWidth - 48); };
+            b.SizeChanged += (s, e) => { tb.MaxWidth = Math.Max(20, b.ActualWidth - 40); };
             Grid.SetColumn(tb, 1);
             sp.Children.Add(tb);
             bd.Child = sp;
@@ -331,9 +343,17 @@ namespace ZapretStudio
             top.Children.Add(nameTb);
             var kind = new TextBlock { Text = t.Kind == "PING" ? "Ping" : "HTTP/TLS", Foreground = Theme.BrFaint,
                 FontSize = Theme.FsTiny, FontFamily = Theme.MonoFont, Margin = new Thickness(10, 2, 0, 0),
-                VerticalAlignment = VerticalAlignment.Center };
+                VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
             Grid.SetColumn(kind, 1);
             top.Children.Add(kind);
+            // На 820 px с широким шрифтом средняя колонка сжимается до ~55 px:
+            // тип цели прячем, иначе он наезжает на название и вылезает из Grid.
+            mid.SizeChanged += (s, e) =>
+            {
+                bool showKind = mid.ActualWidth >= 200;
+                kind.Visibility = showKind ? Visibility.Visible : Visibility.Collapsed;
+                nameTb.MaxWidth = Math.Max(20, mid.ActualWidth - (showKind ? 78 : 0));
+            };
             mid.Children.Add(top);
             mid.Children.Add(new TextBlock { Text = t.Host, Foreground = Theme.BrMuted, FontSize = Theme.FsSmall,
                 FontFamily = Theme.MonoFont, Margin = new Thickness(0, 3, 0, 0),
@@ -710,8 +730,18 @@ namespace ZapretStudio
             _stratStopBtn.Click += (s, e) => { _stratCancel = true; };
             var autoPick = Ctl.Button(Loc.T("check.strat.autoPick"), Icons.Star, 0);
             autoPick.Click += (s, e) => AutoPick();
-            panel.Children.Add(Ctl.ButtonRow(_stratRunSel, _stratRunAll, _stratSelAll,
-                _stratClear, _stratStopBtn, autoPick));
+            // Одна строка из шести кнопок, пока подписи помещаются целиком;
+            // иначе — две строки по три. Порог 620 px был слишком низким:
+            // на 1000 px окна подписи рвались по буквам («Выбранн/ые»).
+            var stratToolbar = Ctl.ButtonRowWrap(
+                _stratRunSel, _stratRunAll, _stratSelAll, _stratClear, _stratStopBtn, autoPick);
+            stratToolbar.ForceCols = 6;
+            stratToolbar.SizeChanged += (s, e) =>
+            {
+                int cols = stratToolbar.ActualWidth < 880 ? 3 : 6;
+                if (stratToolbar.ForceCols != cols) { stratToolbar.ForceCols = cols; stratToolbar.InvalidateMeasure(); }
+            };
+            panel.Children.Add(stratToolbar);
 
             _stratList = new StackPanel();
             panel.Children.Add(_stratList);
@@ -995,7 +1025,7 @@ namespace ZapretStudio
                                 }
                             }
                         }, delegate { return _stratCancel; }, out missed);
-                        // №15: число недособранных проб больше не игнорируется —
+                        // Число недособранных проб больше не игнорируется:
                         // иначе таблица молча показывала меньше строк, чем целей,
                         // и «не проверено» выглядело как «не работает».
                         if (!allInTime || missed > 0)
@@ -1085,7 +1115,11 @@ namespace ZapretStudio
                 {
                     EndBusy();
                     Core.Info(_stratCancel ? Loc.T("check.strat.batchStopped") : Loc.T("check.strat.batchDone"));
-                    if (!_stratCancel) ShowComparison(queue);
+                    if (!_stratCancel)
+                    {
+                        SaveBatchResults(queue);
+                        ShowComparison(queue);
+                    }
                 });
               } catch { }
               finally
@@ -1165,12 +1199,130 @@ namespace ZapretStudio
                 col.Children.Add(line);
             }
 
+            // Массовое избранное: только полностью прошедшие проверку стратегии.
+            var working = new List<string>();
+            foreach (var rr in items)
+                if (rr.LastSev == Sev.Ok) working.Add(rr.File);
+            if (working.Count > 0)
+            {
+                var favBtn = Ctl.Button(string.Format(Loc.T("check.strat.favWorking"), working.Count), Icons.Star, 1);
+                favBtn.HorizontalAlignment = HorizontalAlignment.Left;
+                favBtn.Margin = new Thickness(0, 12, 0, 0);
+                favBtn.Click += (s, e) =>
+                {
+                    int added = Core.AddFavoriteStrategies(working);
+                    _win.ShowToast(added > 0
+                            ? string.Format(Loc.T("check.strat.favWorkingAdded"), added)
+                            : Loc.T("check.strat.favWorkingNone"),
+                        added > 0 ? Sev.Ok : Sev.Neutral);
+                };
+                col.Children.Add(favBtn);
+            }
+
             if (_comparisonCard != null && _stratList.Children.Contains(_comparisonCard))
                 _stratList.Children.Remove(_comparisonCard);
 
             _comparisonCard = UI.Card(col, new Thickness(14, 12, 14, 12));
             _comparisonCard.Margin = new Thickness(0, 0, 0, Theme.Dense(12));
             _stratList.Children.Insert(0, _comparisonCard);
+        }
+
+        // Отчёт в том же каталоге, что и у service.bat → «Проверить стратегии»:
+        // utils\test results\test_results_<дата>.txt. Формат повторяет основные
+        // блоки test zapret.ps1, чтобы файлы можно было читать одинаково.
+        void SaveBatchResults(List<StratRowRef> tested)
+        {
+            if (tested == null || tested.Count == 0) return;
+            var sb = new System.Text.StringBuilder();
+            var analytics = new List<string>();
+            string bestFile = null;
+            int bestOk = -1;
+            double bestAvg = double.MaxValue;
+
+            foreach (var rr in tested)
+            {
+                if (rr == null) continue;
+                sb.AppendLine("Config: " + rr.File + " (Type: standard)");
+                int ok = 0, total = 0, msCount = 0;
+                long msSum = 0;
+                if (rr.LastReports != null)
+                {
+                    total = rr.LastReports.Count;
+                    foreach (var rp in rr.LastReports)
+                    {
+                        if (rp.Ok) ok++;
+                        if (rp.Ms >= 0) { msSum += rp.Ms; msCount++; }
+                        sb.AppendLine(string.Format("  {0} : {1}{2}{3}", rp.Name, rp.Ok ? "OK" : "FAIL",
+                            string.IsNullOrEmpty(rp.Detail) ? "" : " (" + rp.Detail + ")",
+                            rp.Ms >= 0 ? " [" + rp.Ms + " ms]" : ""));
+                    }
+                }
+                else
+                {
+                    sb.AppendLine("  Status: " + (string.IsNullOrEmpty(rr.LastText) ? "-" : rr.LastText));
+                }
+                sb.AppendLine();
+                analytics.Add(string.Format("{0} : HTTP OK: {1}, ERR: {2}, total: {3}",
+                    rr.File, ok, total - ok, total));
+                if (total > 0)
+                {
+                    double avg = msCount > 0 ? (double)msSum / msCount : double.MaxValue;
+                    if (ok > bestOk || (ok == bestOk && avg < bestAvg))
+                    {
+                        bestOk = ok; bestAvg = avg; bestFile = rr.File;
+                    }
+                }
+            }
+
+            sb.AppendLine("=== ANALYTICS ===");
+            foreach (var line in analytics) sb.AppendLine(line);
+            if (bestFile != null) sb.AppendLine("Best strategy: " + bestFile);
+            SaveResultsFile(sb.ToString());
+        }
+
+        void SaveAutoPickResults(List<Core.StratScore> scores)
+        {
+            if (scores == null || scores.Count == 0) return;
+            var sb = new System.Text.StringBuilder();
+            var analytics = new List<string>();
+            string bestFile = null;
+            int bestOk = -1;
+            double bestAvg = double.MaxValue;
+
+            foreach (var sc in scores)
+            {
+                if (sc == null) continue;
+                sb.AppendLine("Config: " + sc.File + " (Type: standard)");
+                if (sc.Error)
+                    sb.AppendLine("  Status: " + (string.IsNullOrEmpty(sc.ErrorMessage) ? "error" : sc.ErrorMessage));
+                else if (sc.Busy)
+                    sb.AppendLine("  Status: busy");
+                else
+                    sb.AppendLine("  OK: " + sc.Ok + "/" + sc.Total +
+                        (sc.AvgMs > 0 ? ", avg " + Math.Round(sc.AvgMs) + " ms" : ""));
+                analytics.Add(string.Format("{0} : HTTP OK: {1}, ERR: {2}, total: {3}",
+                    sc.File, sc.Ok, sc.Total - sc.Ok, sc.Total));
+                if (!sc.Error && !sc.Busy && (sc.Ok > bestOk || (sc.Ok == bestOk && sc.AvgMs < bestAvg)))
+                {
+                    bestOk = sc.Ok; bestAvg = sc.AvgMs; bestFile = sc.File;
+                }
+            }
+
+            sb.AppendLine("=== ANALYTICS ===");
+            foreach (var line in analytics) sb.AppendLine(line);
+            if (bestFile != null) sb.AppendLine("Best strategy: " + bestFile);
+            SaveResultsFile(sb.ToString());
+        }
+
+        void SaveResultsFile(string text)
+        {
+            string path = Core.SaveStrategyTestResults(text);
+            if (path != null)
+            {
+                Core.Info(string.Format(Loc.T("check.strat.resultsSavedLog"), path));
+                _win.ShowToast(Loc.T("check.strat.resultsSaved"), Sev.Info);
+            }
+            else Core.Warn(string.Format(Loc.T("check.strat.resultsSaveFail"), Core.Root));
         }
 
         // Автоподбор: прогоняет все стратегии и выбирает лучшую.
@@ -1247,6 +1399,7 @@ namespace ZapretStudio
                 {
                     EndBusy();
                     if (_stratCancel) { Core.Info(Loc.T("check.strat.batchStopped")); return; }
+                    SaveAutoPickResults(scores);
                     // Выбираем лучшую: макс Ok, затем мин AvgMs (пропуская упавшие).
                     Core.StratScore best = null;
                     foreach (var sc in scores)

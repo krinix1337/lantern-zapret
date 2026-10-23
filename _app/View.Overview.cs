@@ -121,20 +121,18 @@ namespace ZapretStudio
 
         void BuildHero()
         {
-            var g = new Grid { Margin = new Thickness(0, 0, 0, 14) };
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-            var zap = BuildZapretCard(); zap.Margin = new Thickness(0, 0, 7, 0);
-            Grid.SetColumn(zap, 0); g.Children.Add(zap);
-            var tg = BuildTgCard(); tg.Margin = new Thickness(7, 0, 0, 0);
-            Grid.SetColumn(tg, 1); g.Children.Add(tg);
+            // CellRow, а не две Star-колонки: на 820 px карточка сужалась до
+            // 191 px, и кнопки «Запустить/Перезапустить» с широким шрифтом
+            // вылезали за её край. При нехватке места карточки идут одна под другой.
+            var g = new CellRow { MinCell = 320, Gap = 16, EvenRows = false, Margin = new Thickness(0, 0, 0, 14) };
+            g.Children.Add(BuildZapretCard());
+            g.Children.Add(BuildTgCard());
             Body.Children.Add(g);
         }
 
         Border BuildZapretCard()
         {
-            var g = new Grid { MinHeight = 185 };
+            var g = new Grid { MinHeight = Theme.S(185) };
             g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -158,7 +156,7 @@ namespace ZapretStudio
                 FontFamily = Theme.UiFont,
                 Margin = new Thickness(0, 6, 0, 16),
                 TextWrapping = TextWrapping.Wrap,
-                MinHeight = 40,
+                MinHeight = Theme.S(40),
                 VerticalAlignment = VerticalAlignment.Top
             };
             Grid.SetRow(_statusSub, 2); g.Children.Add(_statusSub);
@@ -166,7 +164,7 @@ namespace ZapretStudio
             var btnRow = new ActionRow();
             _mainBtn = Ctl.Button(Loc.T("common.start"), Icons.Play, 0);
             _mainBtn.HorizontalAlignment = HorizontalAlignment.Stretch;
-            _mainBtn.Height = 40;
+            _mainBtn.Height = Theme.S(40);
             _mainBtn.Click += (s, e) =>
             {
                 if (!System.IO.File.Exists(Core.WinwsExe)) { ZapretDownload(); return; }
@@ -174,7 +172,7 @@ namespace ZapretStudio
             };
             btnRow.Children.Add(_mainBtn);
             _restartBtn = Ctl.Button(Loc.T("ov.restart"), Icons.Restart, 3);
-            _restartBtn.Height = 40;
+            _restartBtn.Height = Theme.S(40);
             _restartBtn.Click += (s, e) => _win.RestartAll();
             btnRow.Children.Add(_restartBtn);
             Grid.SetRow(btnRow, 3); g.Children.Add(btnRow);
@@ -185,7 +183,7 @@ namespace ZapretStudio
 
         Border BuildTgCard()
         {
-            var g = new Grid { MinHeight = 185 };
+            var g = new Grid { MinHeight = Theme.S(185) };
             g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -195,11 +193,17 @@ namespace ZapretStudio
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            var headLeft = new StackPanel { Orientation = Orientation.Horizontal };
-            headLeft.Children.Add(UI.Icon(Icons.Telegram, 18, Theme.BrAccent, 1.8));
+            // Сетка, а не горизонтальный StackPanel: StackPanel меряет текст без
+            // ограничения, и с Unbounded заголовок заезжал под шестерню.
+            var headLeft = new Grid();
+            headLeft.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            headLeft.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var tgIcon = UI.Icon(Icons.Telegram, 18, Theme.BrAccent, 1.8);
+            Grid.SetColumn(tgIcon, 0); headLeft.Children.Add(tgIcon);
             var ht = UI.T(Loc.T("ov.sec.tg"), Theme.FsSmall, Theme.BrFaint, FontWeights.SemiBold);
             ht.Margin = new Thickness(9, 0, 0, 0); ht.VerticalAlignment = VerticalAlignment.Center;
-            headLeft.Children.Add(ht);
+            ht.TextTrimming = TextTrimming.CharacterEllipsis;
+            Grid.SetColumn(ht, 1); headLeft.Children.Add(ht);
             Grid.SetColumn(headLeft, 0); head.Children.Add(headLeft);
 
             // Шестерня ведёт в настройки на отдельную секцию TG-прокси.
@@ -224,7 +228,7 @@ namespace ZapretStudio
                 FontFamily = Theme.UiFont,
                 Margin = new Thickness(0, 6, 0, 16),
                 TextWrapping = TextWrapping.Wrap,
-                MinHeight = 40,
+                MinHeight = Theme.S(40),
                 VerticalAlignment = VerticalAlignment.Top
             };
             Grid.SetRow(_tgStatusSub, 2); g.Children.Add(_tgStatusSub);
@@ -232,11 +236,11 @@ namespace ZapretStudio
             var btnRow = new ActionRow();
             _tgBtn = Ctl.Button(Loc.T("common.start"), Icons.Play, 0);
             _tgBtn.HorizontalAlignment = HorizontalAlignment.Stretch;
-            _tgBtn.Height = 40;
+            _tgBtn.Height = Theme.S(40);
             _tgBtn.Click += (s, e) => TgToggle();
             btnRow.Children.Add(_tgBtn);
             _tgConnectBtn = Ctl.Button(Loc.T("ov.tg.connect"), Icons.Telegram, 3);
-            _tgConnectBtn.Height = 40;
+            _tgConnectBtn.Height = Theme.S(40);
             _tgConnectBtn.IsEnabled = false;
             ToolTipService.SetShowOnDisabled(_tgConnectBtn, true);
             _tgConnectBtn.Click += (s, e) => TgConnect();
@@ -308,7 +312,7 @@ namespace ZapretStudio
             // окна карточка сужалась до ~158 px и плашка статуса («Готов к
             // запуску», «Не установлена») обрезалась. Теперь при нехватке места
             // строка переносится на два ряда по две карточки.
-            var g = new CellRow { MinCell = 178, Gap = 12 };
+            var g = new CellRow { MinCell = 200, Gap = 12 };
             _cDiscord = MiniCard("Discord", Icons.Discord);
             _cYouTube = MiniCard("YouTube", Icons.YouTube);
             _cDivert = MiniCard("WinDivert", Icons.Shield);

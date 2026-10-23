@@ -27,6 +27,73 @@ namespace ZapretStudio
         public static string NaturalKey(string s)
         { return _naturalKeyRegex.Replace(s, m => m.Value.PadLeft(8, '0')); }
 
+        // Избранные стратегии: один список на всё приложение, чтобы звёзды
+        // на странице стратегий и массовое добавление после проверки писали
+        // в один и тот же ключ gui-config.ini.
+        public static List<string> GetFavoriteStrategies()
+        {
+            var list = new List<string>();
+            try
+            {
+                foreach (var part in Get("favorites", "").Split('|'))
+                {
+                    string f = part.Trim();
+                    if (f.Length > 0 && !list.Contains(f)) list.Add(f);
+                }
+            }
+            catch { }
+            return list;
+        }
+
+        public static void SetFavoriteStrategies(IEnumerable<string> files)
+        {
+            var list = new List<string>();
+            if (files != null)
+                foreach (var f in files)
+                {
+                    string t = (f ?? "").Trim();
+                    if (t.Length > 0 && !list.Contains(t)) list.Add(t);
+                }
+            Set("favorites", string.Join("|", list.ToArray()));
+            SaveConfig();
+        }
+
+        // Возвращает число реально добавленных: уже отмеченные не дублируются.
+        public static int AddFavoriteStrategies(IEnumerable<string> files)
+        {
+            var list = GetFavoriteStrategies();
+            int added = 0;
+            if (files != null)
+                foreach (var f in files)
+                {
+                    string t = (f ?? "").Trim();
+                    if (t.Length == 0 || list.Contains(t)) continue;
+                    list.Add(t);
+                    added++;
+                }
+            if (added > 0) SetFavoriteStrategies(list);
+            return added;
+        }
+
+        // Результаты проверки стратегий кладём туда же, куда service.bat →
+        // «Проверить стратегии» (utils/test zapret.ps1): utils\test results.
+        public static string SaveStrategyTestResults(string text)
+        {
+            try
+            {
+                string dir = Path.Combine(UtilsDir, "test results");
+                Directory.CreateDirectory(dir);
+                string baseName = "test_results_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+                string path = Path.Combine(dir, baseName + ".txt");
+                int n = 2;
+                while (File.Exists(path))
+                    path = Path.Combine(dir, baseName + "_" + n++ + ".txt");
+                File.WriteAllText(path, text ?? "", new UTF8Encoding(true));
+                return path;
+            }
+            catch { return null; }
+        }
+
         // Категория по имени файла (General / ALT / FAKE / SIMPLE / Другая)
         public static string CategoryOf(string bat)
         {
@@ -230,7 +297,7 @@ namespace ZapretStudio
                     }
                     else if (current != "loaded")
                     {
-                        // №5: раньше ветка молча не делала ничего, и пользователь
+                        // Раньше ветка молча не делала ничего, и пользователь
                         // считал список возвращённым, тогда как winws работал с пустым.
                         Warn(Loc.T("ipset.noBackup"));
                     }
@@ -246,7 +313,7 @@ namespace ZapretStudio
                 }
                 else if (mode == "any")
                 {
-                    // №5: режим any стирал скачанный список без копии, вернуть
+                    // Режим any стирал скачанный список без копии, вернуть
                     // loaded было невозможно. Сохраняем так же, как ветка none.
                     if (current == "loaded" && File.Exists(IpsetFile))
                     {

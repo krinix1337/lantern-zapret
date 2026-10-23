@@ -248,7 +248,7 @@ namespace ZapretStudio
             {
                 try
                 {
-                    // №33: имя архива и его SHA-256 приходят из GitHub API; без
+                    // Имя архива и его SHA-256 приходят из GitHub API; без
                     // контрольной суммы установка отменяется.
                     string url, zipSha;
                     if (!Core.ZapretZipAssets(out url, out zipSha))

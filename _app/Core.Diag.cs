@@ -45,7 +45,7 @@ namespace ZapretStudio
                 var psi = new ProcessStartInfo
                 {
                     FileName = exe,
-                    // №62: новый экземпляр стартует раньше, чем этот отпустит мьютекс,
+                    // Новый экземпляр стартует раньше, чем этот отпустит мьютекс,
                     // поэтому он должен дождаться его, а не «огонить и забыть».
                     Arguments = "--tookover",
                     UseShellExecute = true,
@@ -54,7 +54,7 @@ namespace ZapretStudio
                 Process.Start(psi);
                 // Порядок важен: сначала освобождаем мьютекс, затем гасим окно.
                 // ForceShutdown нужен, чтобы OnClosing не свернул окно в трей и
-                // не отменил Shutdown() (№61).
+                // не отменил Shutdown().
                 App.ForceShutdown = true;
                 App.ReleaseMutexForRestart();
                 System.Windows.Application.Current.Shutdown();
@@ -174,7 +174,7 @@ namespace ZapretStudio
         }
 
         // Служба установлена и работает?
-        // №2a: через ServiceController, а не разбором `sc query` — на русской
+        // Через ServiceController, а не разбором `sc query`, на русской
         // Windows метки локализованы, вывод идёт в CP866, и заодно не нужен
         // запуск внешнего процесса на каждую проверку.
         static bool ServiceRunningNamed(string name)
@@ -313,11 +313,11 @@ namespace ZapretStudio
                 Value = found ? Loc.T("diag.v.found") : Loc.T("diag.v.clean") });
         }
 
-        // №2b: список служб берём через ServiceController, а не разбором
+        // Список служб берём через ServiceController, а не разбором
         // `sc query state= all`. Прежний код искал английскую метку
         // «SERVICE_NAME:», которой на русской Windows нет («Имя_службы:»),
         // вызов занимал до 20 секунд и на время запроса сбрасывал кэш в
-        // DateTime.MinValue — второй поток шёл параллельно тем же путём (№45).
+        // DateTime.MinValue: второй поток шёл параллельно тем же путём.
         static string _svcListCache;
         static DateTime _svcListAt;
         static readonly object _svcListLock = new object();
@@ -351,9 +351,32 @@ namespace ZapretStudio
             return o;
         }
 
+        // Клиенты, которые могут конфликтовать с zapret, но не всегда содержат
+        // «VPN» в имени службы/процесса. Список общий для служб и процессов:
+        // WireGuard и Amnezia живут службами, V2RayTun/Incy — обычно процессами.
+        static readonly string[] VpnMarkers =
+        {
+            "VPN", "HappService", "Happ", "Amnezia", "WireGuard",
+            "V2Ray", "Xray", "Incy", "OpenVPN",
+            "NordVPN", "ProtonVPN", "Proton VPN", "ExpressVPN", "Surfshark",
+            "CyberGhost", "Mullvad", "TunnelBear", "Windscribe",
+            "AdguardVpn", "Adguard VPN", "CloudflareWARP", "warp-svc",
+            "Outline", "Shadowsocks", "Clash", "sing-box",
+            "Hiddify", "Nekoray", "NekoBox", "Throne", "Karing", "Hysteria"
+        };
+
+        static bool LooksLikeVpn(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            foreach (var marker in VpnMarkers)
+                if (name.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
+        }
+
         static string VpnServicesList()
         {
             var names = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 foreach (var s in System.ServiceProcess.ServiceController.GetServices())
@@ -361,7 +384,7 @@ namespace ZapretStudio
                     try
                     {
                         string n = (s.ServiceName ?? "") + " " + (s.DisplayName ?? "");
-                        if (n.IndexOf("VPN", StringComparison.OrdinalIgnoreCase) >= 0 && !names.Contains(s.ServiceName))
+                        if (LooksLikeVpn(n) && seen.Add(s.ServiceName))
                             names.Add(s.ServiceName);
                     }
                     catch { }
@@ -369,13 +392,29 @@ namespace ZapretStudio
                 }
             }
             catch { }
+            // Клиенты без службы (V2RayTun, Incy, Happ в портативном режиме)
+            // иначе не попадали бы в предупреждение вообще.
+            try
+            {
+                foreach (var p in Process.GetProcesses())
+                {
+                    try
+                    {
+                        string pn = p.ProcessName ?? "";
+                        if (LooksLikeVpn(pn) && seen.Add(pn)) names.Add(pn);
+                    }
+                    catch { }
+                    finally { p.Dispose(); }
+                }
+            }
+            catch { }
             return names.Count > 0 ? string.Join(", ", names.ToArray()) : null;
         }
 
         // GoodbyeDPI / другие winws-инстансы, конфликтующие за драйвер.
-        // №2a: существование службы — через ServiceController. Поиск «STATE» в
+        // Существование службы проверяем через ServiceController. Поиск «STATE» в
         // выводе sc.exe не срабатывал на русской Windows («Состояние : 4 RUNNING»),
-        // а основной реальный конфликт (GoodbyeDPI) — процесс, а не служба.
+        // а основной реальный конфликт (GoodbyeDPI) это процесс, а не служба.
         static string ConflictingBypasses()
         {
             string[] names = { "GoodbyeDPI", "discordfix_zapret", "winws1", "winws2" };
@@ -414,10 +453,10 @@ namespace ZapretStudio
             return false;
         }
 
-        // №2c: netsh печатает «Метки времени RFC 1323 : allowed» — метка
+        // netsh печатает «Метки времени RFC 1323 : allowed»: метка
         // локализована, а прежнее условие требовало подстроки «timestamp» и
         // «enabled», поэтому карточка вечно горела жёлтой при работающих метках.
-        // Строку ищем по номеру RFC (он не локализуется), значение — ASCII.
+        // Строку ищем по номеру RFC (он не локализуется), значение читаем как ASCII.
         static bool TcpTimestampsEnabled()
         {
             string o = CaptureUtf8("netsh", "interface tcp show global", 10000);
@@ -1034,7 +1073,7 @@ namespace ZapretStudio
         }
 
         // Сброс и удаление зависшего драйвера WinDivert.
-        // №19: раньше возвращал true безусловно — кнопка всегда рапортовала «успешно»,
+        // Раньше возвращал true безусловно: кнопка всегда рапортовала «успешно»,
         // даже когда драйвер оставался в памяти и требовал перезагрузки.
         public static bool ResetWinDivertDriver(out string error)
         {
@@ -1143,7 +1182,7 @@ namespace ZapretStudio
 
         public static bool TakeoverForeignService(string strategyFile)
         {
-            // №1: сначала убеждаемся, что есть чем заменить службу, и только потом
+            // Сначала убеждаемся, что есть чем заменить службу, и только потом
             // её снимаем. Прежний порядок (RemoveService первой строкой) при
             // неверном имени файла оставлял систему без службы вообще: вызывающая
             // сторона передавала отображаемое имя без «.bat» («general (ALT)»),

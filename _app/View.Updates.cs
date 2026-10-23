@@ -827,7 +827,7 @@ namespace ZapretStudio
                         if (statusPillWrap == _tgPillWrap && !Core.TgProxyInstalled())
                             statusPillWrap.Content = Pill.Make(Sev.Warn, Loc.T("settings.tg.notInstalled"));
                         else
-                            // №64: вместо пустой пилюли — честное «статус неизвестен».
+                            // Вместо пустой пилюли показываем честное «статус неизвестен».
                             // Пустой Content выглядел как «всё актуально» до первой
                             // проверки обновлений.
                             statusPillWrap.Content = Pill.Make(Sev.Neutral, Loc.T("updates.status.unknown"));

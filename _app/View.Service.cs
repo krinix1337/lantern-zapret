@@ -73,7 +73,8 @@ namespace ZapretStudio
             var l2 = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             l2.Children.Add(UI.T(Loc.T("service.driver"), Theme.FsBody, Theme.BrText, FontWeights.SemiBold));
             l2.Children.Add(new TextBlock { Text = Loc.T("service.driver.desc"),
-                Foreground = Theme.BrMuted, FontSize = Theme.FsSmall, FontFamily = Theme.UiFont, Margin = new Thickness(0, 3, 0, 0) });
+                Foreground = Theme.BrMuted, FontSize = Theme.FsSmall, FontFamily = Theme.UiFont, Margin = new Thickness(0, 3, 0, 0),
+                TextWrapping = TextWrapping.Wrap });
             Grid.SetColumn(l2, 0); g2.Children.Add(l2);
             _wdPill = Pill.Make(Sev.Neutral, "—");
             _wdPill.VerticalAlignment = VerticalAlignment.Center;
@@ -292,11 +293,11 @@ namespace ZapretStudio
             var takeoverBtn = Ctl.Button(Loc.T("service.foreign.takeover"), Icons.Bolt, 0);
             takeoverBtn.Click += (s, e) =>
             {
-                // №1: в комбоксе лежат PrettyName без расширения («general (ALT)»),
+                // В комбоксе лежат PrettyName без расширения («general (ALT)»),
                 // а InstallService читает файл по имени. Берём реальный файл из
-                // GetStrategyFiles по индексу — как это делает DoInstall.
+                // GetStrategyFiles() по индексу, как это делает DoInstall.
                 // Индекс снимаем здесь, в UI-потоке: тело Guarded выполняется в пуле,
-                // а SelectedIndex — свойство WPF-контрола.
+                // а SelectedIndex принадлежит WPF-контролу.
                 int pick = _stratPick != null ? _stratPick.SelectedIndex : -1;
                 Guarded(Loc.T("service.foreign.takeover"), delegate
                 {

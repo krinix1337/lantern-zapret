@@ -139,7 +139,7 @@ namespace ZapretStudio
                         }
                     }
                 }, cancel, out missed);
-                // №15: результат барьера не выбрасывается — недобранное число проб
+                // Результат барьера не выбрасывается: недобранное число проб
                 // иначе молча уходило в заниженный счётчик «работает».
                 if (!complete)
                     Warn(string.Format(Loc.T("net.probesTimeout"), missed, probes.Count));

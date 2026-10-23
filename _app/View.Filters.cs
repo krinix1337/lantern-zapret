@@ -544,8 +544,8 @@ namespace ZapretStudio
             bool isIpSet = path.IndexOf("ipset", StringComparison.OrdinalIgnoreCase) >= 0;
             string val = Core.NormalizeHostEntry(raw, isIpSet);
             if (val.Length == 0) return;
-            // №105: IpsetStatus() ищет заглушку через Contains, поэтому и запрет
-            // по Contains — иначе «1.2.3.4 203.0.113.113/32» прошёл бы фильтром и
+            // IpsetStatus() ищет заглушку через Contains, поэтому и запрет
+            // по Contains: иначе «1.2.3.4 203.0.113.113/32» прошёл бы фильтром и
             // перевёл бы режим в none.
             if (isIpSet && val.IndexOf(Core.IpsetSentinel, StringComparison.OrdinalIgnoreCase) >= 0)
             {
@@ -585,7 +585,7 @@ namespace ZapretStudio
                 Exception fail = null;
                 try
                 {
-                    // №101: весь файл перезаписывается, поэтому под общим локом и
+                    // Весь файл перезаписывается, поэтому под общим локом и
                     // атомарно: прежний File.WriteAllLines при обрыве оставлял пустой
                     // пользовательский список.
                     lock (_listWriteLock)

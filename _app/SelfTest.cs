@@ -52,6 +52,10 @@ namespace ZapretStudio
                 }
             };
             app.Run();
+            // Окно теста закрывается во время Shutdown и снова сохраняет геометрию
+            // в gui-config.ini уже после первого восстановления снимка. Второй
+            // проход возвращает настройки пользователя (в т.ч. размер окна).
+            try { RestoreConfig(); } catch { }
         }
 
         // Лог пишется в %LOCALAPPDATA%\Lantern, а не рядом с exe: папка установки
@@ -428,8 +432,8 @@ namespace ZapretStudio
                 }
             }
             Loc.SetLang("ru"); Pump();
-            // №84: раньше весь аудит (2 языка x 3 ширины x 9 страниц) сводился к
-            // одному _pass/_fail — «3 обрезанных подписи» выглядели так же, как «300».
+            // Раньше весь аудит (2 языка x 3 ширины x 9 страниц) сводился к
+            // одному _pass/_fail: «3 обрезанных подписи» выглядели так же, как «300».
             // Теперь зачёт пропорционален: каждый просмотренный экран в _pass, каждая
             // найденная проблема отдельным _fail.
             _pass += layoutAudits;
@@ -1242,6 +1246,37 @@ namespace ZapretStudio
                 finally { Theme.Mode = was; }
             });
 
+            Try("strat favorites без дублей", delegate
+            {
+                string was = Core.Get("favorites", null);
+                try
+                {
+                    Core.Set("favorites", "a.bat|a.bat|b.bat");
+                    var list = Core.GetFavoriteStrategies();
+                    Assert(list.Count == 2, "дубли избранного не схлопнуты: " + list.Count);
+                    int added = Core.AddFavoriteStrategies(new string[] { "b.bat", "c.bat" });
+                    Assert(added == 1, "добавлено неверное число избранных: " + added);
+                    var after = Core.GetFavoriteStrategies();
+                    Assert(after.Count == 3 && after.Contains("c.bat"), "новое избранное не сохранилось");
+                    Core.SetFavoriteStrategies(new string[] { "x.bat", "x.bat", " " });
+                    var clean = Core.GetFavoriteStrategies();
+                    Assert(clean.Count == 1 && clean[0] == "x.bat", "очистка избранного собрала мусор");
+                }
+                finally
+                {
+                    if (was == null) Core.Unset("favorites"); else Core.Set("favorites", was);
+                    try { Core.SaveConfig(); } catch { }
+                }
+            });
+
+            Try("fonts: кэш помечает применённый шрифт", delegate
+            {
+                if (!Core.ConfigureUiFontsFromCache()) return;
+                var fam = Core.ResolveUiFontFamily();
+                Assert(Core.IsUiFontApplied(fam.Title) || Core.IsUiFontApplied(Core.DefaultFontFamily.Title),
+                    "шрифт из кэша подключён, но не помечен применённым");
+            });
+
             // Сквозная миграция: реальный стартовый путь (App.ApplySavedTheme) должен
             // не только включить правильную тему, но и записать её в gui-config.ini.
             // Без записи тема «не сохраняется»: следующее сохранение конфига вернёт
@@ -1522,8 +1557,8 @@ namespace ZapretStudio
                 // Ряд = ширина блока: равные колонки, край в край, одна линия.
                 Assert(Math.Abs(a.ActualWidth - b2.ActualWidth) < 0.6,
                     "кнопки в ряду не равны: " + a.ActualWidth + " / " + b2.ActualHeight);
-                Assert(Math.Abs((a.ActualWidth + b2.ActualWidth + 12) - 900) < 1.5,
-                    "ряд не растянут на весь блок: " + (a.ActualWidth + b2.ActualWidth + 12));
+                Assert(Math.Abs((a.ActualWidth + b2.ActualWidth + row.Gap) - 900) < 1.5,
+                    "ряд не растянут на весь блок: " + (a.ActualWidth + b2.ActualWidth + row.Gap));
                 Assert(Math.Abs(a.ActualHeight - b2.ActualHeight) < 0.6,
                     "высота кнопок в одном ряду разная: " + a.ActualHeight + " / " + b2.ActualHeight);
                 double ax = a.TranslatePoint(new Point(0, 0), row).X;
@@ -1601,9 +1636,9 @@ namespace ZapretStudio
                     string tail = Core.WinwsLogTail(400);
                     Assert(tail.StartsWith("..."));
                     Assert(HasLine(tail, "line449"));
-                    // №83: прежняя проверка !tail.Contains("line49\n") была тавтологией —
+                    // Прежняя проверка !tail.Contains("line49\n") была тавтологией,
                     // WinwsLogTail склеивает строки через AppendLine (\r\n), подстрока не
-                    // появлялась ни при каком состоянии буфера. Плюс "line49" — префикс
+                    // появлялась ни при каком состоянии буфера. Плюс "line49": префикс
                     // "line490", так что сравнивать можно только целыми строками.
                     Assert(!HasLine(tail, "line49"));
                     Assert(HasLine(tail, "line50"));
@@ -1671,7 +1706,7 @@ namespace ZapretStudio
             Try("quick probes count", delegate { Assert(Core.QuickProbes().Count == 3); });
 
             // --- Человекочитаемые размеры ---
-            // №84: прежняя проверка (Length > 0) проходила даже на заглушке,
+            // Прежняя проверка (Length > 0) проходила даже на заглушке,
             // возвращающей любую непустую строку.
             Try("humansize units", delegate
             {
@@ -1788,8 +1823,8 @@ namespace ZapretStudio
                 Core.GameFilterTcpPorts = "1024-65535";
                 Core.GameFilterUdpPorts = "1024-65535";
 
-                // 5) №23: голый %GameFilter% (без суффикса TCP/UDP). В эталонных
-                // .bat он стоит в режиме all и обязан раскрываться в TCP-порты —
+                // 5) голый %GameFilter% (без суффикса TCP/UDP). В эталонных
+                // .bat он стоит в режиме all и обязан раскрываться в TCP-порты:
                 // прежний код подставлял туда udp, то есть фильтр заводился не на то.
                 string batG = Path.Combine(root, "t2.bat");
                 File.WriteAllText(batG,
@@ -1822,7 +1857,7 @@ namespace ZapretStudio
                     Assert(a.Contains("--wf-tcp=" + udpPorts), "в режиме udp %GameFilter% обязан раскрываться в UDP-порты: " + a);
                 });
 
-                // 6) №69: плейсхолдер сразу перед кавычкой. Core.Bin/Core.Lists
+                // 6) плейсхолдер сразу перед кавычкой. Core.Bin/Core.Lists
                 // заканчиваются на бэкслеш, и наивная подстановка даёт lists\", где
                 // \" съедает кавычку при разборе argv. Форма обязана стоять внутри
                 // самой команды winws: парсер берёт строки, начиная с той, где

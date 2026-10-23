@@ -17,7 +17,7 @@ on:
 jobs:
   release:
     runs-on: windows-latest
-    # №91: публикация раздаётся всем клиентам (Core.Endpoints.cs тянет
+    # Публикация раздаётся всем клиентам (Core.Endpoints.cs тянет
     # releases/latest/download/Lantern-Setup.exe и запускает его от администратора).
     # Environment с required reviewers в настройках репозитория делает релиз
     # подтверждаемым действием, а не любым workflow_dispatch.
@@ -29,10 +29,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # №91: полная история нужна для git tag -a и git describe
+          # Полная история нужна для git tag -a и git describe
           fetch-depth: 0
 
-      # №91: релиз публикуется только из master — иначе ассеты и тег расходятся
+      # Релиз публикуется только из master; иначе ассеты и тег расходятся
       # с тем, что видят пользователи в ветке по умолчанию.
       - name: Verify branch
         shell: pwsh
@@ -44,7 +44,7 @@ jobs:
         id: verify
         shell: pwsh
         run: |
-          # №3: единственный источник истины — тег; значения в AssemblyInfo.cs и
+          # Единственный источник истины: тег; значения в AssemblyInfo.cs и
           # Lantern.iss сверяются между собой и с ним. Прежний гейт требовал
           # совпадения с двумя разными числами, которые в HEAD не совпадали
           # (9.1 против 9.0), из-за чего workflow краснел всегда.
@@ -58,7 +58,7 @@ jobs:
           Write-Host "tag=$tag assembly=$asmVer installer=$issVer"
           if ($asmVer -ne $issVer) { throw "AssemblyInformationalVersion '$asmVer' != Lantern.iss AppVersion '$issVer'" }
           if ($tag -ne $asmVer) { throw "tag '$tag' does not match app version '$asmVer'" }
-          # №90: все существующие теги в репозитории с префиксом v (v1.0 … v8.1)
+          # Все существующие теги в репозитории с префиксом v (v1.0 … v8.1)
           $tagNorm = 'v' + $tag
           "tag_norm=$tagNorm" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
@@ -98,7 +98,7 @@ jobs:
           Set-Content -Path "$setup.sha256" -Value "$hash  Lantern-Setup.exe" -Encoding ascii
           Write-Host "$hash  Lantern-Setup.exe"
 
-      # №91: тег создаётся в git явно, а не только через Release API — иначе
+      # Тег создаётся в git явно, а не только через Release API; иначе
       # история тегов и git describe расходятся с фактической точкой релиза.
       - name: Create annotated tag
         shell: pwsh

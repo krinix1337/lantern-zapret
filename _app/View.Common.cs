@@ -30,7 +30,7 @@ namespace ZapretStudio
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-            var headGrid = new Grid { Margin = new Thickness(28, 24, 28, 8) };
+            var headGrid = new Grid { Margin = Theme.Dense(new Thickness(28, 24, 28, 8)) };
             headGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             headGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -59,7 +59,7 @@ namespace ZapretStudio
             Grid.SetRow(headGrid, 0);
             root.Children.Add(headGrid);
 
-            Body = new StackPanel { Margin = new Thickness(28, 12, 28, 28) };
+            Body = new StackPanel { Margin = Theme.Dense(new Thickness(28, 12, 28, 28)) };
             ScrollHost = new SmoothScrollViewer
             {
                 Content = Body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -206,7 +206,7 @@ namespace ZapretStudio
         {
             var cb = new ComboBox
             {
-                Width = width, HorizontalAlignment = HorizontalAlignment.Left, Height = 34,
+                Width = Theme.S(width), HorizontalAlignment = HorizontalAlignment.Left, Height = Theme.S(34),
                 FontSize = Theme.FsBody, FontFamily = Theme.UiFont,
                 Foreground = Theme.BrText, Background = Theme.BrSurfaceAlt,
                 BorderBrush = Theme.BrStroke,
@@ -820,7 +820,7 @@ namespace ZapretStudio
     // своей подписи, а рамка обрезала текст («Скачать прок»).
     class ActionRow : Panel
     {
-        public double Gap = 10;
+        public double Gap = Theme.Dense(10);
 
         bool _stack;
         double[] _nat = new double[0];

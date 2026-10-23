@@ -93,7 +93,7 @@ namespace ZapretStudio
                 text = sb.ToString();
                 target = ConfigFile;
             }
-            // №43: диск — вне _cfgLock, иначе GetBool("reduce_motion") на пути
+            // Диск вне _cfgLock, иначе GetBool("reduce_motion") на пути
             // отрисовки вставал в очередь за медленным или сетевым диском.
             // Отдельный лок нужен, чтобы два потока не писали один и тот же .tmp.
             lock (_cfgWriteLock)
@@ -103,8 +103,8 @@ namespace ZapretStudio
             }
         }
 
-        // №42: File.WriteAllText уссекает файл до нуля ещё до записи, поэтому обрыв
-        // питания или Kill оставлял пустой gui-config.ini — а вместе с ним терялись
+        // File.WriteAllText уссекает файл до нуля ещё до записи, поэтому обрыв
+        // питания или Kill оставлял пустой gui-config.ini, а вместе с ним терялись
         // root, lang, theme, last_strategy и ipset_enabled. Пишем временный файл рядом
         // и переносим его атомарно, сохраняя предыдущую версию в .bak.
         public static void WriteFileAtomic(string path, string text)

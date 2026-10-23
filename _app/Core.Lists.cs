@@ -7,8 +7,8 @@ namespace ZapretStudio
     // Обновление списков с GitHub и получение changelog.
     static partial class Core
     {
-        // №106: параллельные нажатия «Обновить списки» писали в один и тот же файл,
-        // а catch { } в View.Filters глотал IOException — статус висел вечно.
+        // Параллельные нажатия «Обновить списки» писали в один и тот же файл,
+        // а catch { } в View.Filters глотал IOException, статус висел вечно.
         static readonly object _ipsetUpdateLock = new object();
 
         // Адресная строка ipset: IPv4 или IPv6, с маской или без.
@@ -51,7 +51,7 @@ namespace ZapretStudio
                         wc.Headers.Add("User-Agent", "ZapretStudio");
                         content = wc.DownloadString(Endpoints.IpsetServiceUrl);
                     }
-                    // №35: приложение работает в сети с DPI-инъекциями, и каптивный
+                    // Приложение работает в сети с DPI-инъекциями, и каптивный
                     // портал отвечает «200 OK» собственной HTML-страницей. Без проверки
                     // это тело уезжало в рабочий список, после чего winws поднимался
                     // с мусором, а интерфейс рапортовал «списки обновлены (N)».
@@ -64,11 +64,11 @@ namespace ZapretStudio
                     }
                     string dest = Path.Combine(Lists, "ipset-all.txt");
                     var before = ReadAddressSet(dest);
-                    // №35: запись через temp+replace — прежняя версия остаётся в
+                    // Запись через temp+replace: прежняя версия остаётся в
                     // ipset-all.txt.bak, и обрыв на середине не оставляет пустой файл.
                     WriteFileAtomic(dest, content);
                     stat = DiffAddresses(before, content);
-                    // №26: копия от режима none/any устарела. Если её не убрать,
+                    // Копия от режима none/any устарела. Если её не убрать,
                     // цепочка «none → обновить списки → any → loaded» вернёт
                     // прежнюю пачку IP вместо свежей.
                     try

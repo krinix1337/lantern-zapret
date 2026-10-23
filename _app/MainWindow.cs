@@ -31,6 +31,8 @@ namespace ZapretStudio
         // операции запуска стратегии — отсюда volatile.
         volatile string _currentStrategyFile;   // выбранная/запущенная стратегия
         System.Windows.Forms.NotifyIcon _tray;
+        bool _maximized;                        // переживает Minimize, в отличие от WindowState
+        DispatcherTimer _windowSaveTimer;
 
         public MainWindow()
         {
@@ -55,7 +57,8 @@ namespace ZapretStudio
             if (savedW >= MinWidth) Width = Math.Min(savedW, waW);
             if (savedH >= MinHeight) Height = Math.Min(savedH, waH);
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
-            if (Core.GetBool("window_maximized", false)) WindowState = WindowState.Maximized;
+            _maximized = Core.GetBool("window_maximized", false);
+            if (_maximized) WindowState = WindowState.Maximized;
             Background = Theme.BrBgDeep;
             UseLayoutRounding = true;
             TextOptions.SetTextFormattingMode(this, TextFormattingMode.Ideal);
@@ -119,6 +122,14 @@ namespace ZapretStudio
             };
             StateChanged += (s, e) =>
             {
+                // Состояние «развёрнуто» запоминаем отдельно: после Minimize
+                // WindowState уже не говорит, было ли окно развёрнуто.
+                if (IsLoaded)
+                {
+                    if (WindowState == WindowState.Maximized) _maximized = true;
+                    else if (WindowState == WindowState.Normal) _maximized = false;
+                    ScheduleWindowStateSave();
+                }
                 if (WindowState == WindowState.Minimized)
                 {
                     PauseActivePage();
@@ -129,6 +140,7 @@ namespace ZapretStudio
                     ResumeActivePage();
                 }
             };
+            SizeChanged += (s, e) => { ScheduleWindowStateSave(); ConstrainTopStatus(); };
             Loaded += (s, e) =>
             {
                 Navigate("overview");
@@ -156,6 +168,7 @@ namespace ZapretStudio
                 }
             };
             Closing += OnClosing;
+            if (Application.Current != null) Application.Current.SessionEnding += OnSessionEnding;
 
             // Смена языка/темы — перестроить интерфейс.
             Loc.LanguageChanged += OnUiChanged;
@@ -471,9 +484,10 @@ namespace ZapretStudio
             // Кастомная рамка окна
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.CanResize;
+            double topH = Theme.S(48);
             var chrome = new System.Windows.Shell.WindowChrome
             {
-                CaptionHeight = 48, ResizeBorderThickness = new Thickness(6),
+                CaptionHeight = topH, ResizeBorderThickness = new Thickness(6),
                 CornerRadius = new CornerRadius(0), GlassFrameThickness = new Thickness(0)
             };
             System.Windows.Shell.WindowChrome.SetWindowChrome(this, chrome);
@@ -482,7 +496,7 @@ namespace ZapretStudio
 
             var root = new Grid();
             root.Background = Brushes.Transparent;
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(48) });  // topbar
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(topH) });  // topbar
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // sidebar (own width)
             root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -594,6 +608,7 @@ namespace ZapretStudio
             _topStatusPill.VerticalAlignment = VerticalAlignment.Center;
             _topStatusPill.Margin = new Thickness(16, 0, 0, 0);
             Grid.SetColumn(_topStatusPill, 1); g.Children.Add(_topStatusPill);
+            ConstrainTopStatus();
 
             _topAdminPill = Pill.Make(Sev.Warn, Loc.T("mw.noAdminBadge"));
             _topAdminPill.VerticalAlignment = VerticalAlignment.Center;
@@ -679,11 +694,11 @@ namespace ZapretStudio
         // крутить её всё время операции (SetTopRestartBusy).
         Button TopIcon(string icon, string name, Action act, out System.Windows.Shapes.Path iconShape)
         {
-            var b = new Button { Cursor = Cursors.Hand, Width = 38, Height = 38, Margin = new Thickness(2, 0, 2, 0) };
+            var b = new Button { Cursor = Cursors.Hand, Width = Theme.S(38), Height = Theme.S(38), Margin = new Thickness(2, 0, 2, 0) };
             Ctl.StripChrome(b);
             var bd = new Border { CornerRadius = Theme.R10, Background = Brushes.Transparent,
                 BorderThickness = new Thickness(1), BorderBrush = Brushes.Transparent };
-            var ic = UI.Icon(icon, 17, Theme.BrMuted, 1.8);
+            var ic = UI.Icon(icon, Theme.S(17), Theme.BrMuted, 1.8);
             bd.Child = ic;
             b.Content = Ctl.SplitSurface(bd);
             var animType = (icon == Icons.Restart || icon == Icons.Refresh) ? IconAnimType.Rotate360 : (icon == Icons.Gear ? IconAnimType.Rotate90 : IconAnimType.ScaleBounce);
@@ -743,11 +758,11 @@ namespace ZapretStudio
 
         Button WinBtn(string icon, string name, Action act, bool danger)
         {
-            var b = new Button { Cursor = Cursors.Hand, Width = 38, Height = 38, Margin = new Thickness(2, 0, 2, 0) };
+            var b = new Button { Cursor = Cursors.Hand, Width = Theme.S(38), Height = Theme.S(38), Margin = new Thickness(2, 0, 2, 0) };
             Ctl.StripChrome(b);
             var bd = new Border { CornerRadius = Theme.R10, Background = Brushes.Transparent,
                 BorderThickness = new Thickness(1), BorderBrush = Brushes.Transparent };
-            var ic = UI.Icon(icon, 14, Theme.BrMuted, 1.6);
+            var ic = UI.Icon(icon, Theme.S(14), Theme.BrMuted, 1.6);
             bd.Child = ic;
             b.Content = bd;
             b.MouseEnter += (s, e) =>
@@ -1099,7 +1114,9 @@ namespace ZapretStudio
             KeyboardNavigation.SetDirectionalNavigation(nav, KeyboardNavigationMode.Contained);
             KeyboardNavigation.SetTabNavigation(nav, KeyboardNavigationMode.Continue);
 
-            var navHost = new Grid { Margin = _collapsed ? new Thickness(4, 6, 4, 0) : new Thickness(12, 6, 12, 0) };
+            // Внутренние отступы подобраны под широкие шрифты (Unbounded):
+            // подпись «Проверка соединения» должна влезать в сайдбар без обрезки.
+            var navHost = new Grid { Margin = _collapsed ? new Thickness(4, 6, 4, 0) : new Thickness(8, 6, 8, 0) };
             _navHost = navHost;
             _navPill = new Border
             {
@@ -1107,7 +1124,7 @@ namespace ZapretStudio
                 CornerRadius = Theme.R8,
                 BorderThickness = new Thickness(1),
                 BorderBrush = (Theme.Mode == ThemeMode.System24) ? Theme.BrAccent : Brushes.Transparent,
-                Height = 38,
+                Height = Theme.Dense(38),
                 HorizontalAlignment = _collapsed ? HorizontalAlignment.Center : HorizontalAlignment.Stretch,
                 Width = _collapsed ? 44 : double.NaN,
                 VerticalAlignment = VerticalAlignment.Top,
@@ -1202,15 +1219,18 @@ namespace ZapretStudio
             var line = new Border { Height = 1, Background = Theme.BrStroke, Margin = new Thickness(0, 0, 0, 4) };
             _bottomBox.Children.Add(line);
             _updateLine = new TextBlock { Foreground = Theme.BrFaint,
-                FontSize = 10.5, FontFamily = Theme.UiFont, TextWrapping = TextWrapping.NoWrap };
+                FontSize = 10.5, FontFamily = Theme.UiFont, TextWrapping = TextWrapping.NoWrap,
+                TextTrimming = TextTrimming.CharacterEllipsis };
             _bottomBox.Children.Add(_updateLine);
             _tgVerSidebar = new TextBlock { Foreground = Theme.BrFaint,
                 FontSize = 10.5, FontFamily = Theme.UiFont, TextWrapping = TextWrapping.NoWrap,
+                TextTrimming = TextTrimming.CharacterEllipsis,
                 Margin = new Thickness(0, 1, 0, 0) };
             _bottomBox.Children.Add(_tgVerSidebar);
 
             _appVerSidebar = new TextBlock { Foreground = Theme.BrFaint,
                 FontSize = 10.5, FontFamily = Theme.UiFont, TextWrapping = TextWrapping.NoWrap,
+                TextTrimming = TextTrimming.CharacterEllipsis,
                 Margin = new Thickness(0, 1, 0, 0) };
             _bottomBox.Children.Add(_appVerSidebar);
             UpdateZapretSidebarVersion();
@@ -1301,7 +1321,7 @@ namespace ZapretStudio
                     var bd = (Border)arr[0]; var sp = (StackPanel)arr[3];
                     var tx = sp.RenderTransform as TranslateTransform;
                     if (tx != null) { tx.BeginAnimation(TranslateTransform.XProperty, null); tx.X = 0; }
-                    bd.Padding = _collapsed ? new Thickness(0, 8, 0, 8) : new Thickness(12, 8, 12, 8);
+                    bd.Padding = _collapsed ? new Thickness(0, 8, 0, 8) : new Thickness(10, 8, 10, 8);
                     sp.HorizontalAlignment = _collapsed ? HorizontalAlignment.Center : HorizontalAlignment.Left;
                     kv.Value.Width = _collapsed ? 44 : double.NaN;
                     kv.Value.HorizontalAlignment = _collapsed ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
@@ -1311,7 +1331,7 @@ namespace ZapretStudio
                     _navPill.Width = _collapsed ? 44 : double.NaN;
                     _navPill.HorizontalAlignment = _collapsed ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
                 }
-                if (_navHost != null) _navHost.Margin = _collapsed ? new Thickness(4, 6, 4, 0) : new Thickness(12, 6, 12, 0);
+                if (_navHost != null) _navHost.Margin = _collapsed ? new Thickness(4, 6, 4, 0) : new Thickness(8, 6, 8, 0);
                 if (_collapseSp != null) _collapseSp.HorizontalAlignment = _collapsed ? HorizontalAlignment.Center : HorizontalAlignment.Left;
                 if (_collapseBd != null) _collapseBd.Padding = _collapsed ? new Thickness(0, 7, 0, 7) : new Thickness(12, 7, 12, 7);
 
@@ -1369,7 +1389,7 @@ namespace ZapretStudio
                         var bd = (Border)arr[0]; var sp = (StackPanel)arr[3];
                         var tx = sp.RenderTransform as TranslateTransform;
                         if (tx != null) { tx.BeginAnimation(TranslateTransform.XProperty, null); tx.X = 0; }
-                        bd.Padding = new Thickness(0, 8, 0, 8);
+                        bd.Padding = Theme.Dense(new Thickness(0, 8, 0, 8));
                         sp.HorizontalAlignment = HorizontalAlignment.Center;
                         kv.Value.Width = 44;
                         kv.Value.HorizontalAlignment = HorizontalAlignment.Center;
@@ -1395,7 +1415,7 @@ namespace ZapretStudio
                 {
                     var arr = (object[])kv.Value.Tag;
                     var bd = (Border)arr[0]; var sp = (StackPanel)arr[3];
-                    bd.Padding = new Thickness(12, 8, 12, 8);
+                    bd.Padding = Theme.Dense(new Thickness(10, 8, 10, 8));
                     sp.HorizontalAlignment = HorizontalAlignment.Left;
                     kv.Value.Width = double.NaN;
                     kv.Value.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -1405,7 +1425,7 @@ namespace ZapretStudio
                     _navPill.Width = double.NaN;
                     _navPill.HorizontalAlignment = HorizontalAlignment.Stretch;
                 }
-                if (_navHost != null) _navHost.Margin = new Thickness(12, 6, 12, 0);
+                if (_navHost != null) _navHost.Margin = new Thickness(8, 6, 8, 0);
                 if (_collapseSp != null) _collapseSp.HorizontalAlignment = HorizontalAlignment.Left;
                 if (_collapseBd != null) _collapseBd.Padding = new Thickness(12, 7, 12, 7);
 
@@ -1530,7 +1550,7 @@ namespace ZapretStudio
         {
             var b = new Button { Cursor = Cursors.Hand, Margin = new Thickness(0, 0, 0, 3), HorizontalContentAlignment = HorizontalAlignment.Stretch };
             Ctl.StripChrome(b);
-            var bd = new Border { CornerRadius = Theme.R8, Padding = new Thickness(12, 8, 12, 8),
+            var bd = new Border { CornerRadius = Theme.R8, Padding = Theme.Dense(new Thickness(10, 8, 10, 8)),
                 Background = Brushes.Transparent, BorderThickness = new Thickness(1), BorderBrush = Brushes.Transparent };
             var sp = new StackPanel { Orientation = Orientation.Horizontal };
             var navTx = new TranslateTransform(0, 0);
@@ -1544,7 +1564,8 @@ namespace ZapretStudio
             UI.AttachIconHoverAnimation(b, ic, animType);
             sp.Children.Add(ic);
             var tb = new TextBlock { Text = label, Foreground = Theme.BrMuted, FontSize = Theme.FsBody, FontFamily = Theme.UiFont,
-                FontWeight = FontWeights.SemiBold, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+                FontWeight = FontWeights.SemiBold, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
                 Visibility = _collapsed ? Visibility.Collapsed : Visibility.Visible };
             _navLabels.Add(tb);
             sp.Children.Add(tb);
@@ -2218,6 +2239,25 @@ namespace ZapretStudio
             g.Children.RemoveAt(idx);
             g.Children.Insert(idx, np);
             _topStatusPill = np;
+            ConstrainTopStatus();
+        }
+
+        // Длинная плашка «Обход и TG-прокси запущены» на 820 px с Unbounded
+        // вылезала на кнопки шапки. Ограничиваем текст и даём многоточие.
+        void ConstrainTopStatus()
+        {
+            if (_topStatusPill == null) return;
+            double max = Math.Max(170, ActualWidth - 560);
+            _topStatusPill.MaxWidth = max;
+            var sp = _topStatusPill.Child as StackPanel;
+            if (sp == null) return;
+            foreach (var ch in sp.Children)
+            {
+                var tb = ch as TextBlock;
+                if (tb == null) continue;
+                tb.TextTrimming = TextTrimming.CharacterEllipsis;
+                tb.MaxWidth = Math.Max(80, max - 50);
+            }
         }
 
 #if SELFTEST
@@ -2362,8 +2402,8 @@ namespace ZapretStudio
             _updating = true;
             string tmpDir = null, zip = null, root = null, restartStrategy = null;
             bool restartService = false, restartManual = false;
-            // №16: подготовка (ServiceState, IsWinwsRunning, CreateDirectory в %TEMP%,
-            // доступ к _updateLine) шла ДО try — исключение здесь оставляло
+            // Подготовка (ServiceState, IsWinwsRunning, CreateDirectory в %TEMP%,
+            // доступ к _updateLine) шла ДО try: исключение здесь оставляло
             // _updating == true навсегда, и кнопка «Обновить» не отвечала до
             // перезапуска приложения.
             try
@@ -2402,7 +2442,7 @@ namespace ZapretStudio
                     // держит файлы в bin. Ждём здесь, в фоновом потоке: асинхронный
                     // StopAll() не давал такой гарантии, а синхронный вызов в
                     // UI-потоке замораживал окно на время «sc stop».
-                    // №8: результат больше не отбрасывается — при незавершённой
+                    // Результат больше не отбрасывается: при незавершённой
                     // остановке пофайловая замена оставляла установку из двух версий.
                     if ((restartService || restartManual) && !StopAllCore())
                     {
@@ -2414,7 +2454,21 @@ namespace ZapretStudio
                         });
                         return;
                     }
-                    // №8: архив и распаковка идут в %TEMP%, замена файлов — в корень
+                    // winws остановлен, но служба WinDivert ещё держит
+                    // bin/WinDivert64.sys — без её остановки замена падает
+                    // на проверке блокировок уже после скачивания архива.
+                    string wdErr;
+                    if (!Core.PrepareWinDivertForUpdate(out wdErr))
+                    {
+                        Dispatcher.Invoke((Action)delegate
+                        {
+                            _updateLine.Text = Loc.T("mw.updWdFail");
+                            FinishZapretUpdate(wdErr, false);
+                            Core.Fail(wdErr);
+                        });
+                        return;
+                    }
+                    // Архив и распаковка идут в %TEMP%, замена файлов идёт в корень
                     // zapret. Без проверки места оба этапа обрывались на середине.
                     long freeTmp = Core.FreeSpaceOf(System.IO.Path.GetTempPath());
                     long freeRoot = Core.FreeSpaceOf(root);
@@ -2432,7 +2486,7 @@ namespace ZapretStudio
                         });
                         return;
                     }
-                    // №33: имя архива и его SHA-256 берём из GitHub API одним
+                    // Имя архива и его SHA-256 берём из GitHub API одним
                     // запросом. Без контрольной суммы обновление не ставим:
                     // bin\winws.exe из архива затем работает службой SYSTEM.
                     string url, zipSha;
@@ -2536,7 +2590,7 @@ namespace ZapretStudio
                         }
                         else
                         {
-                            // №8: причина (занятые файлы, путь к списку незаменённых)
+                            // Причина (занятые файлы, путь к списку незаменённых)
                             // уходит в карточку «Центра обновлений» и в журнал.
                             // В боковой строке оставляем короткий текст: у неё NoWrap.
                             _updateLine.Text = Loc.T("mw.updFail");
@@ -2555,7 +2609,7 @@ namespace ZapretStudio
                 }
                 catch (Exception exUpd)
                 {
-                    // №8: здесь было catch { } — сбой обновления не попадал ни в
+                    // Здесь было catch { }: сбой обновления не попадал ни в
                     // журнал, ни в «Центр обновлений», а флаг _updating сбрасывался
                     // так, будто всё прошло штатно.
                     Core.Fail(string.Format(Loc.T("mw.updErr"), Core.Short(exUpd.Message)));
@@ -2571,7 +2625,7 @@ namespace ZapretStudio
                 }
                 finally
                 {
-                    // №8: без этого в %TEMP% оставался lantern_<guid>\zapret_update.zip
+                    // Без этого в %TEMP% оставался lantern_<guid>\zapret_update.zip
                     // после каждой попытки, включая неудачное скачивание.
                     Core.DeleteDirSafe(tmpDir);
                     try { Dispatcher.Invoke((Action)delegate { _updating = false; }); } catch { _updating = false; }
@@ -2962,9 +3016,28 @@ namespace ZapretStudio
             else _trayWidget.ShowAtCursor();
         }
 
-        // Сохраняем пользовательский размер окна. При maximized берём
-        // RestoreBounds — иначе при следующем запуске окно открылось бы
-        // развёрнутым на весь экран с потерянным обычным размером.
+        // Пишем геометрию не только при закрытии: выключение Windows,
+        // установщик и аварийное завершение не дают окну получить Closing.
+        // Дебаунс не превращает перетаскивание рамки в поток записей конфига.
+        void ScheduleWindowStateSave()
+        {
+            if (!IsLoaded) return;
+            if (_windowSaveTimer == null)
+            {
+                _windowSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+                _windowSaveTimer.Tick += (s, e) =>
+                {
+                    _windowSaveTimer.Stop();
+                    SaveWindowState();
+                };
+            }
+            _windowSaveTimer.Stop();
+            _windowSaveTimer.Start();
+        }
+
+        // Сохраняем пользовательский размер окна. При maximized/minimized берём
+        // RestoreBounds — иначе потерялся бы обычный размер. Если RestoreBounds
+        // пуст (скрытое окно), откатываемся на фактические габариты.
         void SaveWindowState()
         {
             try
@@ -2972,21 +3045,31 @@ namespace ZapretStudio
                 Rect b = WindowState == WindowState.Normal
                     ? new Rect(Left, Top, ActualWidth, ActualHeight)
                     : RestoreBounds;
+                if (b.IsEmpty || b.Width < MinWidth || b.Height < MinHeight)
+                    b = new Rect(Left, Top, ActualWidth, ActualHeight);
                 if (b.Width >= MinWidth && b.Height >= MinHeight)
                 {
                     Core.SetInt("window_width", (int)Math.Round(b.Width));
                     Core.SetInt("window_height", (int)Math.Round(b.Height));
                 }
-                Core.SetBool("window_maximized", WindowState == WindowState.Maximized);
+                Core.SetBool("window_maximized", _maximized);
                 Core.SaveConfig();
             }
             catch { }
         }
 
+        void OnSessionEnding(object sender, SessionEndingCancelEventArgs e)
+        {
+            if (_windowSaveTimer != null) _windowSaveTimer.Stop();
+            SaveWindowState();
+        }
+
         void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
         {
+            if (_windowSaveTimer != null) _windowSaveTimer.Stop();
+            if (Application.Current != null) Application.Current.SessionEnding -= OnSessionEnding;
             SaveWindowState();
-            // №61: App.ForceShutdown ставится перед Application.Shutdown() (перезапуск
+            // App.ForceShutdown ставится перед Application.Shutdown() (перезапуск
             // с правами администратора). Без него при tray_on_close = true закрытие
             // превращалось в сворачивание в трей, Shutdown() молча отменялся, и после
             // рестарта оставалось «призрачное» второе окно с иконкой.

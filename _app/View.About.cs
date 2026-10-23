@@ -286,12 +286,12 @@ namespace ZapretStudio
                         string hash = s.Substring(0, sp).Trim().ToLowerInvariant();
                         string rel = s.Substring(sp).Trim().TrimStart('*').Trim();
                         string cleanRel = rel.Replace('/', System.IO.Path.DirectorySeparatorChar).TrimStart('.', System.IO.Path.DirectorySeparatorChar);
-                        // №7: SHA256SUMS.txt — манифест пакета zapret, он описывает
+                        // SHA256SUMS.txt: манифест пакета zapret, он описывает
                         // весь корень: сам себя, README/LICENSE (это файлы Lantern),
                         // lists/* и general*.bat, которые легально перезаписывают
                         // приложение и пользователь. Сверка по всем строкам давала
                         // 28 «подмен» из 43 и обесценивала проверку. Проверяем
-                        // только bin/ — исполняемые файлы движка.
+                        // только bin/: исполняемые файлы движка.
                         if (!InChecksumScope(cleanRel))
                         {
                             skipped++;

@@ -4,7 +4,7 @@
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
-        <!-- №87: selftest обязан видеть ту же раскладку, что и пользователь.
+        <!-- Selftest обязан видеть ту же раскладку, что и пользователь.
              С asInvoker Core.IsAdmin() == false, админ-колонка сетки попадает
              в макет, а все NeedAdmin-ветки деградируют — аудит раскладки меряет
              то, чего в релизе нет. Уровень совпадает с app.manifest. -->

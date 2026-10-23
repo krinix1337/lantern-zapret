@@ -91,6 +91,8 @@ namespace ZapretStudio
             A("mw.updProgress", "Загрузка…",          "Downloading…");
             A("mw.updFail",     "Не удалось загрузить обновление", "Failed to download the update");
             A("mw.updStopFail", "Не удалось остановить обход — обновление отменено", "Could not stop the bypass - update cancelled");
+            A("mw.updWdStopped", "Драйвер WinDivert остановлен для замены файлов.", "WinDivert driver stopped for file replacement.");
+            A("mw.updWdFail", "Не удалось выгрузить драйвер WinDivert — обновление отменено. Закройте другие программы, использующие WinDivert, и повторите.", "Could not unload the WinDivert driver - update cancelled. Close other programs using WinDivert and retry.");
             A("mw.updNoSpace",  "Недостаточно места: свободно {0}, нужно {1}", "Not enough disk space: {0} free, {1} required");
             A("mw.updErr",      "Сбой обновления: {0}", "Update failed: {0}");
             A("mw.updDone",     "Обновление установлено: версия {0}", "Update installed: version {0}");
@@ -135,7 +137,7 @@ namespace ZapretStudio
             A("log.sub",           "События приложения. Хранятся только в памяти сессии.", "Application events. Kept only in session memory.");
             A("about.title",       "О проекте",           "About");
             A("about.sub",         "Информация о приложении и предупреждения о безопасности.", "Application info and safety notices.");
-            A("check.tab.targets", "targets.txt",        "targets.txt");
+            A("check.tab.targets", "Цели",               "Targets");
             A("check.tab.popular", "Популярные",          "Popular");
             A("check.tab.games",   "Игры",                "Games");
             A("check.tab.strats",  "Стратегии",           "Strategies");
@@ -359,7 +361,7 @@ namespace ZapretStudio
             A("tg.startedOk", "Telegram-прокси запущен", "Telegram proxy started");
             A("tg.startErr", "Запуск прокси: {0}", "Proxy start: {0}");
             A("tg.stoppedOk", "Telegram-прокси остановлен", "Telegram proxy stopped");
-            A("check.strat.runSel","Проверить выбранные", "Test selected");
+            A("check.strat.runSel","Выбранные", "Selected");
             A("check.strat.runAll","Проверить все",       "Test all");
             A("check.strat.selectAll","Выбрать все",       "Select all");
             A("check.strat.clearSel", "Снять выбор",       "Clear");
@@ -491,6 +493,12 @@ namespace ZapretStudio
             A("check.strat.summaryPartial", "Доступно {0}/{1} · Сбой: {2}", "Available {0}/{1} · Failed: {2}");
             A("check.strat.summaryFail", "Не работает (0/{0}) · Все адреса недоступны", "Failed (0/{0}) · All addresses unreachable");
             A("check.strat.notStarted", "Движок не запустился", "Engine failed to start");
+            A("check.strat.favWorking", "Рабочие в избранное ({0})", "Add working to favorites ({0})");
+            A("check.strat.favWorkingAdded", "В избранное добавлено рабочих стратегий: {0}", "Working strategies added to favorites: {0}");
+            A("check.strat.favWorkingNone", "Рабочие стратегии уже в избранном", "Working strategies are already in favorites");
+            A("check.strat.resultsSaved", "Результаты проверки сохранены в utils\\test results", "Test results saved to utils\\test results");
+            A("check.strat.resultsSavedLog", "Результаты проверки сохранены: {0}", "Test results saved: {0}");
+            A("check.strat.resultsSaveFail", "Не удалось сохранить результаты проверки в utils\\test results: {0}", "Could not save test results to utils\\test results: {0}");
             A("dl.title",     "Компоненты zapret не найдены", "Zapret components not found");
             A("dl.desc",      "Не найдены файлы bin, winws.exe. Можно скачать последний релиз с GitHub. Приложение распакует и настроит всё автоматически. Ничего не запускается без вашего подтверждения.", "bin, winws.exe was not found. You can download the latest GitHub release. The app will unpack and set everything up automatically. Nothing runs without your confirmation.");
             A("dl.download",  "Скачать с GitHub", "Download from GitHub");
@@ -602,6 +610,8 @@ namespace ZapretStudio
             A("strat.favRemove",  "Убрать из избранного: ", "Remove from favorites: ");
             A("strat.favAdded",   "Добавлено в избранное: {0}", "Added to favorites: {0}");
             A("strat.favRemoved", "Убрано из избранного: {0}", "Removed from favorites: {0}");
+            A("strat.favSection", "Избранное",     "Favorites");
+            A("strat.allSection", "Все стратегии", "All strategies");
             // Журнал
             A("log.clear",   "Очистить",       "Clear");
             A("log.copied",  "Журнал скопирован в буфер обмена", "Log copied to clipboard");
@@ -657,7 +667,7 @@ namespace ZapretStudio
             A("about.sums.summary","Проверено bin/: OK {0}, несовпадений {1}, отсутствует {2}, вне проверки {3}", "Checked bin/: OK {0}, mismatches {1}, missing {2}, not checked {3}");
             A("about.warn", "Скачивайте zapret только из официального репозитория Flowseal. Поддельные страницы и сборки могут содержать вредоносный код. Проверяйте контрольные суммы.", "Download zapret only from the official Flowseal repository. Fake pages and builds may contain malicious code. Verify checksums.");
             // Автоподбор стратегии
-            A("check.strat.autoPick", "Автоподбор лучшей", "Auto-pick best");
+            A("check.strat.autoPick", "Автоподбор", "Auto-pick");
             A("check.strat.autoPickConfirm", "Будут проверены все стратегии ({0} шт.) и выбрана лучшая.\n\nЭто займёт время. Продолжить?", "All strategies ({0}) will be tested and the best one selected.\n\nThis will take time. Continue?");
             A("check.strat.autoPickStart", "Автоподбор: проверка {0} стратегий…", "Auto-pick: testing {0} strategies…");
             A("check.strat.autoPickDone", "Лучшая стратегия: {0} ({1}/{2} доступно).\nСтратегия выбрана автоматически.", "Best strategy: {0} ({1}/{2} reachable).\nStrategy selected automatically.");

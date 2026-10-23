@@ -123,6 +123,18 @@ namespace ZapretStudio
             return true;
         }
 
+        // Какое семейство реально подключено к теме в этом процессе. Нужно, чтобы
+        // фоновая докачка не пропускала применение, если первый раз подключить
+        // шрифт не удалось (после обновления со старой версии это оставляло
+        // интерфейс на системном шрифте до ручного перезапуска).
+        static volatile string _uiFontAppliedTitle;
+
+        internal static bool IsUiFontApplied(string title)
+        {
+            return !string.IsNullOrEmpty(title)
+                && string.Equals(_uiFontAppliedTitle, title, StringComparison.Ordinal);
+        }
+
         public static bool ConfigureUiFontsFromCache()
         {
             if (string.IsNullOrEmpty(Root)) return false;
@@ -132,11 +144,23 @@ namespace ZapretStudio
             // первой, и при его неполном кэше интерфейс до докачки оставался
             // системным, хотя выбранный шрифт лежал рядом.
             if (active.Key != DefaultFontFamily.Key && FamilyFilesMatch(active))
-                return Theme.ConfigureDownloadedFonts(FontsDir, active.Title);
+            {
+                if (Theme.ConfigureDownloadedFonts(FontsDir, active.Title))
+                {
+                    _uiFontAppliedTitle = active.Title;
+                    return true;
+                }
+                return false;
+            }
             if (!FamilyFilesMatch(DefaultFontFamily)) return false;
             // Выбранного семейства нет на диске (снесли utils\fonts) — до докачки
             // показываем дефолт; фоном его вернёт EnsureUiFonts.
-            return Theme.ConfigureDownloadedFonts(FontsDir, DefaultFontFamily.Title);
+            if (Theme.ConfigureDownloadedFonts(FontsDir, DefaultFontFamily.Title))
+            {
+                _uiFontAppliedTitle = DefaultFontFamily.Title;
+                return true;
+            }
+            return false;
         }
 
         public static void EnsureUiFontsInBackground()
@@ -175,29 +199,28 @@ namespace ZapretStudio
                 // пока не докачается последний файл: на первом запуске это заметно.
                 var first = requested;
                 bool firstReady = FamilyFilesMatch(first);
-                bool needApply = false;
                 if (!firstReady)
                 {
                     if (DownloadFamily(first, ref downloaded) && FamilyFilesMatch(first))
                     {
                         firstReady = true;
-                        needApply = true;
                     }
                     else if (first.Key != DefaultFontFamily.Key)
                     {
                         first = DefaultFontFamily;
                         firstReady = FamilyFilesMatch(first);
                         if (!firstReady && DownloadFamily(first, ref downloaded) && FamilyFilesMatch(first))
-                        {
                             firstReady = true;
-                            needApply = true;
-                        }
                     }
                 }
                 if (!firstReady) return false;
 
+                // Проверяем не «скачали ли мы сейчас», а «подключён ли шрифт к теме».
+                // Если первая попытка применения сорвалась уже после скачивания,
+                // следующий запуск EnsureUiFonts должен повторить применение, а не
+                // считать файл готовым только потому, что он появился на диске.
                 bool configured = true;
-                if (needApply) configured = ApplyFamilyOnUi(first);
+                if (!IsUiFontApplied(first.Title)) configured = ApplyFamilyOnUi(first);
 
                 // Остальные семейства — фоном, чтобы переключение в настройках
                 // потом было мгновенным; их сбой не отменяет уже показанный шрифт.
@@ -210,7 +233,7 @@ namespace ZapretStudio
 
                 // Пока качали, выбранное семейство могло догрузиться после
                 // временного фолбэка на дефолт — применяем уже его.
-                if (requested.Key != first.Key && FamilyFilesMatch(requested))
+                if (requested.Key != first.Key && FamilyFilesMatch(requested) && !IsUiFontApplied(requested.Title))
                     configured = ApplyFamilyOnUi(requested) || configured;
 
                 if (configured && downloaded) Info(Loc.T("fonts.downloaded"));
@@ -245,26 +268,31 @@ namespace ZapretStudio
 
         static bool ApplyFamilyOnUi(UiFontFamily family)
         {
-            bool configured = false;
+            bool applied = false;
             try
             {
                 var app = System.Windows.Application.Current;
                 if (app != null && app.Dispatcher != null)
                 {
-                    // №59: синхронный Invoke — FontFamily создаётся в UI-потоке.
+                    // Синхронный Invoke: FontFamily создаётся в UI-потоке.
                     app.Dispatcher.Invoke((Action)delegate
                     {
-                        configured = Theme.ConfigureDownloadedFonts(FontsDir, family.Title);
-                        if (configured) Theme.Apply(Theme.Mode);
+                        if (!Theme.ConfigureDownloadedFonts(FontsDir, family.Title)) return;
+                        // Пересборка интерфейса — часть применения. Раньше флаг
+                        // «применено» выставлялся до неё, и исключение в Apply
+                        // оставляло шрифт скачанным, но не подключённым.
+                        Theme.Apply(Theme.Mode);
+                        applied = true;
                     });
                 }
                 else
                 {
-                    configured = Theme.ConfigureDownloadedFonts(FontsDir, family.Title);
+                    applied = Theme.ConfigureDownloadedFonts(FontsDir, family.Title);
                 }
             }
             catch (Exception ex) { Warn("font apply: " + ex.Message); }
-            return configured;
+            if (applied) _uiFontAppliedTitle = family.Title;
+            return applied;
         }
 
         // Смена шрифта интерфейса из настроек: пишем конфиг; если файлы уже на
@@ -275,10 +303,10 @@ namespace ZapretStudio
             if (fam == null) fam = DefaultFontFamily;
             Set("ui_font", fam.Key);
             SaveConfig();
-            if (FamilyFilesMatch(fam))
+            if (FamilyFilesMatch(fam) && Theme.ConfigureDownloadedFonts(FontsDir, fam.Title))
             {
-                Theme.ConfigureDownloadedFonts(FontsDir, fam.Title);
                 Theme.Apply(Theme.Mode);
+                _uiFontAppliedTitle = fam.Title;
             }
             else
             {

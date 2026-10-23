@@ -64,7 +64,7 @@ namespace ZapretStudio
             catch { }
         }
 
-        // №14: ServicePointManager.SecurityProtocol — статика на весь процесс.
+        // ServicePointManager.SecurityProtocol: статика на весь процесс.
         // Раньше её писали из дюжины мест в четырёх разных комбинациях из разных
         // потоков, поэтому протокол запроса зависел от того, чья запись была
         // последней. Настраиваем один раз до любых обращений к сети.
@@ -86,7 +86,7 @@ namespace ZapretStudio
         internal static System.Threading.Mutex AppMutex;
 
         // Ставится перед Application.Current.Shutdown(): окно не должно в этот момент
-        // отменять закрытие ради сворачивания в трей (№61).
+        // отменять закрытие ради сворачивания в трей.
         internal static bool ForceShutdown;
 
         internal static void ReleaseMutexForRestart()
@@ -116,10 +116,10 @@ namespace ZapretStudio
 #endif
             bool createdNew = false;
             System.Threading.Mutex mutex = null;
-            // №62: перезапущенный с UAC экземпляр приходит раньше, чем прежний отпустит
+            // Перезапущенный с UAC экземпляр приходит раньше, чем прежний отпустит
             // мьютекс (диалог UAC может висеть долго). Без --tookover второй процесс
             // «огонял и забывал» сообщение первому окну, которое ещё даже не создано,
-            // и выходил. С флагом — ждём освобождения мьютекса с разумным тайм-аутом.
+            // и выходил. С флагом ждём освобождения мьютекса с разумным тайм-аутом.
             bool tookOver = false;
             foreach (var a in Environment.GetCommandLineArgs())
                 if (string.Equals(a, "--tookover", StringComparison.OrdinalIgnoreCase)) tookOver = true;

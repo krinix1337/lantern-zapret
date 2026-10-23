@@ -1,13 +1,13 @@
 ﻿; Lantern Installer — Inno Setup 6
 #define AppName "Lantern"
-#define AppVersion "10.1"
+#define AppVersion "10.2"
 #define AppPublisher "krinix1337"
 #define AppURL "https://github.com/krinix1337/lantern-zapret"
 #define AppExeName "Lantern.exe"
 #define SrcDir ".."
 
 [Setup]
-; №4: AppId должен совпадать со значением во всех опубликованных релизах
+; AppId должен совпадать со значением во всех опубликованных релизах
 ; (9.0/9.1) и с [assembly: Guid] в _app/AssemblyInfo.cs. Inno опознаёт продукт
 ; по AppId: при другом GUID автообновление ставит вторую копию рядом.
 AppId={{A7F3B2C1-4D5E-6F7A-8B9C-0D1E2F3A4B5C}
@@ -57,8 +57,8 @@ Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; F
 [UninstallRun]
 ; Stop and delete the zapret service and WinDivert drivers if they were installed
 Filename: "{sys}\net.exe"; Parameters: "stop zapret"; Flags: runhidden
-; №93: ручной запуск winws службой не управляется. Без снятия процесса
-; {app}\zapret\bin не удаляется — winws.exe и WinDivert64.sys залочены.
+; Ручной запуск winws службой не управляется. Без снятия процесса
+; {app}\zapret\bin не удаляется: winws.exe и WinDivert64.sys залочены.
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM winws.exe /T"; Flags: runhidden
 Filename: "{sys}\sc.exe"; Parameters: "delete zapret"; Flags: runhidden
 Filename: "{sys}\net.exe"; Parameters: "stop WinDivert"; Flags: runhidden
@@ -74,7 +74,7 @@ Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN ""LanternAutostart""
 Type: filesandordirs; Name: "{app}\zapret\bin"
 Type: filesandordirs; Name: "{app}\zapret\service.bat"
 Type: files; Name: "{app}\zapret\general*.bat"
-; №89: {app}\zapret\lists (включая *-user.txt и ipset-all.txt.backup) и
+; {app}\zapret\lists (включая *-user.txt и ipset-all.txt.backup) и
 ; {app}\zapret\utils\gui-config.ini намеренно НЕ удаляются: это данные
 ; пользователя. Их сносит [Code] только по явному ответу «Да».
 Type: files; Name: "{app}\gui-config.ini"
@@ -104,9 +104,9 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then
   begin
-    // №88: автозапуск штатно реализован задачей планировщика LanternAutostart
+    // Автозапуск штатно реализован задачей планировщика LanternAutostart
     // (снимается в [UninstallRun]). Запись в Run могла остаться от версий до
-    // перехода на планировщик — подчищаем её здесь вместо мёртвой секции [Registry].
+    // перехода на планировщик; подчищаем её здесь вместо мёртвой секции [Registry].
     RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Lantern');
     if RemoveUserData then
     begin

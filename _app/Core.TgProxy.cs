@@ -253,7 +253,7 @@ namespace ZapretStudio
 
         static Process _tgProc;
         static readonly object _tgLock = new object();
-        // Суммарное ожидание завершения процессов прокси в TgProxyStop (№49).
+        // Суммарное ожидание завершения процессов прокси в TgProxyStop.
         const int StopBudgetMs = 3000;
         static volatile bool _tgStopping;
 
@@ -306,7 +306,7 @@ namespace ZapretStudio
         // Скачать TG-прокси из релиза, сверить SHA-256 и только потом заменить файл.
         // Версию помечает сам: прежняя метка ставилась сразу после DownloadFile,
         // поэтому обрезанный exe закреплялся как «установленная версия X», кнопка
-        // «Обновить» исчезала, а TgProxyStart его потом запускал (№34).
+        // «Обновить» исчезала, а TgProxyStart его потом запускал.
         // Локальное имя файла менять нельзя: TgProxyRunningByName() ищет процесс
         // строго по имени «TgWsProxy_windows».
         // Вызывать из фонового потока.
@@ -404,8 +404,8 @@ namespace ZapretStudio
                                         match = string.Equals(Path.GetFullPath(fn), expectedExe, StringComparison.OrdinalIgnoreCase);
                                     else
                                     {
-                                        // №49: MAIN_MODULE недоступна (32-битный процесс
-                                        // из 64-битного, отказ в правах) — молча убивать
+                                        // MAIN_MODULE недоступна (32-битный процесс
+                                        // из 64-битного, отказ в правах), поэтому молча убивать
                                         // всё подряд нельзя, но и оставить наш прокси
                                         // висеть нельзя. Убиваем по совпадению имени
                                         // и обязательно пишем в журнал, что это был
@@ -416,7 +416,7 @@ namespace ZapretStudio
                                 }
                                 if (!match) continue;
                                 p.Kill();
-                                // №49: общий бюджет ожидания вместо 3000 + 2000 мс
+                                // Общий бюджет ожидания вместо 3000 + 2000 мс
                                 // подряд на каждый процесс.
                                 int left = StopBudgetMs - (int)sw.ElapsedMilliseconds;
                                 if (left > 0) p.WaitForExit(left);
