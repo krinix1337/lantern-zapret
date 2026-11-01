@@ -97,6 +97,15 @@ jobs:
           # Формат «хеш, два пробела, имя файла» — его разбирает Core.ParseSha256File.
           Set-Content -Path "$setup.sha256" -Value "$hash  Lantern-Setup.exe" -Encoding ascii
           Write-Host "$hash  Lantern-Setup.exe"
+          # Текст описания релиза: хеш на виду, плюс ссылка на VirusTotal и FAQ.
+          $notes = @(
+            "**SHA256** ``Lantern-Setup.exe``:",
+            '```',
+            $hash,
+            '```',
+            "[VirusTotal](https://www.virustotal.com/gui/file/$hash) · 1–3 срабатывания ML-эвристик без названия семейства — ложное срабатывание на неподписанный установщик и WinDivert, см. [«Антивирус ругается — это вирус?»](https://github.com/${{ github.repository }}#readme)."
+          ) -join "`n"
+          Set-Content -Path '_installer/release-notes.md' -Value $notes -Encoding utf8
 
       # Тег создаётся в git явно, а не только через Release API; иначе
       # история тегов и git describe расходятся с фактической точкой релиза.
@@ -118,6 +127,8 @@ jobs:
         with:
           tag_name: ${{ steps.verify.outputs.tag_norm }}
           name: Lantern ${{ steps.verify.outputs.tag_norm }}
+          body_path: _installer/release-notes.md
+          generate_release_notes: true
           files: |
             _installer/Lantern-Setup.exe
             _installer/Lantern-Setup.exe.sha256
