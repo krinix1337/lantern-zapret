@@ -29,7 +29,7 @@
 > **🛡️ Антивирус ругается — это вирус?** Нет. Антивирусы иногда реагируют на установщик без цифровой подписи и на драйвер **WinDivert**, который перехватывает пакеты и нужен для обхода DPI. Это ложное срабатывание. Исходники открыты, а установщик собирается автоматически через [GitHub Actions](.github/workflows/release.yml).
 >
 > - Такие же детекты бывают у [zapret](https://github.com/bol-van/zapret), [WinDivert](https://github.com/basil00/Divert) и [Flowseal/zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube), потому что их движок тот же.
-> - [Результат на VirusTotal для v10.2](https://www.virustotal.com/gui/file/066ee0f2854fa5514fff4e85f5cd3c855d2bfb20b5cbad36a14aa89e870482b4): **2 из 64**. Сработали только ML-эвристики (`Unsafe`, `MALICIOUS`) без названия семейства. Так выглядит ложное срабатывание: настоящий вирус ловят десятки движков, и они пишут конкретное имя.
+> - [Пример проверки на VirusTotal (v10.2)](https://www.virustotal.com/gui/file/066ee0f2854fa5514fff4e85f5cd3c855d2bfb20b5cbad36a14aa89e870482b4): срабатывают **единицы из ~70** антивирусов, и только облачная репутация или эвристики (`UDS:…Generic`, `Generic (CLOUD)`, `BehavesLike`, ML) без названия конкретного семейства. Метки `obfuscated` и `self-delete` — обычное поведение установщика Inno Setup: он хранит программу в сжатом виде и удаляет свою временную копию. Настоящий вирус ловят десятки движков, и они пишут конкретное имя.
 > - SHA256 каждого установщика указан в описании релиза и лежит рядом файлом `Lantern-Setup.exe.sha256`. Сверить хеш можно командой `Get-FileHash Lantern-Setup.exe` в PowerShell.
 
 ---
