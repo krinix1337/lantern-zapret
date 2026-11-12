@@ -170,6 +170,7 @@ namespace ZapretStudio
             A("check.diag.dpiFreezeTesting", "Тестирование потока...", "Testing stream...");
             A("check.checkAll",    "Проверить все",     "Check all");
             A("check.checkSel",    "Выбранные",         "Selected");
+            A("check.checkSelN",   "Проверить выбранные ({0})", "Check selected ({0})");
             A("check.export",      "Экспорт",           "Export");
             A("check.strat.run",   "Проверить эту стратегию","Test this strategy");
             A("check.strat.hint",  "Каждая стратегия запускается на короткое время, затем проверяется доступность выбранных адресов. Требуются права администратора.", "Each strategy is started briefly, then the chosen hosts are re-checked. Administrator rights required.");

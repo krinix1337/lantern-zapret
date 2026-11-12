@@ -53,7 +53,46 @@ namespace ZapretStudio
         // Общий список конечных точек (для вкладок targets/popular/games)
         List<Endpoint> _rows = new List<Endpoint>();
         StackPanel _groups;
-        Button _btnAll, _btnSel, _btnStop, _btnExport;
+        Button _btnAll, _btnSel, _btnExport;
+        bool _rowsBulkSel;
+
+        int SelectedRowCount()
+        {
+            int n = 0;
+            if (_rows != null) foreach (var r in _rows) if (r.Sel != null && r.Sel.IsChecked == true) n++;
+            return n;
+        }
+
+        // ButtonRow при создании кладёт подпись в ToolTip кнопки; SetButton её не
+        // трогает, и подсказка оставалась старой («Проверить все» над «Остановить»).
+        static void SetToolbarButton(Button b, string text, string icon, int kind)
+        {
+            Ctl.SetButton(b, text, icon, kind);
+            b.ToolTip = text;
+        }
+
+        // Подписи кнопок вкладок с адресами: зависят от выбора и от того, идёт ли проверка.
+        void UpdateCheckToolbar()
+        {
+            if (_btnAll == null || _rows == null) return;
+            bool any = _rows.Count > 0;
+            int sel = SelectedRowCount();
+            if (_running > 0)
+                SetToolbarButton(_btnAll, Loc.T("common.stop"), Icons.Stop, 2);
+            else if (sel > 0)
+                SetToolbarButton(_btnAll, string.Format(Loc.T("check.checkSelN"), sel), Icons.Check, 0);
+            else
+                SetToolbarButton(_btnAll, Loc.T("check.checkAll"), Icons.Pulse, 0);
+            _btnAll.IsEnabled = _running > 0 || any;
+            if (_btnSel != null)
+            {
+                bool all = any && sel == _rows.Count;
+                SetToolbarButton(_btnSel, all ? Loc.T("check.strat.clearSel") : Loc.T("check.strat.selectAll"),
+                    all ? Icons.Cross : Icons.Grid, 3);
+                _btnSel.IsEnabled = _running == 0 && any;
+            }
+            if (_btnExport != null) _btnExport.IsEnabled = any;
+        }
         volatile bool _stop;
         int _running;
 
@@ -73,7 +112,7 @@ namespace ZapretStudio
 
         void EnsureStopEnabled()
         {
-            if (_btnStop != null) _btnStop.IsEnabled = _running > 0;
+            UpdateCheckToolbar();
             UpdateStratToolbar();
         }
 
@@ -260,16 +299,28 @@ namespace ZapretStudio
             var panel = new StackPanel();
 
             // Панель инструментов
+            // Как на вкладке «Стратегии»: «Проверить» берёт отмеченные адреса, а
+            // если ничего не отмечено — все, и во время проверки становится
+            // «Остановить»; «Выбрать все / Снять выбор» — один переключатель.
+            // Раньше было «Проверить все», «Выбранные», «Остановить» и «Экспорт».
             _btnAll = Ctl.Button(Loc.T("check.checkAll"), Icons.Pulse, 0);
-            _btnAll.Click += (s, e) => Start(false);
-            _btnSel = Ctl.Button(Loc.T("check.checkSel"), Icons.Check, 1);
-            _btnSel.Click += (s, e) => Start(true);
-            _btnStop = Ctl.Button(Loc.T("common.stop"), Icons.Stop, 2);
-            _btnStop.IsEnabled = false;
-            _btnStop.Click += (s, e) => { _stop = true; };
+            _btnAll.Click += (s, e) =>
+            {
+                if (_running > 0) { _stop = true; return; }
+                Start(SelectedRowCount() > 0);
+            };
+            _btnSel = Ctl.Button(Loc.T("check.strat.selectAll"), Icons.Grid, 3);
+            _btnSel.Click += (s, e) =>
+            {
+                bool all = _rows.Count > 0 && SelectedRowCount() == _rows.Count;
+                _rowsBulkSel = true;
+                try { foreach (var r in _rows) if (r.Sel != null) r.Sel.IsChecked = !all; }
+                finally { _rowsBulkSel = false; }
+                UpdateCheckToolbar();
+            };
             _btnExport = Ctl.Button(Loc.T("check.export"), Icons.Save, 1);
             _btnExport.Click += (s, e) => Export();
-            panel.Children.Add(Ctl.ButtonRow(_btnAll, _btnSel, _btnStop, _btnExport));
+            panel.Children.Add(Ctl.ButtonRow(_btnAll, _btnSel, _btnExport));
 
             _groups = new StackPanel();
             panel.Children.Add(_groups);
@@ -286,9 +337,7 @@ namespace ZapretStudio
                     Foreground = Theme.BrMuted, FontSize = Theme.FsBody, FontFamily = Theme.UiFont,
                     TextWrapping = TextWrapping.Wrap });
                 // Проверять и экспортировать нечего — кнопки не должны выглядеть рабочими.
-                _btnAll.IsEnabled = false;
-                _btnSel.IsEnabled = false;
-                _btnExport.IsEnabled = false;
+                UpdateCheckToolbar();
                 return panel;
             }
             string curGroup = null;
@@ -305,7 +354,10 @@ namespace ZapretStudio
                 var row = MakeRow(t);
                 _rows.Add(row);
                 gp.Children.Add(row.Card);
+                row.Sel.Checked += (s, e) => { if (!_rowsBulkSel) UpdateCheckToolbar(); };
+                row.Sel.Unchecked += (s, e) => { if (!_rowsBulkSel) UpdateCheckToolbar(); };
             }
+            UpdateCheckToolbar();
             return panel;
         }
 
@@ -629,7 +681,6 @@ namespace ZapretStudio
                 if (!selectedOnly || r.Sel.IsChecked == true) todo.Add(r);
             if (todo.Count == 0) return;
 
-            _btnStop.IsEnabled = true; _btnAll.IsEnabled = false; _btnSel.IsEnabled = false;
             Core.Info(string.Format(Loc.T("check.run.started"), todo.Count));
             foreach (var r in todo) SetRow(r, "waiting", "-", "", "");
 
@@ -637,6 +688,7 @@ namespace ZapretStudio
             int tIdx = Core.GetInt("check_timeout_idx", 1);
             int timeout = (tIdx >= 0 && tIdx < timeouts.Length) ? timeouts[tIdx] : 5000;
             _running = todo.Count;
+            UpdateCheckToolbar();
             foreach (var r in todo)
             {
                 var row = r;
@@ -683,7 +735,7 @@ namespace ZapretStudio
                 {
                     Dispatcher.Invoke((Action)delegate
                     {
-                        _btnStop.IsEnabled = false; _btnAll.IsEnabled = true; _btnSel.IsEnabled = true;
+                        UpdateCheckToolbar();
                         Core.Info(_stop ? Loc.T("check.run.stopped") : Loc.T("check.run.done"));
                     });
                 }
@@ -798,17 +850,17 @@ namespace ZapretStudio
             int sel = SelectedStratCount();
             bool any = _stratRows.Count > 0;
             if (_stratBusy)
-                Ctl.SetButton(_stratRunSel, Loc.T("common.stop"), Icons.Stop, 2);
+                SetToolbarButton(_stratRunSel, Loc.T("common.stop"), Icons.Stop, 2);
             else if (sel > 0)
-                Ctl.SetButton(_stratRunSel, string.Format(Loc.T("check.strat.runSelN"), sel), Icons.Check, 0);
+                SetToolbarButton(_stratRunSel, string.Format(Loc.T("check.strat.runSelN"), sel), Icons.Check, 0);
             else
-                Ctl.SetButton(_stratRunSel, Loc.T("check.strat.runAll"), Icons.Bolt, 0);
+                SetToolbarButton(_stratRunSel, Loc.T("check.strat.runAll"), Icons.Bolt, 0);
             _stratRunSel.IsEnabled = _stratBusy || any;
 
             if (_stratSelAll != null)
             {
                 bool all = any && sel == _stratRows.Count;
-                Ctl.SetButton(_stratSelAll, all ? Loc.T("check.strat.clearSel") : Loc.T("check.strat.selectAll"),
+                SetToolbarButton(_stratSelAll, all ? Loc.T("check.strat.clearSel") : Loc.T("check.strat.selectAll"),
                     all ? Icons.Cross : Icons.Grid, 3);
                 _stratSelAll.IsEnabled = !_stratBusy && any;
             }
