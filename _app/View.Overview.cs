@@ -31,7 +31,8 @@ namespace ZapretStudio
             BuildMeta();
             BuildTraffic();
             BuildCards();
-            BuildQuickActions();
+            // «Быстрых действий» больше нет: три из четырёх повторяли боковое меню,
+            // а «Открыть папку zapret» переехала в карточку zapret в «Обновлениях».
             BuildRiskNote();
             _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
             _timer.Tick += (s, e) => Refresh();
@@ -547,24 +548,6 @@ namespace ZapretStudio
                 Core.Warn("TG link: " + err);
                 _win.ShowToast(string.Format(Loc.T("ov.tg.openFail"), err), Sev.Err);
             }
-        }
-
-        void BuildQuickActions()
-        {
-            // «Проверить соединение», «Выбрать стратегию» и «Журнал» повторяли
-            // пункты бокового меню и на ~1000 px обрезались до многоточий.
-            // Оставлено только то, чего в меню нет.
-            Body.Children.Add(SectionLabel(Loc.T("ov.sec.quick")));
-            var folder = QA(Loc.T("ov.qa.folder"), Icons.Folder, delegate { Core.OpenFolder(Core.Root); });
-            folder.HorizontalAlignment = HorizontalAlignment.Left;
-            Body.Children.Add(folder);
-        }
-
-        Button QA(string text, string icon, Action act)
-        {
-            var b = Ctl.Button(text, icon, 1);
-            b.Click += (s, e) => act();
-            return b;
         }
 
         void BuildRiskNote()

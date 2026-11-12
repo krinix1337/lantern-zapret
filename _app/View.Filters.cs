@@ -24,11 +24,12 @@ namespace ZapretStudio
 
         // Визуальный редактор списков
         ComboBox _listSelector;
-        ListBox _listBox;
+        StackPanel _listRows;
         TextBox _entryInput;
+        TextBlock _entryPlaceholder, _entryMsg;
         TextBlock _listCount;
         TextBlock _listHint;
-        Button _addBtn, _delBtn;
+        Button _addBtn;
         // Строка-заглушка «показаны не все». Сравниваем с ней точно, а не по
         // префиксу «... +»: текст живёт в локализации и меняется вместе с языком.
         string _moreItem;
@@ -391,9 +392,10 @@ namespace ZapretStudio
             // Выбор списка. Grid, а не горизонтальный StackPanel: StackPanel
             // меряется бесконечной шириной и на узком окне уезжал за край карточки
             // (аудит разметки на 820 px это и ловил).
-            var selRow = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+            var selRow = new Grid { Margin = new Thickness(0, 0, 0, 8) };
             selRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             selRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            selRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             _listSelector = Combo(220);
             foreach (var d in ListDefs())
                 _listSelector.Items.Add(d[0]);
@@ -402,11 +404,33 @@ namespace ZapretStudio
             Grid.SetColumn(_listSelector, 0);
             selRow.Children.Add(_listSelector);
 
+            // Счётчик записей — под списком (см. ниже): в строке с комбоксом и
+            // кнопкой на 820 px он залезал под кнопку.
             _listCount = new TextBlock { Text = "", Foreground = Theme.BrFaint, FontSize = Theme.FsSmall,
-                FontFamily = Theme.UiFont, VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(12, 0, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
-            Grid.SetColumn(_listCount, 1);
-            selRow.Children.Add(_listCount);
+                FontFamily = Theme.UiFont, HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 6, 2, 0) };
+
+            // Второстепенное действие — компактно справа в той же строке, а не
+            // отдельной крупной кнопкой посреди карточки.
+            var openMachineBtn = Ctl.Button(Loc.T("filters.openIpsetMachine"), Icons.Folder, 3);
+            var omBd = Ctl.Surface(openMachineBtn);
+            var omBox = Ctl.ContentHost(openMachineBtn);
+            if (omBd != null) { omBd.Height = 32; omBd.CornerRadius = Theme.R8; if (omBox != null) omBox.Padding = new Thickness(10, 0, 10, 0); }
+            openMachineBtn.VerticalAlignment = VerticalAlignment.Center;
+            openMachineBtn.Margin = new Thickness(12, 0, 0, 0);
+            openMachineBtn.ToolTip = Loc.T("filters.openIpsetWarn");
+            openMachineBtn.Click += (s, e) =>
+            {
+                var res = MessageBox.Show(Loc.T("filters.openIpsetWarn"), Core.AppName, MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (res == MessageBoxResult.Yes)
+                {
+                    string machinePath = Path.Combine(Core.Lists, "ipset-all.txt");
+                    if (File.Exists(machinePath)) Core.OpenFile(machinePath);
+                    else Core.Warn(string.Format(Loc.T("filters.fileNotFound"), machinePath));
+                }
+            };
+            Grid.SetColumn(openMachineBtn, 2);
+            selRow.Children.Add(openMachineBtn);
 
             panel.Children.Add(selRow);
 
@@ -424,64 +448,111 @@ namespace ZapretStudio
             };
             panel.Children.Add(_listHint);
 
-            // Второстепенное действие — отдельной строкой: в одной строке с комбоксом
-            // оно не оставляло места счётчику записей.
-            var openMachineBtn = Ctl.Button(Loc.T("filters.openIpsetMachine"), Icons.Folder, 3);
-            openMachineBtn.HorizontalAlignment = HorizontalAlignment.Left;
-            openMachineBtn.Margin = new Thickness(0, 0, 0, 10);
-            openMachineBtn.Click += (s, e) =>
-            {
-                var res = MessageBox.Show(Loc.T("filters.openIpsetWarn"), Core.AppName, MessageBoxButton.YesNo, MessageBoxImage.Warning);
-                if (res == MessageBoxResult.Yes)
-                {
-                    string machinePath = Path.Combine(Core.Lists, "ipset-all.txt");
-                    if (File.Exists(machinePath)) Core.OpenFile(machinePath);
-                    else Core.Warn(string.Format(Loc.T("filters.fileNotFound"), machinePath));
-                }
-            };
-            panel.Children.Add(openMachineBtn);
-
-            // Список записей
-            _listBox = new ListBox
-            {
-                Height = 180, Background = Theme.BrSurfaceAlt, BorderBrush = Theme.BrStroke,
-                BorderThickness = new Thickness(1), FontFamily = Theme.MonoFont, FontSize = Theme.FsSmall,
-                Foreground = Theme.BrText, Padding = new Thickness(4)
-            };
-            panel.Children.Add(_listBox);
-
-            // Панель добавления/удаления: поле тянется (Star), кнопки фиксированные.
-            // С Width=300 в горизонтальном StackPanel ряд на узком окне вылезал за
-            // карточку вместе с кнопкой «Удалить».
-            var editRow = new Grid { Margin = new Thickness(0, 10, 0, 0) };
+            // Добавление — сверху, над списком: поле с подсказкой-примером и одна
+            // кнопка. Раньше поле и «Добавить/Удалить» стояли под списком, а
+            // удаление требовало сначала выделить строку в голом ListBox.
+            var editRow = new Grid();
             editRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             editRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            editRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var inputHost = new Grid();
             _entryInput = new TextBox
             {
-                MinWidth = 120, Height = 34, Background = Theme.BrSurface, BorderBrush = Theme.BrStroke,
+                MinWidth = 120, Height = 36, Background = Theme.BrSurfaceAlt, BorderBrush = Theme.BrStroke,
                 BorderThickness = new Thickness(1), Foreground = Theme.BrText, CaretBrush = Theme.BrText,
                 FontSize = Theme.FsBody, FontFamily = Theme.MonoFont,
                 VerticalContentAlignment = VerticalAlignment.Center, Padding = new Thickness(10, 0, 10, 0)
             };
             _entryInput.KeyDown += (s, e) => { if (e.Key == System.Windows.Input.Key.Enter) AddEntry(); };
-            Grid.SetColumn(_entryInput, 0);
-            editRow.Children.Add(_entryInput);
+            _entryPlaceholder = new TextBlock
+            {
+                Foreground = Theme.BrFaint, FontSize = Theme.FsBody, FontFamily = Theme.UiFont,
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(13, 0, 10, 0),
+                IsHitTestVisible = false, TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            _entryInput.TextChanged += (s, e) =>
+            {
+                _entryPlaceholder.Visibility = string.IsNullOrEmpty(_entryInput.Text) ? Visibility.Visible : Visibility.Collapsed;
+                SetEntryMsg(null, Sev.Neutral);
+            };
+            inputHost.Children.Add(_entryInput);
+            inputHost.Children.Add(_entryPlaceholder);
+            Grid.SetColumn(inputHost, 0);
+            editRow.Children.Add(inputHost);
 
             _addBtn = Ctl.Button(Loc.T("filters.list.add"), Icons.Check, 0);
             _addBtn.Margin = new Thickness(8, 0, 0, 0);
+            _addBtn.VerticalAlignment = VerticalAlignment.Center;
             _addBtn.Click += (s, e) => AddEntry();
             Grid.SetColumn(_addBtn, 1);
             editRow.Children.Add(_addBtn);
-
-            _delBtn = Ctl.Button(Loc.T("filters.list.del"), Icons.Cross, 2);
-            _delBtn.Margin = new Thickness(8, 0, 0, 0);
-            _delBtn.Click += (s, e) => DelEntry();
-            Grid.SetColumn(_delBtn, 2);
-            editRow.Children.Add(_delBtn);
-
             panel.Children.Add(editRow);
+
+            // Отказ (дубликат, не IP, служебная запись) — прямо под полем, а не
+            // только в журнале, где его никто не видел.
+            _entryMsg = new TextBlock
+            {
+                FontSize = Theme.FsSmall, FontFamily = Theme.UiFont, TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(2, 6, 0, 0), Visibility = Visibility.Collapsed
+            };
+            panel.Children.Add(_entryMsg);
+
+            // Записи — строками с собственной кнопкой удаления.
+            _listRows = new StackPanel();
+            var listFrame = new Border
+            {
+                Margin = new Thickness(0, 10, 0, 0),
+                Background = Theme.BrSurfaceAlt, BorderBrush = Theme.BrStroke, BorderThickness = new Thickness(1),
+                CornerRadius = Theme.R8, Padding = new Thickness(4),
+                Child = new ScrollViewer
+                {
+                    MaxHeight = 260, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = _listRows
+                }
+            };
+            panel.Children.Add(listFrame);
+            panel.Children.Add(_listCount);
             Body.Children.Add(UI.Card(panel, new Thickness(16, 14, 16, 14)));
+        }
+
+        void SetEntryMsg(string text, Sev sev)
+        {
+            if (_entryMsg == null) return;
+            if (string.IsNullOrEmpty(text)) { _entryMsg.Visibility = Visibility.Collapsed; return; }
+            _entryMsg.Text = text;
+            _entryMsg.Foreground = sev == Sev.Err ? Theme.BrErr : (sev == Sev.Warn ? Theme.BrWarn : Theme.BrMuted);
+            _entryMsg.Visibility = Visibility.Visible;
+        }
+
+        FrameworkElement EntryRow(string value)
+        {
+            var g = new Grid { MinHeight = 32 };
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var tb = new TextBlock
+            {
+                Text = value, Foreground = Theme.BrText, FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont,
+                VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(8, 0, 8, 0), ToolTip = value
+            };
+            g.Children.Add(tb);
+
+            var del = Ctl.Button(null, Icons.Trash, 1);
+            var dBd = Ctl.Surface(del);
+            var dBox = Ctl.ContentHost(del);
+            if (dBd != null) { dBd.Height = 26; dBd.CornerRadius = Theme.R8; dBd.Background = Brushes.Transparent; dBd.BorderBrush = Brushes.Transparent; if (dBox != null) dBox.Padding = new Thickness(6, 0, 6, 0); }
+            string tip = string.Format(Loc.T("filters.list.delTip"), value);
+            del.ToolTip = tip;
+            Ctl.AutomationSetName(del, tip);
+            del.VerticalAlignment = VerticalAlignment.Center;
+            del.Opacity = 0.45;
+            del.Click += (s, e) => DelEntry(value);
+            Grid.SetColumn(del, 1);
+            g.Children.Add(del);
+
+            var row = new Border { CornerRadius = Theme.R8, Background = Brushes.Transparent, Child = g, Padding = new Thickness(0, 1, 2, 1) };
+            row.MouseEnter += (s, e) => { row.Background = Theme.Alpha(Theme.Text, 8); del.Opacity = 1; };
+            row.MouseLeave += (s, e) => { row.Background = Brushes.Transparent; del.Opacity = 0.45; };
+            return row;
         }
 
         string CurrentListPath()
@@ -498,12 +569,18 @@ namespace ZapretStudio
             var defs = ListDefs();
             int i = _listSelector != null ? _listSelector.SelectedIndex : -1;
             _listHint.Text = (i >= 0 && i < defs.Length) ? Loc.T("filters.list.about." + defs[i][0]) : "";
+            if (_entryPlaceholder != null)
+            {
+                bool ip = CurrentListPath().IndexOf("ipset", StringComparison.OrdinalIgnoreCase) >= 0;
+                _entryPlaceholder.Text = Loc.T(ip ? "filters.list.placeholderIp" : "filters.list.placeholder");
+            }
+            SetEntryMsg(null, Sev.Neutral);
         }
 
         void ReloadList()
         {
             UpdateListHint();
-            _listBox.Items.Clear();
+            _listRows.Children.Clear();
             _moreItem = null;
             string path = CurrentListPath();
             int count = 0;
@@ -521,17 +598,23 @@ namespace ZapretStudio
                             if (s.Length == 0 || s.StartsWith("#")) continue;
                             count++;
                             if (count <= MaxDisplay)
-                                _listBox.Items.Add(s);
+                                _listRows.Children.Add(EntryRow(s));
                         }
                     }
                     if (count > MaxDisplay)
                     {
                         _moreItem = string.Format(Loc.T("filters.list.more"), count - MaxDisplay);
-                        _listBox.Items.Add(_moreItem);
+                        _listRows.Children.Add(new TextBlock { Text = _moreItem, Foreground = Theme.BrFaint,
+                            FontSize = Theme.FsSmall, FontFamily = Theme.UiFont, Margin = new Thickness(8, 6, 8, 6),
+                            TextWrapping = TextWrapping.Wrap });
                     }
                 }
             }
             catch { }
+            if (count == 0)
+                _listRows.Children.Add(new TextBlock { Text = Loc.T("filters.list.empty"), Foreground = Theme.BrFaint,
+                    FontSize = Theme.FsSmall, FontFamily = Theme.UiFont, Margin = new Thickness(8, 10, 8, 10),
+                    TextWrapping = TextWrapping.Wrap });
             _listCount.Text = string.Format(Loc.T("filters.list.count"), count);
         }
 
@@ -550,16 +633,20 @@ namespace ZapretStudio
             if (isIpSet && val.IndexOf(Core.IpsetSentinel, StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 Core.Warn(Loc.T("filters.list.sentinelRejected"));
+                SetEntryMsg(Loc.T("filters.list.sentinelRejected"), Sev.Err);
                 return;
             }
             if (isIpSet && !val.StartsWith("#") && !Core.IsValidIpsetEntry(val))
             {
                 Core.Warn(string.Format(Loc.T("filters.list.badIp"), val));
+                SetEntryMsg(string.Format(Loc.T("filters.list.badIp"), val), Sev.Err);
                 return;
             }
+            string noneWarn = null;
             if (isIpSet && Core.IpsetStatus() == "none")
             {
-                Core.Warn(Loc.T("filters.list.addedNoneWarn"));
+                noneWarn = Loc.T("filters.list.addedNoneWarn");
+                Core.Warn(noneWarn);
             }
             try
             {
@@ -583,28 +670,26 @@ namespace ZapretStudio
                 if (dup)
                 {
                     Core.Warn(string.Format(Loc.T("filters.list.dup"), val));
+                    SetEntryMsg(string.Format(Loc.T("filters.list.dup"), val), Sev.Warn);
                     return;
                 }
                 _entryInput.Text = "";
                 ReloadList();
                 MarkDirty();
                 Core.Info(string.Format(Loc.T("filters.list.added"), val));
+                if (noneWarn != null) SetEntryMsg(noneWarn, Sev.Warn);
             }
-            catch (Exception ex) { Core.Fail(ex.Message); }
+            catch (Exception ex) { Core.Fail(ex.Message); SetEntryMsg(ex.Message, Sev.Err); }
         }
 
-        void DelEntry()
+        void DelEntry(string val)
         {
             if (_listIoBusy) return;
-            if (_listBox.SelectedIndex < 0) return;
-            string val = _listBox.SelectedItem as string;
-            if (val == null) return;
-            if (_moreItem != null && val == _moreItem) return;
+            if (string.IsNullOrEmpty(val)) return;
             string path = CurrentListPath();
 
             _listIoBusy = true;
             if (_addBtn != null) _addBtn.IsEnabled = false;
-            if (_delBtn != null) _delBtn.IsEnabled = false;
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
                 int removed = 0;
@@ -629,7 +714,6 @@ namespace ZapretStudio
                     {
                         _listIoBusy = false;
                         if (_addBtn != null) _addBtn.IsEnabled = true;
-                        if (_delBtn != null) _delBtn.IsEnabled = true;
                         if (fail != null) { Core.Fail(fail.Message); return; }
                         if (removed == 0) return;
                         ReloadList();

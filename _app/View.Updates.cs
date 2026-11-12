@@ -279,7 +279,8 @@ namespace ZapretStudio
             Border upToDateIndicator,
             Border localNewerIndicator,
             string releasesApi,
-            string releasesPage)
+            string releasesPage,
+            string folderPath = null)
         {
             var cardPanel = new StackPanel();
 
@@ -350,6 +351,9 @@ namespace ZapretStudio
             var rightBox = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16, 0, 0, 0) };
             // «Что обновлялось» рядом с кнопкой обновления: разворачивает список
             // последних релизов этого компонента ниже по карточке.
+            // Папка компонента — бывшее «быстрое действие» с главной.
+            if (!string.IsNullOrEmpty(folderPath))
+                rightBox.Children.Add(FolderButton(folderPath));
             if (historyBox != null)
                 rightBox.Children.Add(ReleaseHistoryButton(historyBox, historyBody, releasesApi, releasesPage));
             if (upToDateIndicator != null) rightBox.Children.Add(upToDateIndicator);
@@ -401,6 +405,20 @@ namespace ZapretStudio
         // аудит разметки и скриншот видели раскрытую панель, а не свёрнутую.
         readonly System.Collections.Generic.List<Border> _histBoxes = new System.Collections.Generic.List<Border>();
         readonly System.Collections.Generic.List<StackPanel> _histBodies = new System.Collections.Generic.List<StackPanel>();
+
+        Button FolderButton(string path)
+        {
+            var b = Ctl.Button(null, Icons.Folder, 1);
+            var bb = Ctl.Surface(b);
+            var bbox = Ctl.ContentHost(b);
+            if (bb != null) { bb.Height = 32; bb.CornerRadius = Theme.R8; if (bbox != null) bbox.Padding = new Thickness(9, 0, 9, 0); }
+            string tip = Loc.T("ov.qa.folder");
+            b.ToolTip = tip;
+            Ctl.AutomationSetName(b, tip);
+            b.Margin = new Thickness(0, 0, 8, 0);
+            b.Click += (s, e) => Core.OpenFolder(path);
+            return b;
+        }
 
         Button ReleaseHistoryButton(Border box, StackPanel body, string releasesApi, string releasesPage)
         {
@@ -629,7 +647,8 @@ namespace ZapretStudio
                 _zapUpToDatePill,
                 _zapLocalNewerPill,
                 Endpoints.ZapretReleasesApi,
-                Endpoints.ZapretReleasesPage);
+                Endpoints.ZapretReleasesPage,
+                Core.Root);
         }
 
         Border BuildTgProxyCard()

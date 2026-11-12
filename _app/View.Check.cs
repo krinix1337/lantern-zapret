@@ -74,7 +74,7 @@ namespace ZapretStudio
         void EnsureStopEnabled()
         {
             if (_btnStop != null) _btnStop.IsEnabled = _running > 0;
-            if (_stratStopBtn != null) _stratStopBtn.IsEnabled = _stratBusy;
+            UpdateStratToolbar();
         }
 
         public void CancelAll()
@@ -713,7 +713,7 @@ namespace ZapretStudio
 
         // ---------- Вкладка: проверка отдельных стратегий ----------
         StackPanel _stratList;
-        Button _stratStopBtn, _stratRunSel, _stratRunAll, _stratSelAll, _stratClear;
+        Button _stratRunSel, _stratSelAll, _stratAutoPick;
         volatile bool _stratBusy;
         volatile bool _stratCancel;
         readonly List<StratRowRef> _stratRows = new List<StratRowRef>();
@@ -731,31 +731,28 @@ namespace ZapretStudio
             // Тот же ButtonRow, что и вверху страницы: один ряд, равные ячейки,
             // край совпадает с краем блока. WrapPanel переносил кнопки как попало
             // и оставлял их разной ширины.
-            _stratRunSel = Ctl.Button(Loc.T("check.strat.runSel"), Icons.Check, 0);
-            _stratRunSel.Click += (s, e) => RunBatch(true);
-            _stratRunAll = Ctl.Button(Loc.T("check.strat.runAll"), Icons.Bolt, 1);
-            _stratRunAll.Click += (s, e) => RunBatch(false);
-            _stratSelAll = Ctl.Button(Loc.T("check.strat.selectAll"), Icons.Grid, 3);
-            _stratSelAll.Click += (s, e) => SetAllSel(true);
-            _stratClear = Ctl.Button(Loc.T("check.strat.clearSel"), Icons.Cross, 3);
-            _stratClear.Click += (s, e) => SetAllSel(false);
-            _stratStopBtn = Ctl.Button(Loc.T("common.stop"), Icons.Stop, 2);
-            _stratStopBtn.IsEnabled = false;
-            _stratStopBtn.Click += (s, e) => { _stratCancel = true; };
-            var autoPick = Ctl.Button(Loc.T("check.strat.autoPick"), Icons.Star, 0);
-            autoPick.Click += (s, e) => AutoPick();
-            // Одна строка из шести кнопок, пока подписи помещаются целиком;
-            // иначе — две строки по три. Порог 620 px был слишком низким:
-            // на 1000 px окна подписи рвались по буквам («Выбранн/ые»).
-            var stratToolbar = Ctl.ButtonRowWrap(
-                _stratRunSel, _stratRunAll, _stratSelAll, _stratClear, _stratStopBtn, autoPick);
-            stratToolbar.ForceCols = 6;
-            stratToolbar.SizeChanged += (s, e) =>
+            // Три кнопки вместо шести. Раньше были «Выбранные», «Проверить все»,
+            // «Выбрать все», «Снять выбор», «Остановить» и «Автоподбор» — по сути
+            // одно действие в разных вариантах, легко перепутать.
+            //  • «Проверить» — выбранные, а если ничего не выбрано — все; во время
+            //    прогона та же кнопка становится «Остановить».
+            //  • «Выбрать все» / «Снять выбор» — одна кнопка-переключатель.
+            //  • «Автоподбор» — проверка всех и выбор лучшей стратегии.
+            _stratRunSel = Ctl.Button(Loc.T("check.strat.runAll"), Icons.Bolt, 0);
+            _stratRunSel.Click += (s, e) =>
             {
-                int cols = stratToolbar.ActualWidth < 880 ? 3 : 6;
-                if (stratToolbar.ForceCols != cols) { stratToolbar.ForceCols = cols; stratToolbar.InvalidateMeasure(); }
+                if (_stratBusy) { _stratCancel = true; return; }
+                RunBatch(SelectedStratCount() > 0);
             };
-            panel.Children.Add(stratToolbar);
+            _stratSelAll = Ctl.Button(Loc.T("check.strat.selectAll"), Icons.Grid, 3);
+            _stratSelAll.Click += (s, e) =>
+            {
+                bool all = _stratRows.Count > 0 && SelectedStratCount() == _stratRows.Count;
+                SetAllSel(!all);
+            };
+            _stratAutoPick = Ctl.Button(Loc.T("check.strat.autoPick"), Icons.Star, 1);
+            _stratAutoPick.Click += (s, e) => AutoPick();
+            panel.Children.Add(Ctl.ButtonRow(_stratRunSel, _stratSelAll, _stratAutoPick));
 
             _stratList = new StackPanel();
             panel.Children.Add(_stratList);
@@ -769,13 +766,53 @@ namespace ZapretStudio
             }
             foreach (var f in files)
                 _stratList.Children.Add(StratRow(f));
+            UpdateStratToolbar();
             return panel;
         }
 
         void SetAllSel(bool on)
         {
-            foreach (var rr in _stratRows)
-                if (rr.Sel != null) rr.Sel.IsChecked = on;
+            _stratBulkSel = true;
+            try
+            {
+                foreach (var rr in _stratRows)
+                    if (rr.Sel != null) rr.Sel.IsChecked = on;
+            }
+            finally { _stratBulkSel = false; }
+            UpdateStratToolbar();
+        }
+
+        bool _stratBulkSel;
+
+        int SelectedStratCount()
+        {
+            int n = 0;
+            foreach (var rr in _stratRows) if (rr.Sel != null && rr.Sel.IsChecked == true) n++;
+            return n;
+        }
+
+        // Подписи и доступность кнопок зависят от выбора и от того, идёт ли прогон.
+        void UpdateStratToolbar()
+        {
+            if (_stratRunSel == null) return;
+            int sel = SelectedStratCount();
+            bool any = _stratRows.Count > 0;
+            if (_stratBusy)
+                Ctl.SetButton(_stratRunSel, Loc.T("common.stop"), Icons.Stop, 2);
+            else if (sel > 0)
+                Ctl.SetButton(_stratRunSel, string.Format(Loc.T("check.strat.runSelN"), sel), Icons.Check, 0);
+            else
+                Ctl.SetButton(_stratRunSel, Loc.T("check.strat.runAll"), Icons.Bolt, 0);
+            _stratRunSel.IsEnabled = _stratBusy || any;
+
+            if (_stratSelAll != null)
+            {
+                bool all = any && sel == _stratRows.Count;
+                Ctl.SetButton(_stratSelAll, all ? Loc.T("check.strat.clearSel") : Loc.T("check.strat.selectAll"),
+                    all ? Icons.Cross : Icons.Grid, 3);
+                _stratSelAll.IsEnabled = !_stratBusy && any;
+            }
+            if (_stratAutoPick != null) _stratAutoPick.IsEnabled = !_stratBusy && any;
         }
 
         class ProbeReport
@@ -812,6 +849,8 @@ namespace ZapretStudio
             rr.Sel = Ctl.Check(string.Format(Loc.T("net.select"), Core.PrettyName(file)));
             rr.Sel.VerticalAlignment = VerticalAlignment.Center;
             rr.Sel.Margin = new Thickness(0, 0, 12, 0);
+            rr.Sel.Checked += (s, e) => { if (!_stratBulkSel) UpdateStratToolbar(); };
+            rr.Sel.Unchecked += (s, e) => { if (!_stratBulkSel) UpdateStratToolbar(); };
             Grid.SetColumn(rr.Sel, 0);
             g.Children.Add(rr.Sel);
 
@@ -898,9 +937,7 @@ namespace ZapretStudio
         void BeginBusy()
         {
             _stratBusy = true; _stratCancel = false;
-            _stratStopBtn.IsEnabled = true;
-            _stratRunSel.IsEnabled = false; _stratRunAll.IsEnabled = false;
-            _stratSelAll.IsEnabled = false; _stratClear.IsEnabled = false;
+            UpdateStratToolbar();
             foreach (var rr in _stratRows) if (rr.Run != null) rr.Run.IsEnabled = false;
         }
 
@@ -908,11 +945,7 @@ namespace ZapretStudio
         {
             if (!_stratBusy) return;
             _stratBusy = false;
-            if (_stratStopBtn != null) _stratStopBtn.IsEnabled = false;
-            if (_stratRunSel != null) _stratRunSel.IsEnabled = true;
-            if (_stratRunAll != null) _stratRunAll.IsEnabled = true;
-            if (_stratSelAll != null) _stratSelAll.IsEnabled = true;
-            if (_stratClear != null) _stratClear.IsEnabled = true;
+            UpdateStratToolbar();
             if (_stratRows != null) foreach (var rr in _stratRows) if (rr != null && rr.Run != null) rr.Run.IsEnabled = true;
         }
 

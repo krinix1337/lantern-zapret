@@ -363,6 +363,7 @@ namespace ZapretStudio
             A("tg.stoppedOk", "Telegram-прокси остановлен", "Telegram proxy stopped");
             A("check.strat.runSel","Выбранные", "Selected");
             A("check.strat.runAll","Проверить все",       "Test all");
+            A("check.strat.runSelN","Проверить выбранные ({0})", "Test selected ({0})");
             A("check.strat.selectAll","Выбрать все",       "Select all");
             A("check.strat.clearSel", "Снять выбор",       "Clear");
             A("check.strat.busy",  "Идёт проверка стратегий…", "Testing strategies…");
@@ -703,6 +704,10 @@ namespace ZapretStudio
             A("filters.list.about.list-exclude", "Исключения по доменам: адреса отсюда работают как обычно, без подмены пакетов. Сюда вписывают сайт, который сломался из-за обхода.", "Domain exclusions: entries here work normally, without packet desyncing. Put a site that broke because of the bypass here.");
             A("filters.list.about.ipset-exclude", "Исключения по IP и сетям: то же, что и выше, но по адресам — обход к ним не применяется, трафик идёт напрямую.", "IP/network exclusions: same as above but by address — the bypass is not applied to them, traffic goes directly.");
             A("filters.list.count", "Записей: {0}", "Entries: {0}");
+            A("filters.list.placeholder", "Домен, например example.com", "Domain, e.g. example.com");
+            A("filters.list.placeholderIp", "IP или подсеть, например 203.0.113.0/24", "IP or subnet, e.g. 203.0.113.0/24");
+            A("filters.list.empty", "Список пуст — добавьте первую запись в поле выше.", "The list is empty — add the first entry in the field above.");
+            A("filters.list.delTip", "Удалить {0}", "Remove {0}");
             A("filters.list.more", "... +{0} ещё (список сокращён для быстродействия)",
                                    "... +{0} more (list truncated for performance)");
             A("filters.list.added", "Добавлено: {0}", "Added: {0}");
