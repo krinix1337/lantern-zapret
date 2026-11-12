@@ -212,7 +212,7 @@ namespace ZapretStudio
                 BorderBrush = Theme.BrStroke,
                 VerticalContentAlignment = VerticalAlignment.Center
             };
-            cb.DropDownOpened += (s, e) => { if (!ActiveCombos.Contains(cb)) ActiveCombos.Add(cb); AnimateDropdown(cb); };
+            cb.DropDownOpened += (s, e) => { SmoothScrollViewer.StopScrollAround(cb); if (!ActiveCombos.Contains(cb)) ActiveCombos.Add(cb); AnimateDropdown(cb); };
             cb.DropDownClosed += (s, e) => { ActiveCombos.Remove(cb); };
             cb.Unloaded += (s, e) => { ActiveCombos.Remove(cb); };
             cb.FocusVisualStyle = null;
@@ -568,6 +568,23 @@ namespace ZapretStudio
                 _isAnimating = false;
                 CompositionTarget.Rendering -= OnRendering;
             }
+        }
+
+        // Выпадающий список открыли, пока страница ещё доезжала после колеса:
+        // Popup ставится один раз при открытии, а страница продолжала ехать, и
+        // список «отрывался» от своей кнопки. Останавливаем докрутку на месте.
+        public static void StopScrollAround(DependencyObject d)
+        {
+            try
+            {
+                while (d != null)
+                {
+                    var sv = d as SmoothScrollViewer;
+                    if (sv != null) { sv.StopAnimation(); sv._targetOffset = sv.VerticalOffset; return; }
+                    d = (d is Visual) ? VisualTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d);
+                }
+            }
+            catch { }
         }
 
         public static bool IsInsideDropdown(DependencyObject d, object source)

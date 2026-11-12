@@ -457,8 +457,8 @@ namespace ZapretStudio
             var inputHost = new Grid();
             _entryInput = new TextBox
             {
-                MinWidth = 120, Height = 36, Background = Theme.BrSurfaceAlt, BorderBrush = Theme.BrStroke,
-                BorderThickness = new Thickness(1), Foreground = Theme.BrText, CaretBrush = Theme.BrText,
+                MinWidth = 120, Height = 34, Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0), Foreground = Theme.BrText, CaretBrush = Theme.BrText,
                 FontSize = Theme.FsBody, FontFamily = Theme.MonoFont,
                 VerticalContentAlignment = VerticalAlignment.Center, Padding = new Thickness(10, 0, 10, 0)
             };
@@ -476,8 +476,17 @@ namespace ZapretStudio
             };
             inputHost.Children.Add(_entryInput);
             inputHost.Children.Add(_entryPlaceholder);
-            Grid.SetColumn(inputHost, 0);
-            editRow.Children.Add(inputHost);
+            // Рамка со скруглением — снаружи: у штатного шаблона TextBox углы
+            // прямые, и поле выглядело чужим рядом со скруглёнными кнопками.
+            var inputFrame = new Border
+            {
+                Height = 36, Background = Theme.BrSurfaceAlt, BorderBrush = Theme.BrStroke,
+                BorderThickness = new Thickness(1), CornerRadius = Theme.R8, Child = inputHost
+            };
+            _entryInput.GotFocus += (s, e) => inputFrame.BorderBrush = Theme.BrAccent;
+            _entryInput.LostFocus += (s, e) => inputFrame.BorderBrush = Theme.BrStroke;
+            Grid.SetColumn(inputFrame, 0);
+            editRow.Children.Add(inputFrame);
 
             _addBtn = Ctl.Button(Loc.T("filters.list.add"), Icons.Check, 0);
             _addBtn.Margin = new Thickness(8, 0, 0, 0);
