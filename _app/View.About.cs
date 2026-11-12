@@ -61,12 +61,20 @@ namespace ZapretStudio
                 Pill.Make(Core.TgProxyInstalled() ? Sev.Neutral : Sev.Warn, tgVer));
 
             // Репозиторий приложения
+            // Обе строки раньше вели на репозиторий и были подписаны одинаково
+            // «github.com». Теперь репозиторий подписан своим именем, а разработчик
+            // ведёт на профиль владельца.
+            string repoPath = Core.AppRepo.TrimEnd('/');
+            int slash = repoPath.LastIndexOf('/');
+            string repoName = slash >= 0 ? repoPath.Substring(slash + 1) : repoPath;
+            string ownerUrl = slash > 0 ? repoPath.Substring(0, slash) : repoPath;
+            string ownerName = ownerUrl.Substring(ownerUrl.LastIndexOf('/') + 1);
             ListRow(list, Loc.T("about.ver.repo"), Core.AppRepo,
-                PillLink(HostOf(Core.AppRepo), Core.AppRepo));
+                PillLink(repoName, Core.AppRepo));
 
             // Автор / разработчик
             ListRow(list, Loc.T("about.ver.author"), Loc.T("about.ver.author.desc"),
-                PillLink(HostOf(Core.AppRepo), Core.AppRepo));
+                PillLink(ownerName, ownerUrl));
 
             Body.Children.Add(UI.Card(list, new Thickness(16, 4, 16, 4)));
         }
@@ -75,14 +83,8 @@ namespace ZapretStudio
         {
             var sp = new StackPanel();
             sp.Children.Add(UI.T(string.Format(Loc.T("about.appName"), Core.AppName), Theme.FsH1, Theme.BrText, FontWeights.SemiBold));
-            string appVer = SettingsPage.NormVer(Core.AppVersion);
-            string zapVer = SettingsPage.NormVer(Core.ZapretVersion());
-            string tgVer = Core.TgProxyInstalled()
-                ? (string.IsNullOrEmpty(Core.TgProxyLocalVersion()) ? "?" : SettingsPage.NormVer(Core.TgProxyLocalVersion()))
-                : Loc.T("settings.tg.notInstalled");
-            sp.Children.Add(new TextBlock { Text = string.Format(Loc.T("about.versionLine"), appVer, zapVer, tgVer),
-                Foreground = Theme.BrMuted, FontSize = Theme.FsBody, FontFamily = Theme.UiFont,
-                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
+            // Строки «Версия оболочки · zapret · tg-ws-proxy» здесь больше нет:
+            // те же версии показаны блоком «Версии» сразу под этой карточкой.
             sp.Children.Add(new TextBlock
             {
                 Text = Loc.T("about.intro"),

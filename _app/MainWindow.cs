@@ -669,7 +669,8 @@ namespace ZapretStudio
             // режиме и Telegram-прокси, плюс перепроверку версий. Тему не трогает.
             _topRestartBtn = TopIcon(Icons.Restart, Loc.T("mw.restartAllTip"), delegate { RestartAll(); }, out _topRestartIcon);
             right.Children.Add(_topRestartBtn);
-            right.Children.Add(TopIcon(Icons.Gear, Loc.T("common.settings"), delegate { Navigate("settings"); }));
+            // Шестерни «Настройки» здесь больше нет: она дублировала пункт бокового
+            // меню (он виден и в свёрнутом меню).
             right.Children.Add(WinBtn(Icons.Minimize, Loc.T("common.minimize"), delegate { WindowState = WindowState.Minimized; }, false));
             right.Children.Add(WinBtn(Icons.Maximize, Loc.T("common.maximize"), delegate { ToggleMax(); }, false));
             right.Children.Add(WinBtn(Icons.Cross, Loc.T("common.close"), delegate { Close(); }, true));
@@ -2744,8 +2745,7 @@ namespace ZapretStudio
                 var z = Core.EngineIntegrityIssues();
                 var t = Core.TgProxyIntegrityIssues();
                 int n = (z == null ? 0 : z.Count) + (t == null ? 0 : t.Count);
-                foreach (string issue in z) Core.Warn("Integrity zapret: " + issue);
-                foreach (string issue in t) Core.Warn("Integrity TG: " + issue);
+                Core.LogIntegrity(z, t, true);
                 if (n > 0)
                 {
                     Core.Warn(string.Format(Loc.T("updates.integrity.found"), n));
@@ -2830,7 +2830,7 @@ namespace ZapretStudio
                 menu.Items.Add(_trayStatus);
                 menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
                 Add(menu, Loc.T("mw.tray.toggle"), delegate { Dispatcher.Invoke((Action)ToggleRun); });
-                Add(menu, Loc.T("mw.tray.restart"), delegate { Dispatcher.Invoke((Action)RestartCurrent); });
+                Add(menu, Loc.T("mw.tray.restart"), delegate { Dispatcher.Invoke((Action)RestartAll); });
                 menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
                 Add(menu, Loc.T("mw.tray.check"), delegate { Dispatcher.Invoke((Action)delegate { ShowWindow(); Navigate("check"); }); });
                 Add(menu, Loc.T("mw.tray.open"), delegate { Dispatcher.Invoke((Action)ShowWindow); });

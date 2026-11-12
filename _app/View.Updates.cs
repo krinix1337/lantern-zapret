@@ -597,8 +597,8 @@ namespace ZapretStudio
 
         Border BuildZapretCard()
         {
-            _zapLocalVer = new TextBlock { FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont, Foreground = Theme.BrText, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
-            _zapLatestVer = new TextBlock { FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont, Foreground = Theme.BrMuted, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+            _zapLocalVer = new TextBlock { FontSize = Theme.FsSmall, FontFamily = Theme.UiFont, Foreground = Theme.BrText, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+            _zapLatestVer = new TextBlock { FontSize = Theme.FsSmall, FontFamily = Theme.UiFont, Foreground = Theme.BrMuted, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
             _zapStatusLine = new TextBlock
             {
                 Text = "", Foreground = Theme.BrMuted,
@@ -634,8 +634,8 @@ namespace ZapretStudio
 
         Border BuildTgProxyCard()
         {
-            _tgLocalVer = new TextBlock { FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont, Foreground = Theme.BrText, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
-            _tgLatestVer = new TextBlock { FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont, Foreground = Theme.BrMuted, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+            _tgLocalVer = new TextBlock { FontSize = Theme.FsSmall, FontFamily = Theme.UiFont, Foreground = Theme.BrText, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+            _tgLatestVer = new TextBlock { FontSize = Theme.FsSmall, FontFamily = Theme.UiFont, Foreground = Theme.BrMuted, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
             _tgStatusLine = new TextBlock
             {
                 Text = "", Foreground = Theme.BrMuted,
@@ -671,8 +671,8 @@ namespace ZapretStudio
 
         Border BuildAppCard()
         {
-            _appLocalVer = new TextBlock { FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont, Foreground = Theme.BrText, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
-            _appLatestVer = new TextBlock { FontSize = Theme.FsSmall, FontFamily = Theme.MonoFont, Foreground = Theme.BrMuted, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+            _appLocalVer = new TextBlock { FontSize = Theme.FsSmall, FontFamily = Theme.UiFont, Foreground = Theme.BrText, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+            _appLatestVer = new TextBlock { FontSize = Theme.FsSmall, FontFamily = Theme.UiFont, Foreground = Theme.BrMuted, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
             _appStatusLine = new TextBlock
             {
                 Text = "", Foreground = Theme.BrMuted,
@@ -897,8 +897,7 @@ namespace ZapretStudio
                         _tgIntegrity.Clear();
                         if (t != null) _tgIntegrity.AddRange(t);
                         ApplyIntegrityStatus();
-                        foreach (string issue in _zapIntegrity) Core.Warn("Integrity zapret: " + issue);
-                        foreach (string issue in _tgIntegrity) Core.Warn("Integrity TG: " + issue);
+                        int logged = Core.LogIntegrity(_zapIntegrity, _tgIntegrity, notify);
                         int n = _zapIntegrity.Count + _tgIntegrity.Count;
                         if (notify)
                         {
@@ -914,8 +913,9 @@ namespace ZapretStudio
                                 _win.ShowToast(msg, Sev.Warn);
                             }
                         }
-                        else if (n > 0)
+                        else if (n > 0 && logged >= 0)
                         {
+                            // Тот же набор проблем уже записан — не повторяем.
                             Core.Warn(string.Format(Loc.T("updates.integrity.found"), n));
                         }
                     });

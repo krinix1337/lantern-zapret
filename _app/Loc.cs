@@ -143,7 +143,7 @@ namespace ZapretStudio
             A("check.tab.strats",  "Стратегии",           "Strategies");
             A("check.tab.diag",    "Диагностика",         "Diagnostics");
             A("check.diag.title",  "Диагностика и устранение проблем", "Diagnostics & Troubleshooting");
-            A("check.diag.sub",    "Проверка системного окружения, конфликтов драйверов и тест DPI Freeze", "Check system environment, driver conflicts and DPI Freeze test");
+            A("check.diag.sub",    "Проверка системного окружения и конфликтов драйверов", "Check system environment and driver conflicts");
             A("check.diag.run",    "Проверить систему",      "Check system");
             A("check.diag.loading","Загрузка диагностики…",  "Loading diagnostics…");
             A("check.diagRunning","Сбор диагностики…",        "Collecting diagnostics…");
@@ -221,7 +221,7 @@ namespace ZapretStudio
             A("settings.notify.desc","Всплывающие уведомления Windows при запуске и остановке обхода.", "Windows toast notifications when the bypass starts or stops.");
             A("settings.timeout",     "Тайм-аут проверки соединения", "Connection check timeout");
             A("settings.timeout.desc","Максимальное ожидание ответа при проверке доступности адреса.", "Maximum wait for a response when checking a host.");
-            A("settings.dns.note", "Приложение не меняет системный DNS. При проблемах с доступом рекомендуется вручную включить DNS-over-HTTPS (например, 1.1.1.1 или 8.8.8.8) в настройках сети Windows. Любое изменение DNS выполняется вами и с явным подтверждением.", "The app does not change the system DNS. If you have access issues, enable DNS-over-HTTPS manually (e.g. 1.1.1.1 or 8.8.8.8) in Windows network settings. Any DNS change is made by you, with explicit confirmation.");
+            A("settings.dns.note", "Сам по себе Lantern системный DNS не меняет. DNS-over-HTTPS включается только переключателем ниже (через политику Windows, с подтверждением) или вручную в настройках сети Windows — например, 1.1.1.1 или 8.8.8.8.", "Lantern does not change the system DNS on its own. DNS-over-HTTPS is turned on only by the switch below (via Windows policy, with confirmation) or manually in Windows network settings — e.g. 1.1.1.1 or 8.8.8.8.");
             A("settings.hosts",       "Файл hosts", "hosts file");
             A("settings.hosts.warn",  "Найдены записи youtube — они могут мешать доступу. Проверьте файл hosts вручную.", "youtube entries found - they may block access. Check the hosts file manually.");
             A("settings.hosts.ok",    "Записей, мешающих YouTube, не обнаружено.", "No entries interfering with YouTube were found.");
@@ -233,7 +233,7 @@ namespace ZapretStudio
             A("settings.tg.desc", "Подключение локального прокси к Telegram. Параметры самой утилиты tg-ws-proxy меняются в её окне.", "Connecting the local proxy to Telegram. The tg-ws-proxy options themselves are changed in its window.");
             A("settings.tg.folder", "Папка TG-Proxy", "TG-Proxy folder");
             A("settings.tg.noClientsHint", "Клиенты Telegram не найдены — скопируйте ссылку и добавьте её вручную.", "No Telegram clients found — copy the link and add it manually.");
-            A("settings.tg.hint.notInstalled", "Прокси не установлен — скачайте его на главной странице.", "Proxy is not installed — download it on the main page.");
+            A("settings.tg.hint.notInstalled", "Скачать его можно на главной странице, кнопкой «Скачать прокси».", "You can download it on the main page with the Download proxy button.");
             A("settings.tg.hint.stopped", "Прокси остановлен — запустите его на главной странице, чтобы подключить.", "Proxy is stopped — start it on the main page to connect.");
             A("settings.tg.hint.running", "Выберите клиент или скопируйте ссылку; клиент попросит подтвердить добавление.", "Choose a client or copy the link; the client will ask for confirmation.");
             A("settings.privacy.note", "Приложение не собирает телеметрию и не отправляет данные. Проверка версии и проверка соединения обращаются только к указанным адресам и только по вашему действию.", "The app collects no telemetry and sends no data. Version and connection checks contact only the listed hosts, and only when you act.");
@@ -461,7 +461,7 @@ namespace ZapretStudio
             A("net.d.empty",     "Пустой ответ",       "Empty response");
             A("net.d.tlsTimeout", "TLS: рукопожатие не уложилось в тайм-аут", "TLS: handshake timed out");
             A("net.d.cancelled", "Проба остановлена",  "Probe stopped");
-            A("net.listEmpty",   "Список пуст.",       "The list is empty.");
+            A("net.listEmpty",   "Список целей пуст. Добавьте адреса в utils\\targets.txt (по одному на строку) или откройте вкладку «Популярные».", "The target list is empty. Add hosts to utils\\targets.txt (one per line) or open the Popular tab.");
             A("net.notFound",    "Стратегии (general*.bat) не найдены.", "Strategies (general*.bat) not found.");
             A("net.select",      "Выбрать {0}",        "Select {0}");
             A("net.ms",          " мс",   " ms");
@@ -547,7 +547,7 @@ namespace ZapretStudio
             A("filters.game.portsDesc", "По умолчанию 1024-65535. Можно изменить для исключения отдельных сервисов.", "Default: 1024-65535. Can be modified to exclude specific services.");
             A("filters.game.excludeRtmp", "Исключить RTMP (1935)", "Exclude RTMP (1935)");
             A("filters.game.locked", "🔒 Доступно в zapret 1.10.3+", "🔒 Available in zapret 1.10.3+");
-            A("filters.game.updateEngine", "Обновить движок", "Update engine");
+            A("filters.game.updateEngine", "Перейти к обновлениям", "Go to Updates");
             // Обновления
             A("updates.title", "Обновления", "Updates");
             A("updates.sub", "Проверка и установка обновлений компонентов.", "Check and install component updates.");
@@ -586,6 +586,8 @@ namespace ZapretStudio
             A("updates.integrity.repair", "Восстановить", "Repair");
             A("updates.integrity.ok", "Все файлы на месте, повреждений нет", "All files are present, no corruption");
             A("updates.integrity.found", "Проверка файлов: проблем — {0}", "File check: {0} problem(s)");
+            A("integrity.zapret", "Целостность zapret: {0}", "zapret integrity: {0}");
+            A("integrity.tg", "Целостность TG-прокси: {0}", "TG proxy integrity: {0}");
             A("updates.integrity.missingFile", "Нет файла: {0}", "Missing file: {0}");
             A("updates.integrity.corruptFile", "Повреждён: {0}", "Corrupted: {0}");
             A("updates.integrity.unreadableFile", "Не читается: {0} ({1})", "Unreadable: {0} ({1})");
@@ -791,7 +793,7 @@ namespace ZapretStudio
             // Сброс настроек
             A("settings.sec.maintenance", "Сброс и обслуживание", "Maintenance & Reset");
             A("settings.reset.btn", "Сброс до заводских настроек", "Reset to factory defaults");
-            A("settings.reset.desc", "Останавливает службу и winws, сбрасывает настройки gui-config.ini к значениям по умолчанию и очищает временные кэши.", "Stops service and winws, resets gui-config.ini to default values, and clears temporary caches.");
+            A("settings.reset.desc", "Останавливает службу и winws, сбрасывает настройки gui‑config.ini к значениям по умолчанию и очищает временные кэши.", "Stops service and winws, resets gui‑config.ini to default values, and clears temporary caches.");
             A("settings.reset.confirm", "Вы действительно хотите сбросить все настройки Lantern до заводских значений? Служба и процессы будут остановлены.", "Are you sure you want to reset all Lantern settings to factory defaults? Service and processes will be stopped.");
             A("settings.reset.ok", "Настройки успешно сброшены к значениям по умолчанию", "Settings reset to defaults successfully");
 

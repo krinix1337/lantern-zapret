@@ -945,6 +945,10 @@ namespace ZapretStudio
         // у её краёв оставалось пустое поле. Не влезает — ряд откатывается к
         // равным колонкам (ForceCols), и подпись переносится внутри элемента.
         public bool Justify;
+        // Для рядов кнопок с ForceCols: если хоть одна подпись не помещается в
+        // ячейку целиком, ряд переходит на меньше колонок (4 → 2 + 2), а не режет
+        // подпись до многоточия («Установить слу…» на 1000 px).
+        public bool WrapIfTrimmed;
 
         int _cols = 1;
         double[] _nat;          // естественная ширина элементов без ограничения
@@ -1009,6 +1013,13 @@ namespace ZapretStudio
                     int fit = (int)Math.Floor((avail + Gap) / (MinForceCell + Gap));
                     if (fit < 1) fit = 1;
                     if (fit < c) c = fit;
+                    if (WrapIfTrimmed && _nat != null && _nat.Length == n)
+                    {
+                        double maxNat = 0;
+                        for (int i = 0; i < n; i++) maxNat = Math.Max(maxNat, _nat[i]);
+                        while (c > 1 && maxNat > (avail - Gap * (c - 1)) / c)
+                            c = (c == n && n % 2 == 0 && n > 2) ? n / 2 : c - 1;
+                    }
                 }
                 return c;
             }
@@ -1055,6 +1066,7 @@ namespace ZapretStudio
                 }
             }
 
+            if (WrapIfTrimmed && !Justify) MeasureNatural();
             _cols = ColsFor(avail.Width);
             double cw = CellWidth(avail.Width);
 

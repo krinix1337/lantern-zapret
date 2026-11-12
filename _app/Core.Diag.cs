@@ -944,6 +944,30 @@ namespace ZapretStudio
             return null;
         }
 
+        // Запись итогов проверки файлов в журнал. Проверка идёт при старте и при
+        // каждом открытии «Обновлений», и журнал заполнялся одной и той же парой
+        // строк по пять раз подряд. Без force повтор того же набора проблем не
+        // пишется; force — для явного нажатия «Проверить файлы».
+        static string _lastIntegrityLog = "";
+        static readonly object _integrityLogLock = new object();
+        public static int LogIntegrity(List<string> zapret, List<string> tg, bool force)
+        {
+            var sb = new System.Text.StringBuilder();
+            int n = 0;
+            if (zapret != null) foreach (string s in zapret) { sb.Append("z:").Append(s).Append('\n'); n++; }
+            if (tg != null) foreach (string s in tg) { sb.Append("t:").Append(s).Append('\n'); n++; }
+            string key = sb.ToString();
+            lock (_integrityLogLock)
+            {
+                bool same = key == _lastIntegrityLog;
+                _lastIntegrityLog = key;
+                if (same && !force) return -1;
+            }
+            if (zapret != null) foreach (string s in zapret) Warn(string.Format(Loc.T("integrity.zapret"), s));
+            if (tg != null) foreach (string s in tg) Warn(string.Format(Loc.T("integrity.tg"), s));
+            return n;
+        }
+
         // Проверка обязательных файлов движка по манифесту SHA256SUMS.txt.
         // Пользовательские .bat, списки и настройки не считаются повреждением.
         public static List<string> EngineIntegrityIssues()

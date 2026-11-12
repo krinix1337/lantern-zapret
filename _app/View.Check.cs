@@ -283,7 +283,12 @@ namespace ZapretStudio
             if (targets.Count == 0)
             {
                 _groups.Children.Add(new TextBlock { Text = Loc.T("net.listEmpty"),
-                    Foreground = Theme.BrMuted, FontSize = Theme.FsBody, FontFamily = Theme.UiFont });
+                    Foreground = Theme.BrMuted, FontSize = Theme.FsBody, FontFamily = Theme.UiFont,
+                    TextWrapping = TextWrapping.Wrap });
+                // Проверять и экспортировать нечего — кнопки не должны выглядеть рабочими.
+                _btnAll.IsEnabled = false;
+                _btnSel.IsEnabled = false;
+                _btnExport.IsEnabled = false;
                 return panel;
             }
             string curGroup = null;
@@ -322,7 +327,10 @@ namespace ZapretStudio
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(MetricW) });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            // Колонка состояния фиксированной ширины: при Auto длинная плашка
+            // («Ошибка TLS», «Недоступен») сдвигала влево график и задержку, и
+            // колонки соседних строк не совпадали.
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(StateW) });
 
             r.Sel = Ctl.Check(string.Format(Loc.T("net.select"), t.Name));
             r.Sel.VerticalAlignment = VerticalAlignment.Center;
@@ -339,6 +347,9 @@ namespace ZapretStudio
             top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var nameTb = UI.T(t.Name, Theme.FsBody, Theme.BrText, FontWeights.SemiBold);
             nameTb.TextTrimming = TextTrimming.CharacterEllipsis;
+            // С MaxWidth меньше колонки Stretch центрирует блок — название
+            // сдвигалось вправо относительно адреса под ним.
+            nameTb.HorizontalAlignment = HorizontalAlignment.Left;
             Grid.SetColumn(nameTb, 0);
             top.Children.Add(nameTb);
             var kind = new TextBlock { Text = t.Kind == "PING" ? "Ping" : "HTTP/TLS", Foreground = Theme.BrFaint,
@@ -396,6 +407,7 @@ namespace ZapretStudio
 
             r.StatePill = Pill.Make(Sev.Neutral, Loc.T("common.waiting"));
             r.StatePill.VerticalAlignment = VerticalAlignment.Center;
+            r.StatePill.HorizontalAlignment = HorizontalAlignment.Left;
             r.StatePill.Margin = new Thickness(14, 0, 0, 0);
             Grid.SetColumn(r.StatePill, 4);
             g.Children.Add(r.StatePill);
@@ -408,6 +420,8 @@ namespace ZapretStudio
         const double SparkW = 90, SparkH = 30;
         // Ширина колонки задержки: «ping 1502 мс» в моношрифте занимает 108 px.
         const double MetricW = 118;
+        // 14 px отступа + самая широкая плашка состояния («Недоступен», «Unreachable»).
+        const double StateW = 136;
 
         // Пустой график не показываем: пунктирная базовая линия без данных
         // читалась как случайная строчка точек посреди карточки, да и 136 px

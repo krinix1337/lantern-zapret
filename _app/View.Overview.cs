@@ -138,8 +138,12 @@ namespace ZapretStudio
             g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-            var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
-            head.Children.Add(UI.Icon(Icons.Shield, 18, Theme.BrAccent, 1.8));
+            // Высота шапки — как у карточки TG с кнопкой-шестерней (30 px):
+            // иначе заголовки и крупные статусы двух карточек стояли на разной высоте.
+            var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12), MinHeight = 30 };
+            var zapIcon = UI.Icon(Icons.Shield, 18, Theme.BrAccent, 1.8);
+            zapIcon.VerticalAlignment = VerticalAlignment.Center;
+            head.Children.Add(zapIcon);
             var ht = UI.T(Loc.T("ov.zap.title"), Theme.FsSmall, Theme.BrFaint, FontWeights.SemiBold);
             ht.Margin = new Thickness(9, 0, 0, 0); ht.VerticalAlignment = VerticalAlignment.Center;
             head.Children.Add(ht);
@@ -199,6 +203,7 @@ namespace ZapretStudio
             headLeft.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             headLeft.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             var tgIcon = UI.Icon(Icons.Telegram, 18, Theme.BrAccent, 1.8);
+            tgIcon.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumn(tgIcon, 0); headLeft.Children.Add(tgIcon);
             var ht = UI.T(Loc.T("ov.sec.tg"), Theme.FsSmall, Theme.BrFaint, FontWeights.SemiBold);
             ht.Margin = new Thickness(9, 0, 0, 0); ht.VerticalAlignment = VerticalAlignment.Center;
@@ -511,7 +516,9 @@ namespace ZapretStudio
             }
             else
             {
-                _tgStatusTitle.Text = Loc.T("tg.notInstalled");
+                // Короткий заголовок, как у карточки zapret: «Прокси не установлен»
+                // на ~1000 px переносился на две строки, а подзаголовок и так это говорит.
+                _tgStatusTitle.Text = Loc.T("ov.zap.notInstalledTitle");
                 _tgStatusTitle.Foreground = Theme.BrWarn;
                 _tgStatusSub.Text = Loc.T("ov.tg.notInstalled");
                 Ctl.SetButton(_tgBtn, Loc.T("tg.download"), Icons.Download, 0);
@@ -544,12 +551,13 @@ namespace ZapretStudio
 
         void BuildQuickActions()
         {
+            // «Проверить соединение», «Выбрать стратегию» и «Журнал» повторяли
+            // пункты бокового меню и на ~1000 px обрезались до многоточий.
+            // Оставлено только то, чего в меню нет.
             Body.Children.Add(SectionLabel(Loc.T("ov.sec.quick")));
-            Body.Children.Add(Ctl.ButtonRow(
-                QA(Loc.T("ov.qa.check"), Icons.Pulse, delegate { _win.Navigate("check"); }),
-                QA(Loc.T("ov.qa.strat"), Icons.Grid, delegate { _win.Navigate("strategies"); }),
-                QA(Loc.T("ov.qa.folder"), Icons.Folder, delegate { Core.OpenFolder(Core.Root); }),
-                QA(Loc.T("ov.qa.log"), Icons.List, delegate { _win.Navigate("log"); })));
+            var folder = QA(Loc.T("ov.qa.folder"), Icons.Folder, delegate { Core.OpenFolder(Core.Root); });
+            folder.HorizontalAlignment = HorizontalAlignment.Left;
+            Body.Children.Add(folder);
         }
 
         Button QA(string text, string icon, Action act)
@@ -628,11 +636,17 @@ namespace ZapretStudio
                 Ctl.SetButton(_mainBtn, Loc.T("ov.zap.download"), Icons.Download, 0);
                 _statusCard.BorderBrush = Theme.BrStroke;
                 _statusCard.Background = Theme.BrSurface;
-                if (_restartBtn != null) _restartBtn.IsEnabled = false;
+                // Перезапускать нечего — кнопку прячем, «Скачать zapret» занимает всю ширину.
+                if (_restartBtn != null) { _restartBtn.IsEnabled = false; _restartBtn.Visibility = Visibility.Collapsed; }
                 RefreshTg();
                 return;
             }
 
+            if (_restartBtn != null && _restartBtn.Visibility != Visibility.Visible)
+            {
+                _restartBtn.Visibility = Visibility.Visible;
+                _lastRunning = null;   // перерисовать кнопки после установки zapret
+            }
             bool running = _win.IsActive2();
             bool changed = !_lastRunning.HasValue || _lastRunning.Value != running;
             _lastRunning = running;

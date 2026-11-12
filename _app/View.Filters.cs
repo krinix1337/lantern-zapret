@@ -403,7 +403,7 @@ namespace ZapretStudio
             selRow.Children.Add(_listSelector);
 
             _listCount = new TextBlock { Text = "", Foreground = Theme.BrFaint, FontSize = Theme.FsSmall,
-                FontFamily = Theme.MonoFont, VerticalAlignment = VerticalAlignment.Center,
+                FontFamily = Theme.UiFont, VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(12, 0, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
             Grid.SetColumn(_listCount, 1);
             selRow.Children.Add(_listCount);

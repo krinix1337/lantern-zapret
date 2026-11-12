@@ -449,6 +449,8 @@ namespace ZapretStudio
                 _tgChips.Children.Add(copy);
             }
 
+            // Пока прокси не установлен, папка пуста — кнопка только создавала её.
+            if (!installed) return;
             var folder = TgChip(Loc.T("settings.tg.folder"), Icons.Folder, 1);
             folder.ToolTip = Loc.T("settings.tg.folder");
             folder.Click += (s, e) =>

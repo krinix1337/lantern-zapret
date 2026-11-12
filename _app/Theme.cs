@@ -1390,7 +1390,7 @@ namespace ZapretStudio
         // у краёв оставалось пустое место, и он не соответствовал ширине блока.
         public static CellRow ButtonRow(params FrameworkElement[] items)
         {
-            var row = new CellRow { Gap = Theme.Dense(12), EvenRows = false, MinCell = 0,
+            var row = new CellRow { Gap = Theme.Dense(12), EvenRows = false, MinCell = 0, WrapIfTrimmed = true,
                 Margin = new Thickness(0, 0, 0, Theme.Dense(12)) };
             int n = 0;
             foreach (var it in items)
@@ -1412,6 +1412,7 @@ namespace ZapretStudio
         {
             var row = ButtonRow(items);
             row.Gap = Theme.Dense(4);
+            row.WrapIfTrimmed = false;   // здесь подпись переносится внутри кнопки
             foreach (UIElement fe in row.Children)
             {
                 var b = fe as Button;
