@@ -122,7 +122,7 @@ namespace ZapretStudio
             A("strat.recommend.applyQ", "Применить эту стратегию прямо сейчас?", "Apply this strategy right now?");
             A("strat.recommend.applied", "Стратегия применена: {0}", "Strategy applied: {0}");
             A("overview.title",    "Главное меню",               "Main menu");
-            A("overview.sub",      "Состояние обхода и быстрые действия.", "Bypass status and quick actions.");
+            A("overview.sub",      "Состояние обхода, Telegram-прокси и трафика.", "Bypass, Telegram proxy and traffic status.");
             A("strategies.title",  "Стратегии",           "Strategies");
             A("strategies.sub",    "Наборы параметров обхода из BAT-файлов. Логика zapret не изменяется.", "Bypass parameter sets from BAT files. Zapret logic is unchanged.");
             A("check.title",       "Проверка соединения", "Connection check");
@@ -324,7 +324,6 @@ namespace ZapretStudio
             A("ov.svc.running",   "Запущена",          "Running");
             A("ov.svc.stopped",   "Остановлена",       "Stopped");
             A("ov.svc.absent",    "Не установлена",    "Not installed");
-            A("ov.sec.quick",     "Быстрые действия",  "Quick actions");
             A("ov.sec.tg",        "Telegram-прокси",   "Telegram proxy");
             A("ov.zap.title",     "Обход блокировок",  "Bypass");
             A("ov.tg.desc",       "Локальный прокси для Telegram. Включается так же, как обход.", "Local proxy for Telegram. Toggles like the bypass.");

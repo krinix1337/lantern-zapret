@@ -344,6 +344,13 @@ namespace ZapretStudio
             NavCheck(win, "service"); ForceLayout(win); Shot(win, "section-service");
             NavCheck(win, "filters"); ForceLayout(win); Shot(win, "section-filters");
             NavCheck(win, "settings"); ForceLayout(win); Shot(win, "section-settings");
+            // Кадр секции Telegram-прокси для docs/screens/settings-tg.png — того же
+            // размера 1200×800, что и остальные разделы.
+            win.OpenTgProxySettings();
+            for (int i = 0; i < 50; i++) { System.Threading.Thread.Sleep(20); Pump(); }
+            ForceLayout(win); Shot(win, "section-settings-tg");
+            var spTg = FindPage(win) as SettingsPage;
+            if (spTg != null) { spTg.ScrollOffset = 0; Pump(); ForceLayout(win); }
             NavCheck(win, "updates"); ForceLayout(win); Shot(win, "section-updates");
             NavCheck(win, "log"); ForceLayout(win); Shot(win, "section-log");
             NavCheck(win, "about"); ForceLayout(win); Shot(win, "section-about");
