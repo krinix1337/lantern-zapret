@@ -459,7 +459,7 @@ namespace ZapretStudio
 
             r.StatePill = Pill.Make(Sev.Neutral, Loc.T("common.waiting"));
             r.StatePill.VerticalAlignment = VerticalAlignment.Center;
-            r.StatePill.HorizontalAlignment = HorizontalAlignment.Left;
+            r.StatePill.HorizontalAlignment = HorizontalAlignment.Right;   // к правому краю карточки, без пустого поля справа
             r.StatePill.Margin = new Thickness(14, 0, 0, 0);
             Grid.SetColumn(r.StatePill, 4);
             g.Children.Add(r.StatePill);
@@ -657,6 +657,9 @@ namespace ZapretStudio
 
             var np = Pill.Make(SevOf(state), StateLabel(state));
             np.VerticalAlignment = VerticalAlignment.Center;
+            // Выравнивание — как у исходной плашки в MakeRow; без этого новая
+            // плашка вставала к левому краю колонки и справа оставалось пусто.
+            np.HorizontalAlignment = HorizontalAlignment.Right;
             np.Margin = new Thickness(14, 0, 0, 0);
             var g = (Grid)r.Card.Child;
             int idx = g.Children.IndexOf(r.StatePill);
