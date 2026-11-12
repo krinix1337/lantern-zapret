@@ -72,6 +72,18 @@ namespace ZapretStudio
         {
             System.Threading.Interlocked.Increment(ref _winwsOpSeq);
             System.Threading.Interlocked.Exchange(ref _winwsOperation, 0);
+            RaiseWinwsOperationEnded();
+        }
+
+        // Конец намеренной операции. Монитор падений по нему сразу запоминает
+        // новое состояние: иначе ближайший тик видел лишь «счётчик изменился»,
+        // и winws, упавший в те же 15 с после «Запустить», не замечался вовсе.
+        public static event Action WinwsOperationEnded;
+        static void RaiseWinwsOperationEnded()
+        {
+            var h = WinwsOperationEnded;
+            if (h == null) return;
+            try { h(); } catch { }
         }
 
         // Счётчик намеренных переходов winws (начало/конец операции). Монитор
@@ -89,6 +101,7 @@ namespace ZapretStudio
         public static void MarkWinwsTransition()
         {
             System.Threading.Interlocked.Increment(ref _winwsOpSeq);
+            RaiseWinwsOperationEnded();
         }
 
         // PID процессов winws, которые завершаем сами (Kill даёт код -1). Их

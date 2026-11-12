@@ -2767,9 +2767,25 @@ namespace ZapretStudio
             _wasRunning = Core.IsWinwsRunning();
         }
 
+        void OnWinwsOperationEnded()
+        {
+            // Снимок — на UI-потоке и после выхода из EndWinwsOperation; если
+            // успела начаться следующая операция, дождёмся её конца.
+            try
+            {
+                Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
+                {
+                    if (_bypassMonitor != null && !Core.WinwsOperationActive()) MonitorSnapshot();
+                });
+            }
+            catch { }
+        }
+
         void StartBypassMonitor()
         {
             if (_bypassMonitor != null) { _bypassMonitor.Stop(); _bypassMonitor = null; }
+            Core.WinwsOperationEnded -= OnWinwsOperationEnded;
+            Core.WinwsOperationEnded += OnWinwsOperationEnded;
             MonitorSnapshot();
             _bypassMonitor = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
             _bypassMonitor.Tick += (s, e) =>
@@ -3171,7 +3187,7 @@ namespace ZapretStudio
                 Core.TrimMemory();
                 return;
             }
-            try { if (_bypassMonitor != null) _bypassMonitor.Stop(); } catch { }
+            try { Core.WinwsOperationEnded -= OnWinwsOperationEnded; if (_bypassMonitor != null) _bypassMonitor.Stop(); } catch { }
             foreach (var p in _pages.Values) { try { p.OnHide(); } catch { } }
             Loc.LanguageChanged -= OnUiChanged;
             Theme.ThemeChanged -= OnUiChanged;
