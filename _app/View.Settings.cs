@@ -88,8 +88,12 @@ namespace ZapretStudio
             Body.Children.Add(space());
             var doh = new Toggle(Loc.T("filters.doh"));
             doh.IsChecked = Core.DohMode > 0;
-            doh.Checked += (s, e) => { Core.DohMode = 1; Core.Info(Loc.T("doh.enabled")); };
-            doh.Unchecked += (s, e) => { Core.DohMode = 0; Core.Info(Loc.T("doh.disabled")); };
+            // Запись политики + ipconfig/gpupdate занимают секунды — в фоне,
+            // а не в UI-потоке, как раньше.
+            doh.Checked += (s, e) => System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                { Core.DohMode = 1; Core.Info(Loc.T("doh.enabled") + Loc.T("doh.rebootHint")); });
+            doh.Unchecked += (s, e) => System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                { Core.DohMode = 0; Core.Info(Loc.T("doh.disabled")); });
             Body.Children.Add(Row(Loc.T("filters.doh"), Loc.T("filters.doh.desc"), doh));
         }
 
@@ -301,12 +305,25 @@ namespace ZapretStudio
                 int sc = string.Compare(s1, s2, StringComparison.OrdinalIgnoreCase);
                 if (sc != 0)
                 {
-                    if (string.IsNullOrEmpty(s1)) return -1;
-                    if (string.IsNullOrEmpty(s2)) return 1;
+                    // Суффикс-хотфикс Flowseal («1.9.7b») новее версии без него, а
+                    // пре-релиз («-rc1», «beta») — наоборот старше. Раньше любой
+                    // суффикс считался новее, и 2.0-rc1 предлагался вместо 2.0.
+                    bool pre1 = IsPreRelease(s1), pre2 = IsPreRelease(s2);
+                    if (pre1 != pre2) return pre1 ? -1 : 1;
+                    if (string.IsNullOrEmpty(s1)) return pre2 ? 1 : -1;
+                    if (string.IsNullOrEmpty(s2)) return pre1 ? -1 : 1;
                     return sc;
                 }
             }
             return 0;
+        }
+
+        static bool IsPreRelease(string suffix)
+        {
+            if (string.IsNullOrEmpty(suffix)) return false;
+            string x = suffix.ToLowerInvariant();
+            return x[0] == '-' || x.Contains("alpha") || x.Contains("beta") || x.Contains("rc")
+                || x.Contains("pre") || x.Contains("dev") || x.Contains("preview");
         }
 
         static string TrimZeroComponents(string v)
@@ -682,19 +699,37 @@ namespace ZapretStudio
                     MessageBoxImage.Warning);
                 if (res != MessageBoxResult.Yes) return;
 
-                string error;
-                if (Core.FactoryReset(out error))
+                // sc stop + ожидание + остановка winws и прокси занимают до ~30 с:
+                // раньше всё это шло в UI-потоке и окно замирало.
+                resetBtn.IsEnabled = false;
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
                 {
-                    _win.ShowToast(Loc.T("settings.reset.ok"), Sev.Ok);
-                    Core.Good(Loc.T("settings.reset.ok"));
-                    MessageBox.Show(Loc.T("settings.reset.ok"), Loc.T("settings.reset.btn"), MessageBoxButton.OK, MessageBoxImage.Information);
-                }
-                else
-                {
-                    _win.ShowToast(error ?? "Reset failed", Sev.Err);
-                    Core.Fail(error ?? "Reset failed");
-                    MessageBox.Show(error ?? "Reset failed", Loc.T("settings.reset.btn"), MessageBoxButton.OK, MessageBoxImage.Error);
-                }
+                    string error;
+                    bool ok = Core.FactoryReset(out error);
+                    try
+                    {
+                        Dispatcher.BeginInvoke((Action)delegate
+                        {
+                            resetBtn.IsEnabled = true;
+                            if (ok)
+                            {
+                                // Как при первом запуске: тема по настройке Windows,
+                                // а не всегда тёмная.
+                                Theme.Apply(App.IsWindowsLightTheme() ? ThemeMode.Light : ThemeMode.Dark);
+                                _win.ShowToast(Loc.T("settings.reset.ok"), Sev.Ok);
+                                Core.Good(Loc.T("settings.reset.ok"));
+                                MessageBox.Show(Loc.T("settings.reset.ok"), Loc.T("settings.reset.btn"), MessageBoxButton.OK, MessageBoxImage.Information);
+                            }
+                            else
+                            {
+                                _win.ShowToast(error ?? "Reset failed", Sev.Err);
+                                Core.Fail(error ?? "Reset failed");
+                                MessageBox.Show(error ?? "Reset failed", Loc.T("settings.reset.btn"), MessageBoxButton.OK, MessageBoxImage.Error);
+                            }
+                        });
+                    }
+                    catch { }
+                });
             };
             Body.Children.Add(ActionCard(Icons.Alert, Theme.BrWarn,
                 Loc.T("settings.reset.desc"), Sev.Warn, resetBtn));

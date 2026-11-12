@@ -287,7 +287,10 @@ namespace ZapretStudio
             try
             {
                 string backup = IpsetFile + ".backup";
-                string current = IpsetStatus();
+                // Состояние файла, а не IpsetStatus(): при ipset_enabled=0 тот
+                // отвечает «none», и выбор none/any затирал загруженный список
+                // без резервной копии.
+                string current = IpsetFileMode(IpsetFile);
                 if (mode == "loaded")
                 {
                     if (File.Exists(backup))

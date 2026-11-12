@@ -213,6 +213,7 @@ namespace ZapretStudio
                 // STOP_PENDING). Одиночная проверка отменяла обновление с «выключите
                 // обход» ровно тогда, когда приложение обход уже остановило само.
                 var targets = CollectTargets(src, destDir);
+                PreserveUserData(targets, destDir);
                 var locked = new List<string>();
                 for (int attempt = 0; attempt < LockCheckTries; attempt++)
                 {
@@ -230,6 +231,7 @@ namespace ZapretStudio
                 if (onStage != null) onStage("replace");
                 var copyErrors = new List<string>();
                 CopyStaged(targets, copyErrors);
+                if (copyErrors.Count == 0) RemoveStaleStrategies(src, destDir);
                 DeleteDirSafe(tmp);
                 if (copyErrors.Count > 0)
                 {
@@ -317,6 +319,93 @@ namespace ZapretStudio
                     continue;
                 CollectTargetsRec(d, Path.Combine(dst, dirName), list, tail, depth + 1);
             }
+        }
+
+        // Обновление копировало поверх всё содержимое архива. Пользовательские
+        // данные при этом терялись:
+        //  * lists/ipset-all.txt — выбранный режим ipset (none/any) сбрасывался в
+        //    loaded, а .backup оставался старым;
+        //  * *-user.txt и utils/targets.txt — правки пользователя затирались.
+        // Теперь такие файлы не перезаписываются, а новый ipset-список в режимах
+        // none/any кладётся в .backup — его вернёт выбор режима loaded.
+        static void PreserveUserData(List<string[]> targets, string destDir)
+        {
+            string ipsetDest = Path.GetFullPath(Path.Combine(destDir, "lists", "ipset-all.txt"));
+            string targetsDest = Path.GetFullPath(Path.Combine(destDir, "utils", "targets.txt"));
+            string ipsetMode = IpsetFileMode(ipsetDest);
+            for (int i = targets.Count - 1; i >= 0; i--)
+            {
+                string dest;
+                try { dest = Path.GetFullPath(targets[i][1]); } catch { continue; }
+                string name = Path.GetFileName(dest);
+                bool exists = File.Exists(dest);
+                if (string.Equals(dest, ipsetDest, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (ipsetMode != "loaded" && exists)
+                        targets[i] = new string[] { targets[i][0], dest + ".backup" };
+                    continue;
+                }
+                if (exists && (string.Equals(dest, targetsDest, StringComparison.OrdinalIgnoreCase) ||
+                               name.EndsWith("-user.txt", StringComparison.OrdinalIgnoreCase)))
+                    targets.RemoveAt(i);
+            }
+        }
+
+        // Режим ipset по содержимому файла (без учёта ipset_enabled — для
+        // обновления важно только, что лежит на диске).
+        static string IpsetFileMode(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return "any";
+                bool any = true;
+                foreach (var l in File.ReadAllLines(path))
+                {
+                    string t = l.Trim();
+                    if (t.Length == 0 || t.StartsWith("#")) continue;
+                    if (t.Contains(IpsetSentinel)) return "none";
+                    any = false;
+                }
+                return any ? "any" : "loaded";
+            }
+            catch { return "loaded"; }
+        }
+
+        const string StrategyManifestName = ".lantern-strategies";
+
+        // Стратегии, которых больше нет в новом релизе, оставались на диске и
+        // продолжали показываться в списке. Удаляем только те, что пришли из
+        // прошлого обновления (список в utils/.lantern-strategies): свои
+        // general-*.bat пользователя не трогаем.
+        static void RemoveStaleStrategies(string src, string destDir)
+        {
+            try
+            {
+                var fresh = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var f in Directory.GetFiles(src, "*.bat")) fresh.Add(Path.GetFileName(f));
+                string manifest = Path.Combine(destDir, "utils", StrategyManifestName);
+                if (File.Exists(manifest))
+                {
+                    foreach (var line in File.ReadAllLines(manifest))
+                    {
+                        string name = line.Trim();
+                        if (name.Length == 0 || fresh.Contains(name)) continue;
+                        if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) continue;
+                        string old = Path.Combine(destDir, name);
+                        try
+                        {
+                            if (File.Exists(old)) { File.Delete(old); Info(string.Format(Loc.T("dl.staleRemoved"), name)); }
+                        }
+                        catch (Exception ex) { Warn(name + ": " + Short(ex.Message)); }
+                    }
+                }
+                string dir = Path.GetDirectoryName(manifest);
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                var names = new List<string>(fresh);
+                names.Sort(StringComparer.OrdinalIgnoreCase);
+                File.WriteAllLines(manifest, names.ToArray());
+            }
+            catch (Exception ex) { Warn("RemoveStaleStrategies: " + Short(ex.Message)); }
         }
 
         static void CopyStaged(List<string[]> targets, List<string> errors)

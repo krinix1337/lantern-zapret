@@ -87,10 +87,18 @@ public static string Bin        { get { if (_bin == null) _bin = Path.Combine(Sa
 
         public static bool LocateRoot()
         {
-            // 1) поиск от каталога exe вверх
+            // 1) поиск от каталога exe вверх — только каталог exe и его родитель.
+            // Раньше поиск шёл на 6 уровней, вплоть до корня диска: обычный
+            // пользователь может создать C:\zapret\bin\winws.exe, и приложение с
+            // правами администратора приняло бы этот корень и запустило чужой
+            // winws (в том числе службой SYSTEM). Корень диска не проверяем никогда.
             string dir = AppDomain.CurrentDomain.BaseDirectory;
-            for (int i = 0; i < 6 && dir != null; i++)
+            for (int i = 0; i < 2 && dir != null; i++)
             {
+                string trimmed = dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string driveRoot = Path.GetPathRoot(dir) ?? "";
+                if (trimmed.Length == 0 || string.Equals(trimmed, driveRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+                    break;
                 if (File.Exists(Path.Combine(dir, "bin", "winws.exe"))) { SetRoot(dir); return true; }
                 // Приложение скачивает компоненты в подпапку «zapret» рядом с exe,
                 // поэтому поиск только вверх её не видел: после потери gui-config.ini

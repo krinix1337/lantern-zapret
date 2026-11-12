@@ -55,19 +55,22 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent shellexec
 
 [UninstallRun]
-; Stop and delete the zapret service and WinDivert drivers if they were installed
-Filename: "{sys}\net.exe"; Parameters: "stop zapret"; Flags: runhidden
+; Stop and delete the zapret service and WinDivert drivers if they were installed.
+; RunOnceId обязателен для [UninstallRun] в Inno 6 (иначе предупреждение
+; компилятора и повтор записи при нескольких установках поверх).
+Filename: "{sys}\net.exe"; Parameters: "stop zapret"; Flags: runhidden; RunOnceId: "StopZapret"
 ; Ручной запуск winws службой не управляется. Без снятия процесса
 ; {app}\zapret\bin не удаляется: winws.exe и WinDivert64.sys залочены.
-Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM winws.exe /T"; Flags: runhidden
-Filename: "{sys}\sc.exe"; Parameters: "delete zapret"; Flags: runhidden
-Filename: "{sys}\net.exe"; Parameters: "stop WinDivert"; Flags: runhidden
-Filename: "{sys}\sc.exe"; Parameters: "delete WinDivert"; Flags: runhidden
-Filename: "{sys}\net.exe"; Parameters: "stop WinDivert14"; Flags: runhidden
-Filename: "{sys}\sc.exe"; Parameters: "delete WinDivert14"; Flags: runhidden
-Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM TgWsProxy_windows.exe /T"; Flags: runhidden
+; Снимаем только процессы из папки {app}: прежний taskkill /IM winws.exe
+; убивал и winws других копий zapret, чего само приложение сознательно избегает.
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ""Get-Process winws,TgWsProxy_windows -ErrorAction SilentlyContinue | Where-Object {{ $_.Path -and $_.Path.StartsWith('{app}\', [StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force"""; Flags: runhidden; RunOnceId: "KillAppProcesses"
+Filename: "{sys}\sc.exe"; Parameters: "delete zapret"; Flags: runhidden; RunOnceId: "DeleteZapret"
+Filename: "{sys}\net.exe"; Parameters: "stop WinDivert"; Flags: runhidden; RunOnceId: "StopWinDivert"
+Filename: "{sys}\sc.exe"; Parameters: "delete WinDivert"; Flags: runhidden; RunOnceId: "DeleteWinDivert"
+Filename: "{sys}\net.exe"; Parameters: "stop WinDivert14"; Flags: runhidden; RunOnceId: "StopWinDivert14"
+Filename: "{sys}\sc.exe"; Parameters: "delete WinDivert14"; Flags: runhidden; RunOnceId: "DeleteWinDivert14"
 ; Remove scheduled autostart task if registered
-Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN ""LanternAutostart"""; Flags: runhidden
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /F /TN ""LanternAutostart"""; Flags: runhidden; RunOnceId: "DeleteAutostartTask"
 
 [UninstallDelete]
 ; Движок и бинарники — удаляем всегда

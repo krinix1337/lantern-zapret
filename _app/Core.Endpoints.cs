@@ -317,6 +317,8 @@ namespace ZapretStudio
                     if (next == 'n') { sb.Append('\n'); i++; continue; }
                     if (next == 'r') { i++; continue; }
                     if (next == 't') { sb.Append('\t'); i++; continue; }
+                    if (next == 'b') { sb.Append('\b'); i++; continue; }
+                    if (next == 'f') { sb.Append('\f'); i++; continue; }
                     if (next == '"' || next == '\\' || next == '/') { sb.Append(next); i++; continue; }
                     if (next == 'u' && i + 5 < text.Length)
                     {
@@ -423,7 +425,9 @@ namespace ZapretStudio
             if (line.Length == 0) return "";
 
             int indent = line.Length - line.TrimStart().Length;
-            string pad = indent > 4 ? line.Substring(0, 4) : "";   // вложенность списков — до 4 пробелов
+            // Вложенность списков — до 4 пробелов. Условие было перевёрнуто
+            // (indent > 4 ? ... : ""), и отступ 2–4 пробела терялся полностью.
+            string pad = indent > 0 ? new string(' ', Math.Min(indent, 4)) : "";
             line = line.TrimStart();
 
             // Fence блокового кода: ``` без содержимого просто убираем.

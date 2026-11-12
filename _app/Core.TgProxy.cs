@@ -642,6 +642,8 @@ namespace ZapretStudio
             error = null;
             try
             {
+                // Без прав администратора: иначе Telegram стартовал повышенным.
+                if (ShellOpenUnelevated(link)) return true;
                 Process.Start(new ProcessStartInfo { FileName = link, UseShellExecute = true });
                 return true;
             }
@@ -664,6 +666,7 @@ namespace ZapretStudio
                     error = Loc.T("ov.tg.clientMissing");
                     return false;
                 }
+                if (StartUnelevated(exe, "\"" + link + "\"", null)) return true;
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = exe,

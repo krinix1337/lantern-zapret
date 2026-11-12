@@ -619,10 +619,18 @@ namespace ZapretStudio
             }
 
             // API мог быть недоступен (лимит запросов, блокировка api.github.com) —
-            // тогда берём прямую ссылку «последний релиз». Хеш при этом остаётся
-            // неизвестным: SelfUpdate предупредит, но не станет выдумывать URL.
+            // тогда берём прямую ссылку «последний релиз». release.yml теперь
+            // публикует Lantern-Setup.exe.sha256 рядом с установщиком, поэтому и
+            // хеш берём по такой же прямой ссылке. Раньше хеш в этой ветке
+            // оставался неизвестным, и без API самообновление не работало вовсе.
+            // Если у релиза файла нет (старые релизы), SelfUpdate получит 404 и
+            // так же откажется ставить непроверенный установщик.
             if (string.IsNullOrEmpty(installerUrl))
+            {
                 installerUrl = Endpoints.AppInstallerLatestUrl;
+                if (string.IsNullOrEmpty(sha256Url))
+                    sha256Url = Endpoints.AppInstallerLatestUrl + ".sha256";
+            }
         }
 
         // JSON последнего релиза из GitHub API или null.
@@ -789,7 +797,7 @@ namespace ZapretStudio
                 LastApiError = friendly;
                 if (cached != null)
                 {
-                    Warn("release api " + releaseApi + ": " + friendly + " — используется кэш");
+                    Warn("release api " + releaseApi + ": " + friendly + Loc.T("diag.usingCache"));
                     return cached.Json;
                 }
                 Warn("release api " + releaseApi + ": " + friendly);
@@ -800,7 +808,7 @@ namespace ZapretStudio
                 LastApiError = Loc.T("updates.apiUnavailable");
                 if (cached != null)
                 {
-                    Warn("release api " + releaseApi + ": " + Short(ex.Message) + " — используется кэш");
+                    Warn("release api " + releaseApi + ": " + Short(ex.Message) + Loc.T("diag.usingCache"));
                     return cached.Json;
                 }
                 Warn("release api " + releaseApi + ": " + Short(ex.Message));
@@ -1015,13 +1023,20 @@ namespace ZapretStudio
         public static string Mask(string text)
         {
             if (string.IsNullOrEmpty(text)) return text;
-            string user = Environment.UserName;
-            if (!string.IsNullOrEmpty(user))
-                text = System.Text.RegularExpressions.Regex.Replace(text, System.Text.RegularExpressions.Regex.Escape(user), "USER",
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            // Сначала путь профиля (без учёта регистра — Windows так пишет пути по-
+            // разному), потом имя пользователя. При прежнем порядке имя заменялось
+            // первым, путь профиля портился и замена %USERPROFILE% не срабатывала.
             string prof = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             if (!string.IsNullOrEmpty(prof))
-                text = text.Replace(prof, "%USERPROFILE%");
+                text = System.Text.RegularExpressions.Regex.Replace(text, System.Text.RegularExpressions.Regex.Escape(prof),
+                    "%USERPROFILE%", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            // Имя — только отдельным словом: подстрочная замена при коротком имени
+            // («Al», «max») портила обычные слова по всему тексту диагностики.
+            string user = Environment.UserName;
+            if (!string.IsNullOrEmpty(user))
+                text = System.Text.RegularExpressions.Regex.Replace(text,
+                    @"(?<![\p{L}\p{N}_])" + System.Text.RegularExpressions.Regex.Escape(user) + @"(?![\p{L}\p{N}_])", "USER",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             // приватные диапазоны IPv4 (RFC1918 + link-local + loopback); публичные
             // адреса вида 192.0.2.x или 172.32.x не маскируются.
             text = System.Text.RegularExpressions.Regex.Replace(text,
@@ -1147,6 +1162,14 @@ namespace ZapretStudio
                         k.SetValue("ProxyEnable", 0, Microsoft.Win32.RegistryValueKind.DWord);
                     }
                 }
+                // Без уведомления WinINet запущенные программы (браузеры, Telegram)
+                // продолжали ходить через старый прокси до перезапуска.
+                try
+                {
+                    InternetSetOption(IntPtr.Zero, InternetOptionSettingsChanged, IntPtr.Zero, 0);
+                    InternetSetOption(IntPtr.Zero, InternetOptionRefresh, IntPtr.Zero, 0);
+                }
+                catch { }
                 return true;
             }
             catch (Exception ex)
@@ -1155,6 +1178,11 @@ namespace ZapretStudio
                 return false;
             }
         }
+
+        const int InternetOptionSettingsChanged = 39;
+        const int InternetOptionRefresh = 37;
+        [System.Runtime.InteropServices.DllImport("wininet.dll", SetLastError = true)]
+        static extern bool InternetSetOption(IntPtr hInternet, int dwOption, IntPtr lpBuffer, int dwBufferLength);
 
         // Проверка наличия службы zapret, зарегистрированной из другой папки
         public static string GetForeignServiceImagePath()
@@ -1170,7 +1198,9 @@ namespace ZapretStudio
                     if (string.IsNullOrEmpty(imagePath)) return null;
 
                     string normRoot = Path.GetFullPath(Root).TrimEnd('\\', '/');
-                    if (imagePath.IndexOf(normRoot, StringComparison.OrdinalIgnoreCase) < 0)
+                    // С разделителем на конце: иначе C:\zapret совпадал и с
+                    // C:\zapret2\bin\winws.exe, и чужая служба считалась своей.
+                    if (imagePath.IndexOf(normRoot + "\\", StringComparison.OrdinalIgnoreCase) < 0)
                     {
                         return imagePath;
                     }
@@ -1218,7 +1248,10 @@ namespace ZapretStudio
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
                 var sw = Stopwatch.StartNew();
-                string targetUrl = "https://www.youtube.com/s/desktop/28dcbbff/jsbin/desktop_polymer.vflset/desktop_polymer.js";
+                // Главная страница YouTube — сотни килобайт и постоянный адрес.
+                // Прежний URL содержал хеш сборки (/s/desktop/28dcbbff/...): такие
+                // ссылки быстро протухают, и тест показывал «нет соединения» на 404.
+                string targetUrl = "https://www.youtube.com/";
                 int targetBytes = 65536; // 64 КБ
                 int totalRead = 0;
                 bool success = false;
@@ -1262,7 +1295,11 @@ namespace ZapretStudio
                     }
                     else
                     {
-                        detail = string.Format(Loc.T("check.diag.dpiFreezeNoConn"), wex.Status);
+                        // HTTP-ошибка (ответ сервера есть) — это не «нет соединения»:
+                        // показываем код ответа, а не WebExceptionStatus.ProtocolError.
+                        var hr = wex.Response as HttpWebResponse;
+                        string why = hr != null ? "HTTP " + (int)hr.StatusCode : wex.Status.ToString();
+                        detail = string.Format(Loc.T("check.diag.dpiFreezeNoConn"), why);
                     }
                 }
                 catch (Exception ex)
@@ -1287,11 +1324,23 @@ namespace ZapretStudio
         public static bool FactoryReset(out string error)
         {
             error = null;
+            // Сброс останавливает службу и winws — держим общую блокировку, как
+            // все остальные операции с winws (иначе он рвал массовую проверку).
+            if (!TryBeginWinwsOperation()) { error = Loc.T("mw.busy"); return false; }
             try
             {
-                StopService();
+                if (ServiceState() == "running")
+                {
+                    StopService();
+                    WaitServiceStopped(8000);
+                }
                 KillWinws();
                 if (TgProxyRunning()) TgProxyStop();
+                // Автозапуск — тоже настройка: после сброса задача планировщика и
+                // запись TG в Run продолжали запускать приложение и прокси, хотя
+                // в «чистом» конфиге они выключены.
+                try { if (AppAutostartEnabled()) SetAppAutostart(false); } catch { }
+                try { if (TgAutostartEnabled()) SetTgAutostart(false); } catch { }
 
                 string local = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "gui-config.ini");
                 string utilsCfg = !string.IsNullOrEmpty(Root) ? Path.Combine(Root, "utils", "gui-config.ini") : null;
@@ -1304,7 +1353,8 @@ namespace ZapretStudio
                 }
 
                 lock (Log) { Log.Clear(); }
-                Theme.Apply(ThemeMode.Dark);
+                // Тему применяет вызывающая сторона в UI-потоке (как при первом
+                // запуске — по теме Windows): сам сброс идёт в фоновом потоке.
                 return error == null;
             }
             catch (Exception ex)
@@ -1313,6 +1363,7 @@ namespace ZapretStudio
                 Fail("FactoryReset: " + ex.Message);
                 return false;
             }
+            finally { EndWinwsOperation(); }
         }
     }
 }

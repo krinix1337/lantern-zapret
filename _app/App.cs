@@ -332,7 +332,7 @@ namespace ZapretStudio
             catch { }
         }
 
-        static bool IsWindowsLightTheme()
+        internal static bool IsWindowsLightTheme()
         {
             try
             {

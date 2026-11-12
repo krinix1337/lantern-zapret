@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -15,6 +16,10 @@ namespace ZapretStudio
         Border _statePill, _wdPill;
         TextBlock _stratVal;
         ComboBox _stratPick;
+        // Файлы в том же порядке, что и строки комбобокса. Раньше файл брали по
+        // индексу из свежего GetStrategyFiles(): если список стратегий успел
+        // измениться (обновление zapret), ставилась не та стратегия.
+        List<string> _stratFiles = new List<string>();
         DispatcherTimer _timer;
 
         // Элементы управления автозапуском
@@ -88,7 +93,8 @@ namespace ZapretStudio
             Body.Children.Add(SectionLabel(Loc.T("service.sec.serviceConfig")));
             _stratPick = Combo(380);
             Ctl.AutomationSetName(_stratPick, Loc.T("service.pick.name"));
-            foreach (var f in Core.GetStrategyFiles()) _stratPick.Items.Add(Core.PrettyName(f));
+            _stratFiles = new List<string>(Core.GetStrategyFiles());
+            foreach (var f in _stratFiles) _stratPick.Items.Add(Core.PrettyName(f));
             if (_stratPick.Items.Count > 0) _stratPick.SelectedIndex = 0;
             Body.Children.Add(Row(Loc.T("service.which"), Loc.T("service.which.desc"), _stratPick));
 
@@ -205,7 +211,7 @@ namespace ZapretStudio
 
         void DoInstall()
         {
-            var files = Core.GetStrategyFiles();
+            var files = _stratFiles;
             int idx = _stratPick.SelectedIndex;
             if (idx < 0 || idx >= files.Count) { Core.Warn(Loc.T("service.noStrat")); return; }
             string file = files[idx];
@@ -217,6 +223,9 @@ namespace ZapretStudio
             Guarded(Loc.T("service.task.install"), delegate
             {
                 if (!Core.InstallService(file)) throw new Exception("service installation failed");
+                // Стратегия службы становится текущей: иначе шапка, watchdog и
+                // перезапуск продолжали работать с прежней выбранной стратегией.
+                _win.SetCurrentStrategyQuiet(file);
                 Core.Good(string.Format(Loc.T("service.installed"), name));
             });
         }
@@ -251,10 +260,16 @@ namespace ZapretStudio
             // это остановка плюс удаление), поэтому действие уходит в пул потоков:
             // раньше окно на это время полностью замирало. Журнал потокобезопасен,
             // а перерисовка страницы возвращается в UI-поток.
+            // Все действия этой страницы останавливают или подменяют winws:
+            // держим общую блокировку, иначе установка службы посреди массовой
+            // проверки стратегий убивала тестируемый winws, а двойной клик
+            // запускал две установки параллельно.
+            if (!Core.TryBeginWinwsOperation()) { _win.Warn(Loc.T("mw.busy")); return; }
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
                 try { act(); }
                 catch (Exception ex) { Core.Fail(what + ": " + ex.Message); }
+                finally { Core.EndWinwsOperation(); }
                 try { Dispatcher.BeginInvoke(DispatcherPriority.Normal, (Action)delegate { Refresh(); }); }
                 catch { }
             });
@@ -299,9 +314,9 @@ namespace ZapretStudio
                 // Индекс снимаем здесь, в UI-потоке: тело Guarded выполняется в пуле,
                 // а SelectedIndex принадлежит WPF-контролу.
                 int pick = _stratPick != null ? _stratPick.SelectedIndex : -1;
+                var files = _stratFiles;
                 Guarded(Loc.T("service.foreign.takeover"), delegate
                 {
-                    var files = Core.GetStrategyFiles();
                     string strat = (pick >= 0 && pick < files.Count) ? files[pick] : null;
                     if (Core.TakeoverForeignService(strat))
                     {

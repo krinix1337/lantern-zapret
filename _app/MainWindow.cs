@@ -1825,6 +1825,15 @@ namespace ZapretStudio
         public bool IsActive2() { return Core.ServiceState() == "running" || Core.IsWinwsRunning(); }
         public string CurrentMode() { return Core.ServiceState() == "running" ? Loc.T("mode.service") : (Core.IsWinwsRunning() ? Loc.T("mode.manual") : "—"); }
         public string CurrentStrategyFile() { return _currentStrategyFile; }
+        // Запомнить стратегию как текущую без запуска (например, после установки
+        // службы с этой стратегией). Можно звать из любого потока.
+        public void SetCurrentStrategyQuiet(string file)
+        {
+            if (string.IsNullOrEmpty(file)) return;
+            _currentStrategyFile = file;
+            Core.Set("last_strategy", file); Core.SaveConfig();
+            UiPost(delegate { RefreshTop(); });
+        }
         public string CurrentStrategyName()
         {
             if (Core.ServiceState() == "running") { string s = Core.ServiceStrategy(); if (!string.IsNullOrEmpty(s)) return s; }
@@ -1879,10 +1888,48 @@ namespace ZapretStudio
             RefreshTop();
 #else
             Core.Set("last_strategy", file); Core.SaveConfig();
-            if (Core.IsWinwsRunning()) RunStrategy(file);
+            // Обход работает службой — меняем стратегию службы. Раньше
+            // RunStrategy останавливал службу и поднимал winws вручную: служба
+            // оставалась с start= auto и старой стратегией и возвращалась после
+            // перезагрузки.
+            if (Core.ServiceState() == "running") ReinstallServiceWith(file);
+            else if (Core.IsWinwsRunning()) RunStrategy(file);
             else Core.Info(string.Format(Loc.T("mw.stratSelected"), Core.PrettyName(file)));
             RefreshTop();
 #endif
+        }
+
+        void ReinstallServiceWith(string file)
+        {
+            if (!Core.IsAdmin()) { UiPost(delegate { NeedAdmin(Loc.T("mw.startBypassAct")); }); return; }
+            int req = _strategyRequest;
+            UiPost(delegate { if (_overview != null) _overview.SetZapretTransition(true); });
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                if (!Core.TryBeginWinwsOperation())
+                {
+                    Warn(Loc.T("mw.busy"));
+                    UiPost(delegate { if (_overview != null) _overview.SetZapretTransition(false); });
+                    return;
+                }
+                try
+                {
+                    Core.Info(string.Format(Loc.T("mw.startingLog"), Core.PrettyName(file)));
+                    if (!Core.InstallService(file)) throw new Exception("service installation failed");
+                    Core.Good(string.Format(Loc.T("mw.startedToast"), Core.PrettyName(file)));
+                    UiPost(delegate { ShowToast(string.Format(Loc.T("mw.startedToast"), Core.PrettyName(file)), Sev.Ok); });
+                }
+                catch (Exception ex) { Core.Fail(string.Format(Loc.T("mw.startErr"), ex.Message)); }
+                finally
+                {
+                    Core.EndWinwsOperation();
+                    UiPost(delegate
+                    {
+                        if (req == _strategyRequest && _overview != null) _overview.SetZapretTransition(false);
+                        RefreshTop();
+                    });
+                }
+            });
         }
 
         // Выполнить действие в UI-потоке. Вызывать можно из любого потока: фоновые
@@ -2125,30 +2172,31 @@ namespace ZapretStudio
             finally { Core.EndWinwsOperation(); }
         }
 
+        // Не блокирует вызывающий поток: «sc start» ждёт до 20 с, а вызывают
+        // этот метод в том числе через Dispatcher.Invoke (окно замерзало).
         public void RestartInSameMode(bool wasService, bool wasManual, string prevStrat)
         {
-            try
+            if (wasService)
             {
-                if (wasService)
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
                 {
-                    Core.StartService();
-                }
-                else if (wasManual && !string.IsNullOrEmpty(prevStrat))
-                {
-                    RunStrategy(prevStrat);
-                }
+                    if (!Core.TryBeginWinwsOperation()) { Warn(Loc.T("mw.busy")); return; }
+                    try
+                    {
+                        if (!Core.StartService()) Core.Warn("RestartInSameMode: sc start failed");
+                    }
+                    catch (Exception ex) { Core.Warn("RestartInSameMode: " + Core.Short(ex.Message)); }
+                    finally
+                    {
+                        Core.EndWinwsOperation();
+                        UiPost(delegate { RefreshTop(); });
+                    }
+                });
             }
-            catch (Exception ex)
+            else if (wasManual && !string.IsNullOrEmpty(prevStrat))
             {
-                Core.Warn("RestartInSameMode: " + Core.Short(ex.Message));
+                RunStrategy(prevStrat);
             }
-        }
-
-        public void RestartInSameMode(string prevStrat)
-        {
-            bool asService = Core.ServiceState() == "running";
-            bool asManual = !asService && Core.IsWinwsRunning();
-            RestartInSameMode(asService, asManual, prevStrat);
         }
 
         bool RestartTgProxyCore()
@@ -2436,38 +2484,24 @@ namespace ZapretStudio
 
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
+                bool stopAttempted = false;
+                Action restoreBypass = delegate
+                {
+                    stopAttempted = false;
+                    try
+                    {
+                        if (restartService)
+                        {
+                            if (Core.ServiceExists() && Core.ServiceState() != "running")
+                                RestartInSameMode(true, false, restartStrategy);
+                        }
+                        else if (restartManual && !string.IsNullOrEmpty(restartStrategy) && !Core.IsWinwsRunning())
+                            RunStrategy(restartStrategy);
+                    }
+                    catch (Exception exRestore) { Core.Warn("Update: restore bypass: " + Core.Short(exRestore.Message)); }
+                };
                 try
                 {
-                    // Остановка обязана завершиться до распаковки, иначе winws
-                    // держит файлы в bin. Ждём здесь, в фоновом потоке: асинхронный
-                    // StopAll() не давал такой гарантии, а синхронный вызов в
-                    // UI-потоке замораживал окно на время «sc stop».
-                    // Результат больше не отбрасывается: при незавершённой
-                    // остановке пофайловая замена оставляла установку из двух версий.
-                    if ((restartService || restartManual) && !StopAllCore())
-                    {
-                        Dispatcher.Invoke((Action)delegate
-                        {
-                            _updateLine.Text = Loc.T("mw.updStopFail");
-                            FinishZapretUpdate(Loc.T("mw.updStopFail"), false);
-                            Core.Fail(Loc.T("mw.updStopFail"));
-                        });
-                        return;
-                    }
-                    // winws остановлен, но служба WinDivert ещё держит
-                    // bin/WinDivert64.sys — без её остановки замена падает
-                    // на проверке блокировок уже после скачивания архива.
-                    string wdErr;
-                    if (!Core.PrepareWinDivertForUpdate(out wdErr))
-                    {
-                        Dispatcher.Invoke((Action)delegate
-                        {
-                            _updateLine.Text = Loc.T("mw.updWdFail");
-                            FinishZapretUpdate(wdErr, false);
-                            Core.Fail(wdErr);
-                        });
-                        return;
-                    }
                     // Архив и распаковка идут в %TEMP%, замена файлов идёт в корень
                     // zapret. Без проверки места оба этапа обрывались на середине.
                     long freeTmp = Core.FreeSpaceOf(System.IO.Path.GetTempPath());
@@ -2531,6 +2565,40 @@ namespace ZapretStudio
                         return;
                     }
 
+                    // Остановка обязана завершиться до распаковки, иначе winws
+                    // держит файлы в bin. Ждём здесь, в фоновом потоке: асинхронный
+                    // StopAll() не давал такой гарантии, а синхронный вызов в
+                    // UI-потоке замораживал окно на время «sc stop».
+                    // Результат больше не отбрасывается: при незавершённой
+                    // остановке пофайловая замена оставляла установку из двух версий.
+                    // Скачивание и проверка хеша выше идут при работающем обходе:
+                    // раньше обход останавливали первым делом, и архив с GitHub
+                    // приходилось качать уже без него.
+                    if (restartService || restartManual) stopAttempted = true;
+                    if ((restartService || restartManual) && !StopAllCore())
+                    {
+                        Dispatcher.Invoke((Action)delegate
+                        {
+                            _updateLine.Text = Loc.T("mw.updStopFail");
+                            FinishZapretUpdate(Loc.T("mw.updStopFail"), false);
+                            Core.Fail(Loc.T("mw.updStopFail"));
+                        });
+                        return;
+                    }
+                    // winws остановлен, но служба WinDivert ещё держит
+                    // bin/WinDivert64.sys — без её остановки замена падает
+                    // на проверке блокировок уже после скачивания архива.
+                    string wdErr;
+                    if (!Core.PrepareWinDivertForUpdate(out wdErr))
+                    {
+                        Dispatcher.Invoke((Action)delegate
+                        {
+                            _updateLine.Text = Loc.T("mw.updWdFail");
+                            FinishZapretUpdate(wdErr, false);
+                            Core.Fail(wdErr);
+                        });
+                        return;
+                    }
                     string err;
                     bool ex = Core.ExtractZapretZip(zip, root, out err, delegate (string stage)
                     {
@@ -2547,6 +2615,9 @@ namespace ZapretStudio
                         catch { }
                     });
                     Core.DeleteDirSafe(tmpDir);
+                    // Поднимаем обход сразу, до модального окна с описанием
+                    // релиза: иначе он ждал, пока пользователь нажмёт «ОК».
+                    if (stopAttempted) restoreBypass();
 
                     string changelog = null;
                     if (ex) { try { changelog = Core.FetchChangelog(); } catch { } }
@@ -2599,13 +2670,6 @@ namespace ZapretStudio
                         }
                     });
 
-                    // Восстановление обхода после обновления делаем здесь, в фоновом
-                    // потоке: «sc start» отвечает до 20 с и в UI-потоке подвешивал окно.
-                    if (ex)
-                    {
-                        if (restartService) { if (Core.ServiceExists()) Core.StartService(); }
-                        else if (restartManual && !string.IsNullOrEmpty(restartStrategy)) RunStrategy(restartStrategy);
-                    }
                 }
                 catch (Exception exUpd)
                 {
@@ -2628,6 +2692,11 @@ namespace ZapretStudio
                     // Без этого в %TEMP% оставался lantern_<guid>\zapret_update.zip
                     // после каждой попытки, включая неудачное скачивание.
                     Core.DeleteDirSafe(tmpDir);
+                    // Восстановление обхода — при любом исходе, а не только при
+                    // успешной распаковке: раньше сбой WinDivert/распаковки после
+                    // остановки оставлял пользователя без обхода. Идёт в фоновом
+                    // потоке: «sc start» отвечает до 20 с.
+                    if (stopAttempted) restoreBypass();
                     try { Dispatcher.Invoke((Action)delegate { _updating = false; }); } catch { _updating = false; }
                 }
             });
@@ -2688,28 +2757,44 @@ namespace ZapretStudio
         // ---------- Монитор падения обхода (лёгкий, без переключения) ----------
         DispatcherTimer _bypassMonitor;
         bool _wasRunning;
+        bool _wasService;
+        int _monitorSeq;
+
+        void MonitorSnapshot()
+        {
+            _monitorSeq = Core.WinwsOperationSeq;
+            _wasService = Core.ServiceState() == "running";
+            _wasRunning = Core.IsWinwsRunning();
+        }
 
         void StartBypassMonitor()
         {
             if (_bypassMonitor != null) { _bypassMonitor.Stop(); _bypassMonitor = null; }
-            _wasRunning = Core.IsWinwsRunning();
+            MonitorSnapshot();
             _bypassMonitor = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
             _bypassMonitor.Tick += (s, e) =>
             {
                 // Во время бенчмарка стратегий или обновления winws убивается
                 // намеренно — такие переходы не считаем падением обхода.
                 if (Core.WinwsOperationActive()) return;
-                bool now = Core.IsWinwsRunning();
-                if (_wasRunning && !now)
+                // Операция успела пройти между тиками (кнопка «Остановить», тест,
+                // смена стратегии): состояние изменилось намеренно — просто
+                // запоминаем новое, без уведомления.
+                if (Core.WinwsOperationSeq != _monitorSeq) { MonitorSnapshot(); return; }
+                bool wasRunning = _wasRunning, wasService = _wasService;
+                MonitorSnapshot();
+                if (wasRunning && !_wasRunning)
                 {
                     Notify(Loc.T("mw.bypassDown.title"), Loc.T("mw.bypassDown.body"));
                     if (Core.GetBool("watchdog_enabled", false))
                     {
                         Core.Warn("Watchdog: winws stopped unexpectedly, restarting in same mode...");
-                        RestartInSameMode(_currentStrategyFile);
+                        // Режим берём из состояния ДО падения: после него и служба,
+                        // и winws уже остановлены, и прежний вариант, вычислявший
+                        // режим заново, никогда ничего не перезапускал.
+                        RestartInSameMode(wasService, !wasService, _currentStrategyFile);
                     }
                 }
-                _wasRunning = now;
             };
             _bypassMonitor.Start();
         }
@@ -3062,6 +3147,10 @@ namespace ZapretStudio
         {
             if (_windowSaveTimer != null) _windowSaveTimer.Stop();
             SaveWindowState();
+            // Выход из сеанса или Restart Manager (установщик обновления с
+            // CloseApplications=yes) закрывает окна: при tray_on_close OnClosing
+            // отменял закрытие, и установщик не мог заменить Lantern.exe.
+            _forceClose = true;
         }
 
         void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)

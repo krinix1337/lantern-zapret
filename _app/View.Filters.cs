@@ -436,7 +436,7 @@ namespace ZapretStudio
                 {
                     string machinePath = Path.Combine(Core.Lists, "ipset-all.txt");
                     if (File.Exists(machinePath)) Core.OpenFile(machinePath);
-                    else Core.Warn("Файл не найден: " + machinePath);
+                    else Core.Warn(string.Format(Loc.T("filters.fileNotFound"), machinePath));
                 }
             };
             panel.Children.Add(openMachineBtn);
@@ -552,13 +552,39 @@ namespace ZapretStudio
                 Core.Warn(Loc.T("filters.list.sentinelRejected"));
                 return;
             }
+            if (isIpSet && !val.StartsWith("#") && !Core.IsValidIpsetEntry(val))
+            {
+                Core.Warn(string.Format(Loc.T("filters.list.badIp"), val));
+                return;
+            }
             if (isIpSet && Core.IpsetStatus() == "none")
             {
                 Core.Warn(Loc.T("filters.list.addedNoneWarn"));
             }
             try
             {
-                lock (_listWriteLock) File.AppendAllText(path, val + Environment.NewLine);
+                bool dup = false;
+                lock (_listWriteLock)
+                {
+                    string existing = File.Exists(path) ? File.ReadAllText(path) : "";
+                    foreach (var line in existing.Split('\n'))
+                    {
+                        if (string.Equals(line.Trim(), val, StringComparison.OrdinalIgnoreCase)) { dup = true; break; }
+                    }
+                    if (!dup)
+                    {
+                        // Если файл правили вручную и последняя строка без перевода
+                        // строки, AppendAllText приклеивал запись к ней
+                        // («example.comnew.site»).
+                        string prefix = existing.Length > 0 && !existing.EndsWith("\n") ? Environment.NewLine : "";
+                        File.AppendAllText(path, prefix + val + Environment.NewLine);
+                    }
+                }
+                if (dup)
+                {
+                    Core.Warn(string.Format(Loc.T("filters.list.dup"), val));
+                    return;
+                }
                 _entryInput.Text = "";
                 ReloadList();
                 MarkDirty();

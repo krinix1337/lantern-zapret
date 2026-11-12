@@ -372,7 +372,7 @@ namespace ZapretStudio
             {
                 int idx = i;
                 // Без -I (иначе заголовки идут в stdout и ломают парсинг), запрашиваем 1 КБ через -r, пишем тело в NUL
-                string args = "-k -s -m " + timeoutSec + " -o NUL -r 0-1024 -w \"%{http_code}\" " + protoFlags[idx] + " \"" + url + "\"";
+                string args = "-k -s -m " + timeoutSec + " -o NUL -r 0-1024 -w \"%{http_code} %{time_total}\" " + protoFlags[idx] + " \"" + url + "\"";
                 System.Threading.ThreadPool.QueueUserWorkItem(delegate
                 {
                     try
@@ -399,6 +399,7 @@ namespace ZapretStudio
                 Warn(string.Format(Loc.T("net.probesTimeout"), unfinished, n));
 
             bool[] timedOut = new bool[n];
+            long fastestOk = -1;
             for (int i = 0; i < n; i++)
             {
                 // Незавершённый слот помечаем локально: прежняя запись exits[i] = 28 в
@@ -408,21 +409,33 @@ namespace ZapretStudio
                 timedOut[i] = code == 28;
                 string output = finished ? (outs[i] ?? "") : "";
                 int httpCode = 0;
-                var m = Regex.Match(output, @"\b([1-5]\d\d)\b");
+                var m = Regex.Match(output, @"^\s*([1-5]\d\d)\b(?:\s+([0-9]+(?:[.,][0-9]+)?))?");
                 if (m.Success) int.TryParse(m.Groups[1].Value, out httpCode);
 
                 if (code == 0 && httpCode >= 200 && httpCode < 500)
                 {
                     r.OkCount++;
                     if (r.BestCode == null) r.BestCode = httpCode.ToString();
+                    // Время ответа — по самому быстрому успешному протоколу
+                    // (time_total из curl). Раньше в Ms шло время всей пачки из
+                    // трёх проб вместе с ожиданием отстающих — это не задержка.
+                    double sec;
+                    if (m.Groups[2].Success && double.TryParse(m.Groups[2].Value.Replace(',', '.'),
+                            System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out sec))
+                    {
+                        long ms = (long)Math.Round(sec * 1000);
+                        if (fastestOk < 0 || ms < fastestOk) fastestOk = ms;
+                    }
                 }
-                else if (code == 35 || code == 60 || (output.IndexOf("certificate", StringComparison.OrdinalIgnoreCase) >= 0
-                    || output.IndexOf("SSL", StringComparison.OrdinalIgnoreCase) >= 0))
+                // С -s в stderr ничего нет, а код 60 невозможен при -k: прежние
+                // проверки текста «SSL»/«certificate» и кода 60 не срабатывали
+                // никогда. Определяем TLS-сбой по кодам выхода curl.
+                else if (code == 35 || code == 58 || code == 59 || code == 66 || code == 80)
                 {
                     if (r.Verdict == "error") r.Verdict = "ssl";
                 }
             }
-            sw.Stop(); r.Ms = sw.ElapsedMilliseconds;
+            sw.Stop(); r.Ms = fastestOk >= 0 ? fastestOk : sw.ElapsedMilliseconds;
             if (r.OkCount > 0) { r.Verdict = "ok"; r.Detail = "HTTP " + r.BestCode + " (" + r.OkCount + "/3)"; }
             else if (r.Verdict == "ssl") r.Detail = "SSL/TLS error";
             else
@@ -586,7 +599,7 @@ namespace ZapretStudio
             // Профиль 1: Ростелеком / Tele2 / Т2 (AS12389, AS42697, AS15944)
             // «t2» только как отдельное слово: подстрока ловила бы любое имя с "t2"
             // внутри (в том числе номера AS) и уводила подбор в чужой профиль.
-            if (text.Contains("rostelecom") || text.Contains("rtk") || text.Contains("tele2")
+            if (text.Contains("rostelecom") || Regex.IsMatch(text, @"\brtk\b") || text.Contains("tele2")
                 || Regex.IsMatch(text, @"\bt2\b") || text.Contains("as12389") || text.Contains("as15944"))
             {
                 addMatch("general (FAKE TLS AUTO ALT).bat");
@@ -595,8 +608,9 @@ namespace ZapretStudio
                 addMatch("general (FAKE TLS AUTO).bat");
                 addMatch("general (ALT).bat");
             }
-            // Профиль 2: МТС / МГТС (AS8359, AS25513)
-            else if (text.Contains("mts") || text.Contains("mobile telesystems") || text.Contains("mgts") || text.Contains("as8359"))
+            // Профиль 2: МТС / МГТС (AS8359, AS25513). Короткие «mts»/«rtk»/«veon»
+            // тоже только отдельными словами — по той же причине, что и «t2».
+            else if (Regex.IsMatch(text, @"\bmts\b") || text.Contains("mobile telesystems") || Regex.IsMatch(text, @"\bmgts\b") || text.Contains("as8359"))
             {
                 addMatch("general (FAKE TLS AUTO ALT).bat");
                 addMatch("general (ALT).bat");
@@ -604,7 +618,7 @@ namespace ZapretStudio
                 addMatch("general (FAKE TLS AUTO).bat");
             }
             // Профиль 3: Билайн / Вымпелком (AS3216)
-            else if (text.Contains("beeline") || text.Contains("vimpelcom") || text.Contains("veon") || text.Contains("as3216"))
+            else if (text.Contains("beeline") || text.Contains("vimpelcom") || Regex.IsMatch(text, @"\bveon\b") || text.Contains("as3216"))
             {
                 addMatch("general (ALT6).bat");
                 addMatch("general (ALT).bat");

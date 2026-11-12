@@ -199,5 +199,53 @@ namespace ZapretStudio
 
             return val.ToLowerInvariant();
         }
+
+        // Запись ipset для winws: адрес IPv4/IPv6, подсеть «адрес/префикс» или
+        // диапазон «адрес-адрес». Раньше в ipset-список записывалось что угодно
+        // (домен, опечатка), и winws при старте падал на разборе файла.
+        public static bool IsValidIpsetEntry(string entry)
+        {
+            if (string.IsNullOrEmpty(entry)) return false;
+            string v = entry.Trim();
+            if (v.Length == 0) return false;
+            int dash = v.IndexOf('-');
+            if (dash > 0)
+            {
+                System.Net.IPAddress a, b;
+                return ParseIp(v.Substring(0, dash), out a) && ParseIp(v.Substring(dash + 1), out b)
+                    && a.AddressFamily == b.AddressFamily;
+            }
+            int slash = v.IndexOf('/');
+            System.Net.IPAddress ip;
+            if (slash < 0) return ParseIp(v, out ip);
+            if (!ParseIp(v.Substring(0, slash), out ip)) return false;
+            int prefix;
+            string ps = v.Substring(slash + 1);
+            if (ps.Length == 0 || ps.Length > 3 || !int.TryParse(ps, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out prefix)) return false;
+            int max = ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? 128 : 32;
+            return prefix >= 0 && prefix <= max;
+        }
+
+        // IPAddress.TryParse принимает и «1», и «1.2» (как 0.0.0.1 / 1.0.0.2) —
+        // для IPv4 требуем ровно четыре октета.
+        static bool ParseIp(string s, out System.Net.IPAddress ip)
+        {
+            ip = null;
+            s = (s ?? "").Trim();
+            if (s.Length == 0) return false;
+            if (!System.Net.IPAddress.TryParse(s, out ip)) return false;
+            if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+            {
+                var parts = s.Split('.');
+                if (parts.Length != 4) return false;
+                foreach (var part in parts)
+                {
+                    if (part.Length == 0 || part.Length > 3) return false;
+                    foreach (char c in part) if (c < '0' || c > '9') return false;
+                }
+            }
+            return ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
+                || ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6;
+        }
     }
 }

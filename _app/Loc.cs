@@ -688,6 +688,7 @@ namespace ZapretStudio
             A("doh.enabled", "DNS-over-HTTPS включён", "DNS-over-HTTPS enabled");
             A("doh.disabled", "DNS-over-HTTPS выключен", "DNS-over-HTTPS disabled");
             A("doh.err", "DoH: {0}", "DoH: {0}");
+            A("doh.rebootHint", " (работает для DNS-серверов из списка Windows: 1.1.1.1, 8.8.8.8 и др.; может понадобиться перезагрузка)", " (works for DNS servers known to Windows: 1.1.1.1, 8.8.8.8, etc.; a reboot may be required)");
             A("doh.auto", "Авто", "Auto");
             A("doh.require", "Обязательно", "Required");
             A("doh.off", "Выключен", "Off");
@@ -703,6 +704,11 @@ namespace ZapretStudio
             A("filters.list.more", "... +{0} ещё (список сокращён для быстродействия)",
                                    "... +{0} more (list truncated for performance)");
             A("filters.list.added", "Добавлено: {0}", "Added: {0}");
+            A("filters.list.dup", "Уже есть в списке: {0}", "Already in the list: {0}");
+            A("filters.list.badIp", "Не IP-адрес, подсеть или диапазон: {0}", "Not an IP address, subnet or range: {0}");
+            A("dl.staleRemoved", "Удалена стратегия, которой нет в новом релизе: {0}", "Removed strategy no longer in the release: {0}");
+            A("diag.usingCache", " — используется кэш", " — using cached data");
+            A("filters.fileNotFound", "Файл не найден: {0}", "File not found: {0}");
             A("filters.list.removed", "Удалено: {0}", "Removed: {0}");
             // Обновление списков
             A("filters.updateLists", "Обновить списки с GitHub", "Update lists from GitHub");
